@@ -99,7 +99,7 @@ skipped checks and technical errors never do.
 - **Evidence-based verdicts:** the owner's access is confirmed first; a leak requires the protected
   values in the response, not just HTTP 200. Leaked values count with every status code: a 403
   whose body still contains the data is a FAIL, not a PASS. Outcomes: PASS, FAIL, SUSPECTED, INCONCLUSIVE,
-  SKIPPED, ERROR. Redirects, 429, 5xx, login pages, soft errors and expired sessions are never PASS.
+  SKIPPED, ERROR. Redirects, 429, 5xx, login pages, soft errors and expired sessions are never PASS, and neither is a denial whose body cannot be analysed (non-JSON or invalid JSON).
 - **Separate retest** of every failure; a failure that does not reproduce becomes SUSPECTED.
 - **Safety limits:** loopback-only scope, DNS re-validation and pinning, GET only, no redirects,
   no proxies, response size limit, total request timeout, request budget, pacing, run deadline and
@@ -126,7 +126,7 @@ adaptive agent, no customer scanning and no automatic code repair. The agent loo
 
 | Item | Status |
 | --- | --- |
-| 160 unit, integration, security and e2e tests | Passed locally on Windows 11 (10.0.26300): CPython 3.13.13 (venv) and 3.12.7 (no install), via both `ops/verify.sh` (Git Bash) and `ops/verify.ps1` (Windows PowerShell 5.1) |
+| 173 unit, integration, security and e2e tests | Passed locally on Windows 11 (10.0.26300): CPython 3.13.13 (venv) and 3.12.7 (no install), via both `ops/verify.sh` (Git Bash) and `ops/verify.ps1` (Windows PowerShell 5.1) |
 | Ruff lint/format, mypy `--strict`, pip-audit, detect-secrets, wheel build and content check | Passed locally on CPython 3.13.13 |
 | GitHub Actions workflow (Ubuntu 3.11/3.13, Windows 3.13) | Written, **not yet run** (repository not pushed) |
 | Python 3.11, Linux, macOS | **Not verified** (the local 3.11 install is broken; no Linux/macOS host) |
@@ -145,6 +145,7 @@ adaptive agent, no customer scanning and no automatic code repair. The agent loo
 
 See [known limitations](docs/PROJECT_WALKTHROUGH.md#known-limitations). The most important ones:
 results on the synthetic lab say nothing about detection rates on real systems; only exact JSON
-string matches count as evidence (data leaked in an HTML error page is not detected); listings are not paginated; write operations, side channels
+string matches count as evidence (data leaked in an HTML or plain-text error page is not reported as
+a finding; such responses are INCONCLUSIVE, never PASS); listings are not paginated; write operations, side channels
 and undeclared endpoints are not tested. Competitive advantage and willingness to pay have not been
 validated.

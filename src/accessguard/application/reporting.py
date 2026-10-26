@@ -30,6 +30,9 @@ NOT_TESTED = (
     "Pagination, filtering and query parameters on listings.",
     "Protected values that appear only as substrings or in transformed form "
     "(exact JSON string matching only).",
+    "Response bodies that are not JSON (HTML, plain text, unknown Content-Type) or are invalid "
+    "JSON: they are not analysed for protected data, so such responses are INCONCLUSIVE "
+    "rather than PASS.",
     "Field-level authorization beyond the declared protected fields.",
     "Side channels such as timing, error-message differences and identifier enumeration.",
     "Authentication strength and session management of the target itself.",

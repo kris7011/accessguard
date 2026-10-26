@@ -1,16 +1,19 @@
 """Ambiguous target behaviour over real HTTP: none of it may turn into PASS."""
 
+import json
 import threading
 import unittest
 from typing import Any
 
 from accessguard.adapters.http_target import ScopedHttpClient
 from accessguard.adapters.policy_json import parse_policy
+from accessguard.adapters.report_files import render_html
 from accessguard.application.gate import RunLimits
 from accessguard.application.planning import DeterministicPlanner
 from accessguard.application.scan import run_scan
 from accessguard.domain.credentials import Secret
 from accessguard.domain.scope import TargetScope
+from accessguard_lab.dataset import DOCUMENTS
 from accessguard_lab.server import run_lab
 
 GRANT = [{"tenant": "acme", "roles": ["admin", "member"]}]
@@ -93,6 +96,34 @@ class EdgeCaseTests(unittest.TestCase):
             outcome_of(report, "flaky@globex-member")["verification"], "not_reproduced"
         )
         self.assertEqual(report["status"]["overall"], "findings")
+
+    def test_unanalysable_denials_are_never_pass(self) -> None:
+        """403 bodies the engine cannot parse carry acme-doc's protected values (except empty)."""
+        behaviours = {
+            "html-denial": "INCONCLUSIVE",
+            "text-denial": "INCONCLUSIVE",
+            "invalid-json-denial": "INCONCLUSIVE",
+            "html-as-json-denial": "INCONCLUSIVE",
+            "mislabelled-json-denial": "INCONCLUSIVE",
+            "empty-denial": "PASS",
+        }
+        policy = edge_policy(*((b, f"/edge/{b}/acme-doc") for b in behaviours))
+        report = scan_edges(policy)
+        for behaviour, expected in behaviours.items():
+            with self.subTest(behaviour=behaviour):
+                result = outcome_of(report, f"{behaviour}@globex-member")
+                self.assertEqual(result["outcome"], expected, result["reason"])
+                self.assertEqual(result["evidence"]["status"], 403)
+                if expected == "INCONCLUSIVE":
+                    self.assertIn("cannot be ruled out", result["reason"])
+                self.assertEqual(outcome_of(report, f"{behaviour}@acme-member")["outcome"], "PASS")
+        self.assertEqual(report["status"]["overall"], "incomplete")
+        self.assertEqual(report["findings"], [])
+
+        rendered = json.dumps(report) + render_html(report)
+        acme = next(d for d in DOCUMENTS if d.id == "acme-doc")
+        for value in (acme.title, acme.canary):
+            self.assertNotIn(value, rendered)
 
     def test_redirect_to_metadata_endpoint_is_not_followed(self) -> None:
         report = scan_edges(edge_policy(("redirect", "/edge/redirect/acme-doc")))

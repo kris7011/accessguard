@@ -9,7 +9,7 @@ from pathlib import Path
 
 from accessguard.application.ports import RequestLimit
 from accessguard.domain.credentials import Secret
-from accessguard.domain.observation import HttpObservation
+from accessguard.domain.observation import BodyFormat, HttpObservation
 from accessguard.domain.policy import (
     AccessPolicy,
     Collection,
@@ -27,13 +27,19 @@ def observation(
     status: int = 200, body: object = None, content_type: str = "application/json"
 ) -> HttpObservation:
     raw = b"" if body is None else json.dumps(body).encode()
+    if not raw:
+        body_format = BodyFormat.EMPTY
+    elif content_type == "application/json":
+        body_format = BodyFormat.JSON
+    else:
+        body_format = BodyFormat.UNSUPPORTED
     return HttpObservation(
         status=status,
         content_type=content_type,
         size=len(raw),
         body_sha256=hashlib.sha256(raw).hexdigest(),
-        is_json=content_type == "application/json" and body is not None,
-        json_body=body,
+        body_format=body_format,
+        json_body=body if body_format is BodyFormat.JSON else None,
     )
 
 

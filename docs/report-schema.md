@@ -38,10 +38,10 @@ interruption are kept, the check that was in flight is SKIPPED with the reason
 
 | Outcome | Meaning |
 | --- | --- |
-| `PASS` | The declared expectation was verified with a valid baseline and session; for a denied actor, the response contained none of the protected values |
+| `PASS` | The declared expectation was verified with a valid baseline and session; for a denied actor, the response body was empty or parsed JSON and contained none of the protected values |
 | `FAIL` | Evidence contradicts the policy: all protected values leaked (with **any** status code, including 401/403/404/5xx), or granted access denied without content |
 | `SUSPECTED` | Partial evidence, or a FAIL that did not reproduce on retest |
-| `INCONCLUSIVE` | Insufficient basis: no baseline, invalid session, redirect, 429, 5xx, soft error |
+| `INCONCLUSIVE` | Insufficient basis: no baseline, invalid session, redirect, 429, 5xx, soft error, or a body the engine cannot analyse (non-JSON, invalid JSON, misleading Content-Type) |
 | `SKIPPED` | Not executed or not completed because of the budget, deadline or stop signal (no verdict) |
 | `ERROR` | Technical failure: timeout, connection error, oversized response, scope violation |
 

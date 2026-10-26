@@ -8,6 +8,9 @@ Principles (see docs/adr/0002):
   protected values. HTTP 200 alone is never a pass either.
 * Redirects, rate limiting, server errors, invalid sessions and soft error pages
   are inconclusive, never PASS.
+* Only JSON bodies are analysed. A denial status is PASS only when the body was read
+  completely (parsed JSON or empty); a body that cannot be analysed (HTML, plain text,
+  invalid JSON, misleading Content-Type) might carry the data and is INCONCLUSIVE.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from accessguard.domain.checks import Expectation, ListCheck
-from accessguard.domain.observation import HttpObservation
+from accessguard.domain.observation import BodyFormat, HttpObservation
 from accessguard.domain.policy import Resource
 
 MIN_PROTECTED_VALUE_LENGTH = 4
@@ -101,6 +104,9 @@ def establish_baseline(resource: Resource, observation: HttpObservation) -> Base
         return BaselineUnavailable(
             resource.id, f"owner request returned HTTP {observation.status}, expected 200"
         )
+    unanalysable = _unanalysable_body(observation)
+    if unanalysable is not None:
+        return BaselineUnavailable(resource.id, f"owner response: {unanalysable}")
     body = observation.json_body
     if not observation.is_json or not isinstance(body, dict):
         return BaselineUnavailable(resource.id, "owner response is not a JSON object")
@@ -121,6 +127,25 @@ def match_content(baseline: Baseline, leaves: frozenset[str]) -> ContentMatch:
     """Exact-value comparison; substrings are deliberately not matched (see limitations)."""
     matched = tuple(name for name, value in baseline.protected.items() if value in leaves)
     return ContentMatch(baseline.resource, matched, len(baseline.protected))
+
+
+def _unanalysable_body(observation: HttpObservation) -> str | None:
+    """Explain why the body could not be analysed, or ``None`` if it was read completely.
+
+    The explanation names only the size and the failure, never body content.
+    """
+    if observation.is_analysable:
+        return None
+    if observation.body_format is BodyFormat.INVALID_JSON:
+        return (
+            f"the {observation.size}-byte body is declared as JSON but is not valid JSON "
+            "and cannot be analysed"
+        )
+    return f"the {observation.size}-byte body is not JSON and cannot be analysed"
+
+
+def _without(observation: HttpObservation, content: str) -> str:
+    return "an empty body" if observation.body_format is BodyFormat.EMPTY else content
 
 
 def _is_denial(status: int, session: SessionState) -> bool:
@@ -196,25 +221,45 @@ def evaluate_item(
         return Verdict(Outcome.INCONCLUSIVE, f"Owner baseline unavailable: {baseline.reason}")
     status = observation.status
     match = match_content(baseline, observation.string_leaves())
+    unanalysable = _unanalysable_body(observation)
     if expectation is Expectation.DENY:
         leak = _leak_verdict(status, [match], "the response")
         if leak is not None:
             return leak
         if observation.is_success:
+            if unanalysable is not None:
+                return Verdict(
+                    Outcome.INCONCLUSIVE,
+                    f"HTTP {status}, but {unanalysable}; protected content cannot be ruled out "
+                    "and the response is not counted as a denial",
+                )
             return Verdict(
                 Outcome.INCONCLUSIVE,
                 f"HTTP {status} without protected content: possibly a soft error, "
                 "login page or different representation; not counted as a denial",
             )
         if _is_denial(status, session):
+            if unanalysable is not None:
+                return Verdict(
+                    Outcome.INCONCLUSIVE,
+                    f"HTTP {status} looks like a denial, but {unanalysable}; leaked protected "
+                    "content cannot be ruled out, so it is not counted as PASS",
+                )
             return Verdict(
-                Outcome.PASS, f"Access denied with HTTP {status} without protected content"
+                Outcome.PASS,
+                f"Access denied with HTTP {status} without "
+                f"{_without(observation, 'protected content')}",
             )
         return _unusable_response(status, session)
 
     if observation.is_success:
         if match.complete:
             return Verdict(Outcome.PASS, f"HTTP {status} with the expected protected content")
+        if unanalysable is not None:
+            return Verdict(
+                Outcome.INCONCLUSIVE,
+                f"HTTP {status}, but {unanalysable}; granted access cannot be verified",
+            )
         return Verdict(
             Outcome.INCONCLUSIVE,
             f"HTTP {status} but the response does not contain all protected fields of the baseline",
@@ -228,9 +273,12 @@ def evaluate_item(
             matches=(match,),
         )
     if _is_denial(status, session):
+        # The denial status alone contradicts the grant. An unanalysable body could at most
+        # make the response contradictory; it can never turn it into verified access.
+        note = "" if unanalysable is None else f" ({unanalysable})"
         return Verdict(
             Outcome.FAIL,
-            f"HTTP {status}: access the policy grants was denied",
+            f"HTTP {status}: access the policy grants was denied{note}",
             FindingType.EXPECTED_ACCESS_DENIED,
         )
     return _unusable_response(status, session)
@@ -258,11 +306,20 @@ def evaluate_list(
     leak = _leak_verdict(status, hidden_matches, "the listing")
     if leak is not None:
         return leak
+    unanalysable = _unanalysable_body(observation)
     if not observation.is_success:
         if _is_denial(status, session):
             if check.expectation is Expectation.DENY:
+                if unanalysable is not None:
+                    return Verdict(
+                        Outcome.INCONCLUSIVE,
+                        f"Listing denied with HTTP {status}, but {unanalysable}; leaked hidden "
+                        "content cannot be ruled out, so it is not counted as PASS",
+                    )
                 return Verdict(
-                    Outcome.PASS, f"Listing denied with HTTP {status} without hidden content"
+                    Outcome.PASS,
+                    f"Listing denied with HTTP {status} without "
+                    f"{_without(observation, 'hidden content')}",
                 )
             return Verdict(
                 Outcome.INCONCLUSIVE,
@@ -271,6 +328,12 @@ def evaluate_list(
             )
         return _unusable_response(status, session)
 
+    if unanalysable is not None:
+        return Verdict(
+            Outcome.INCONCLUSIVE,
+            f"HTTP {status} listing, but {unanalysable}; hidden content cannot be ruled out "
+            "and granted resources cannot be verified",
+        )
     unavailable = [
         rid
         for rid in (*check.visible, *check.hidden)

@@ -72,6 +72,42 @@ Alternative considered: treat any non-2xx body as untrusted and ignore it. Rejec
 recreates the false PASS. Consequence: error bodies are parsed and compared for every request,
 which is cheap within the 1 MB response limit.
 
+## Amendment 2026-10-26 (2): a body the engine cannot analyse is not evidence of a denial
+
+The first amendment still left a false PASS: only JSON is analysed, so a 401/403/404 whose body
+was HTML, plain text, broken JSON or JSON behind a non-JSON Content-Type yielded no values to
+compare and was PASS even when it carried the protected data. Revised rules:
+
+- The decoder classifies every body (`domain/observation.py`, `BodyFormat`): `json` (declared as
+  JSON and parsed), `empty` (zero bytes), `unsupported` (non-empty, not declared as JSON,
+  including a missing Content-Type) or `invalid_json` (declared as JSON, not parseable). The
+  declared Content-Type decides; bodies are not sniffed.
+- A denial without protected content is PASS only when the body is `json` or `empty`. An empty
+  body counts because zero bytes cannot contain protected data. A whitespace-only body declared
+  as JSON is `invalid_json`, not empty.
+- Actor not granted, `unsupported`/`invalid_json` body: INCONCLUSIVE for a denial status ("leaked
+  protected content cannot be ruled out") and for 2xx, for items and listings alike. Other
+  statuses keep their existing INCONCLUSIVE reason (redirect, 429, 5xx, invalid session).
+- Actor granted: 2xx with an unanalysable body is INCONCLUSIVE (access cannot be verified); a
+  denial status stays FAIL (`expected_access_denied`) and the reason notes that the body was not
+  analysed, because the status alone contradicts the grant.
+- Leak precedence is unchanged: a parsed JSON body with protected values is FAIL/SUSPECTED for
+  every status. The owner baseline still requires a parsed JSON object.
+- Reasons state only the body size and why it could not be analysed, never body content.
+
+Alternatives considered:
+
+1. Search the raw bytes of unsupported bodies for protected values. It would turn some of these
+   INCONCLUSIVE results into findings, but it changes the exact-value matching semantics
+   (substring hits in markup or encoded text) and is a step towards an HTML scanner; deferred to
+   milestone 3, where real targets show which formats matter.
+2. Sniff JSON regardless of Content-Type. Rejected for now: it guesses at what the target meant,
+   and the conservative result (INCONCLUSIVE) is already safe.
+
+Consequence: targets that answer denials with an HTML or plain-text error page get INCONCLUSIVE
+instead of PASS for those checks, so the run is `incomplete` rather than green. That reduces
+conclusive coverage on such targets but never shows uncertainty as approval.
+
 ## Revisit when
 
 Real targets (milestone 3) need other authentication schemes, non-JSON responses, pagination,

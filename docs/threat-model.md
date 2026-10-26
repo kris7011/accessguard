@@ -56,9 +56,11 @@ The tool therefore legitimately holds sensitive capabilities.
   per-customer isolation, audit log, evidence retention and deletion.
 - Request time limits are enforced with 50 ms granularity during reads; TCP connect and request
   sending are bounded by the remaining time but are not cancellable mid-call.
-- Leak detection matches exact JSON string values only; protected data in HTML, plain-text or
-  otherwise encoded error bodies is not detected (such a response is INCONCLUSIVE or, for a
-  denial status, PASS).
+- Leak detection matches exact JSON string values only; protected data in HTML, plain-text,
+  invalid-JSON or otherwise encoded bodies is not detected. Such responses are INCONCLUSIVE, also
+  for a denial status, so they cannot produce a false PASS, but the leak is not reported as a
+  finding either (ADR 0002, second amendment). Only an empty body or parsed JSON can confirm a
+  denial.
 - Response bodies are held in memory (≤ 1 MB each) for the duration of a check.
 - Report files are written unencrypted to a local directory chosen by the user.
 - The lab binds to `127.0.0.1` only, but any local process can reach it while it runs.

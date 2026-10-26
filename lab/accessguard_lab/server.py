@@ -7,13 +7,15 @@ Routes (GET only):
 * ``/documents/{id}``         one document (own tenant or explicitly shared)
 * ``/invoices/{id}``          one invoice (own tenant, admin role only)
 * ``/edge/{behaviour}/{id}``  owner-tenant users get document ``id``; everyone else gets
-  the named misbehaviour. Used to test how the engine treats ambiguous responses.
+  the named misbehaviour. Used to test how the engine treats ambiguous responses,
+  including 403 bodies in formats the engine cannot analyse (``*-denial``).
 
 Credentials are random per lab start; there are no fixed tokens.
 """
 
 from __future__ import annotations
 
+import html
 import json
 import secrets
 import sys
@@ -58,6 +60,12 @@ _EDGE_BEHAVIOURS = frozenset(
         "flaky",
         "slow",
         "leaky-denial",
+        "html-denial",
+        "text-denial",
+        "invalid-json-denial",
+        "html-as-json-denial",
+        "mislabelled-json-denial",
+        "empty-denial",
     }
 )
 SLOW_RESPONSE_SECONDS = 1.5
@@ -140,6 +148,8 @@ class LabApplication:
             return 200, _document_body(document), _JSON
         if behaviour == "leaky-denial":
             return 403, {"error": "forbidden", "debug": _document_body(document)}, _JSON
+        if behaviour.endswith("-denial"):
+            return _unanalysable_denial(behaviour, document)
         if behaviour == "soft-error":
             return 200, {"error": "forbidden", "success": False}, _JSON
         if behaviour == "login-page":
@@ -164,6 +174,29 @@ class LabApplication:
             if first
             else (403, {"error": "forbidden"}, _JSON)
         )
+
+
+def _unanalysable_denial(behaviour: str, document: LabDocument) -> Response:
+    """A 403 whose body the engine cannot parse; all but ``empty-denial`` leak the document.
+
+    Models error pages in formats the engine does not analyse (HTML, plain text), broken
+    JSON and a Content-Type that does not match the body.
+    """
+    as_json = json.dumps({"error": "forbidden", "requested": _document_body(document)})
+    page = (
+        f"<html><body><h1>Forbidden</h1><p>{html.escape(document.title)}</p>"
+        f"<pre>{html.escape(document.canary)}</pre></body></html>"
+    )
+    bodies: dict[str, tuple[str, str]] = {
+        "html-denial": (page, "text/html"),
+        "text-denial": (f"Forbidden: {document.title} {document.canary}", "text/plain"),
+        "invalid-json-denial": (as_json[:-1], _JSON),
+        "html-as-json-denial": (page, _JSON),
+        "mislabelled-json-denial": (as_json, "text/plain"),
+        "empty-denial": ("", _JSON),
+    }
+    body, content_type = bodies[behaviour]
+    return 403, body, content_type
 
 
 def _document_body(document: LabDocument) -> dict[str, object]:

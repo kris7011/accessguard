@@ -12,6 +12,7 @@ from unittest import mock
 from accessguard.adapters.http_target import ScopedHttpClient
 from accessguard.domain.credentials import Secret
 from accessguard.domain.errors import TransportError
+from accessguard.domain.observation import BodyFormat
 from accessguard.domain.scope import TargetScope
 from accessguard_lab.server import QuietHTTPServer
 
@@ -90,6 +91,7 @@ class ScopedHttpClientTests(unittest.TestCase):
         with local_server() as scope:
             obs = ScopedHttpClient(scope).get("/bad-json", None)
         self.assertFalse(obs.is_json)
+        self.assertEqual(obs.body_format, BodyFormat.INVALID_JSON)
         self.assertEqual(obs.string_leaves(), frozenset())
 
     def test_proxy_environment_is_ignored(self) -> None:

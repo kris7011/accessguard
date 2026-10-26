@@ -36,7 +36,7 @@ Layered modular monolith; dependencies point inwards (ADR 0001), enforced by
 | `src/accessguard/adapters/` | `http_transport.py` (`send`, `decode_observation`), `http_target.py` (`ScopedHttpClient`), `policy_json.py`, `ollama_planner.py`, `report_files.py` |
 | `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `exit_codes.py`, `interrupt.py` (signals → stop event, worker thread) |
 | `lab/accessguard_lab/` | Vulnerable synthetic API (`server.py`), data (`dataset.py`), profiles, hand-written `ground_truth.py`, lab composition root (`scan.py`), lab CLI (`cli.py`), policies |
-| `tests/{unit,integration,security,e2e}/` | 160 tests |
+| `tests/{unit,integration,security,e2e}/` | 173 tests |
 | `ops/verify.sh`, `ops/verify.ps1` | One verification entry point per shell; preserve exit codes |
 | `ops/ci/` | `check_wheel.py` (no lab code in the wheel), `build_check.py`, `secret_scan.py` |
 | `docs/` | This walkthrough, threat model, ADRs, report schema, milestone report |
@@ -92,7 +92,9 @@ SHA-256 so results can be tied to the exact policy bytes.
       the owner baseline (`_baseline` → `establish_baseline`); sends the actor's request through
       the gate (`_send`, which passes the gate's `RequestLimit` to the client); on 401 re-probes
       the session; evaluates with `evaluate_item` or `evaluate_list`, which match protected
-      content for every status code before interpreting the status; records minimal `Evidence`;
+      content for every status code before interpreting the status, and accept a denial as PASS
+      only when the body was read completely (`BodyFormat` `json` or `empty`, classified by
+      `http_transport.decode_observation`); records minimal `Evidence`;
    3. retests every FAIL (`_verify_failures`); converts non-reproduced failures to SUSPECTED;
    4. on budget/deadline/stop marks the in-flight check and all remaining checks SKIPPED and
       keeps completed results; the CLI maps Ctrl+C/SIGTERM/Ctrl+Break to the stop event and exits
@@ -107,7 +109,7 @@ SHA-256 so results can be tied to the exact policy bytes.
 | Suite | What it covers |
 | --- | --- |
 | `tests/unit` | Policy invariants, JSON parsing, check generation and plan validation, every verdict branch, overall status and coverage, gate limits, scope rules, redaction, runner behaviour with a scripted client, Ollama contract (mocked), report fields and HTML escaping, lab request handling |
-| `tests/integration` | Real HTTP against the lab: every profile against ground truth, prototype parity, edge cases (soft error, login page, redirect, 429, 5xx, partial, flaky, timeout, missing resource, expired session, budget, stop), HTTP client behaviour against a real socket server |
+| `tests/integration` | Real HTTP against the lab: every profile against ground truth, prototype parity, edge cases (soft error, login page, redirect, 429, 5xx, partial, flaky, timeout, missing resource, expired session, budget, stop, 403 bodies in HTML, plain text, invalid JSON, misleading Content-Type and empty), HTTP client behaviour against a real socket server |
 | `tests/security` | SSRF/DNS rebinding/path injection, credential and data leakage into reports and console, architecture rules |
 | `tests/e2e` | CLI subprocess runs: demo, exit codes, policy validation |
 
@@ -132,7 +134,9 @@ ADR 0001 (stdlib layered monolith), 0002 (explicit policy and verdict taxonomy),
 separated from product), 0004 (outbound request guard), 0005 (tooling and CI), 0006 (reorder-only
 model planner). Notable trade-offs:
 
-- Exact JSON string matching: few false positives, misses transformed leaks.
+- Exact JSON string matching: few false positives, misses transformed leaks. Bodies the engine
+  cannot analyse are INCONCLUSIVE rather than scanned, which keeps the matching semantics simple
+  at the cost of conclusive coverage on targets with HTML error pages.
 - Owner baseline cached per run: fewer requests, but a resource that changes mid-run is not
   re-baselined.
 - Over-restriction (granted access denied) is a FAIL, so a "fix" that blocks everything is visible.
@@ -143,7 +147,9 @@ model planner). Notable trade-offs:
 - Plain HTTP on loopback only; no HTTPS, no external targets (milestone 3).
 - Bearer tokens only; session probe endpoint required.
 - Evidence requires exact string values (≥ 4 characters) in JSON responses; substrings, HTML,
-  encodings and non-JSON responses are not matched.
+  encodings and non-JSON responses are not matched. A response whose body cannot be analysed
+  (HTML, plain text, invalid JSON, a Content-Type that is not JSON) is INCONCLUSIVE, never PASS;
+  a denial counts as PASS only with an empty body or parsed JSON without protected values.
 - Listings: no pagination or query parameters; a granted item missing from a listing gives
   INCONCLUSIVE.
 - Read-only: write operations, privilege escalation via writes, side channels and undeclared
@@ -151,7 +157,9 @@ model planner). Notable trade-offs:
 - Time limits are enforced with 50 ms granularity during reads; TCP connect and request sending
   are bounded by time but not cancellable mid-call.
 - Leaked data is only recognized as exact JSON string values; a leak inside an HTML or plain-text
-  error page is not detected (a 403 HTML page with data would still be PASS).
+  error page is not reported as a finding. Such a check is INCONCLUSIVE (the run is `incomplete`),
+  so the leak is not hidden behind a PASS, but it must be investigated manually. Content sniffing
+  and raw-byte matching are not implemented.
 - The Ollama planner only reorders; with every check executed, the order does not affect results.
   Verified with mocks only.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.

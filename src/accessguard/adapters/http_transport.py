@@ -18,7 +18,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from accessguard.domain.errors import TransportError
-from accessguard.domain.observation import HttpObservation
+from accessguard.domain.observation import BodyFormat, HttpObservation
 
 if TYPE_CHECKING:
     from _typeshed import ReadableBuffer, WriteableBuffer
@@ -148,23 +148,30 @@ def send(
 
 
 def decode_observation(raw: RawResponse) -> HttpObservation:
-    """Decode a response into an observation. Malformed JSON is treated as non-JSON."""
+    """Decode a response into an observation and classify whether its body can be analysed.
+
+    The declared Content-Type decides whether a body is parsed as JSON; bodies are never
+    sniffed. A body that cannot be read is marked as such rather than treated as empty.
+    """
     content_type = raw.headers.get("content-type", "")
     media_type = content_type.split(";", 1)[0].strip().lower()
-    is_json_type = media_type == "application/json" or media_type.endswith("+json")
-    body: object = None
-    is_json = False
-    if is_json_type:
-        try:
-            body = json.loads(raw.body)
-            is_json = True
-        except (ValueError, RecursionError):
-            body = None
+    body_format, body = _classify_body(raw.body, media_type)
     return HttpObservation(
         status=raw.status,
         content_type=media_type,
         size=len(raw.body),
         body_sha256=hashlib.sha256(raw.body).hexdigest(),
-        is_json=is_json,
+        body_format=body_format,
         json_body=body,
     )
+
+
+def _classify_body(body: bytes, media_type: str) -> tuple[BodyFormat, object]:
+    if not body:
+        return BodyFormat.EMPTY, None
+    if media_type != "application/json" and not media_type.endswith("+json"):
+        return BodyFormat.UNSUPPORTED, None
+    try:
+        return BodyFormat.JSON, json.loads(body)
+    except (ValueError, RecursionError):
+        return BodyFormat.INVALID_JSON, None
