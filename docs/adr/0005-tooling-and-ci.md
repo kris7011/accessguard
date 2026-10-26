@@ -36,6 +36,18 @@ keep working without installing anything.
 - Pinned SHAs need deliberate updates (e.g. Dependabot for actions).
 - The workflow has not yet run on GitHub; it is verified only by running the same commands locally.
 
+## Amendment 2026-10-26: verification scripts that preserve exit codes
+
+A CI step piped `git ls-files` into `xargs` without `pipefail`, and the first local verification
+judged results from piped output. Decision: one verification entry point per shell,
+`ops/verify.sh` and `ops/verify.ps1`, with identical step names. Each step is a single Python
+invocation with output written to a log file; the exit code is taken from the command, all
+requested steps run, and the script exits with the first failing step's original code (a
+missing interpreter fails too). CI uses `defaults.run.shell: bash` (`-eo pipefail`) and calls the
+same scripts; the Windows job uses the PowerShell script. Python helpers replace shell pipelines
+(`ops/ci/secret_scan.py`, `ops/ci/build_check.py`). Deliberately failing `selftest-fail` steps
+serve as negative controls in `tests/e2e/test_verify_scripts.py`.
+
 ## Revisit when
 
 The test suite needs fixtures or parallelism that justify pytest, when a frontend is added (ESLint,

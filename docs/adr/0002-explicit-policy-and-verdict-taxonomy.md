@@ -53,6 +53,25 @@ Behaviour change from v0.1: a granted actor receiving 403/404 was INCONCLUSIVE; 
 - Baselines are fetched once per resource per run; retests reuse them.
 - Policies require a session-probe endpoint that echoes the subject.
 
+## Amendment 2026-10-26: leak evidence takes precedence over the status code
+
+The original rules matched protected values only in 2xx responses, so a 401/403/404 whose body
+echoed the resource was PASS (reproduced with the `denial-body-leak` lab flaw: the run was
+reported as `checks_passed`). Revised rules:
+
+- Protected content is matched for every status code, before the status is interpreted.
+- Actor not granted: complete match → FAIL (`unauthorized_access`), partial → SUSPECTED, both
+  regardless of status and session state. Without content: 403/404 (or 401 with a verified
+  session or the anonymous actor) → PASS; 2xx, 3xx, 429, 5xx and other codes → INCONCLUSIVE.
+- Actor granted: 2xx with all values → PASS; a denial status whose body contains granted content
+  → INCONCLUSIVE (contradictory response); a denial without content → FAIL
+  (`expected_access_denied`).
+- Listings follow the same precedence for hidden resources.
+
+Alternative considered: treat any non-2xx body as untrusted and ignore it. Rejected, because it
+recreates the false PASS. Consequence: error bodies are parsed and compared for every request,
+which is cheap within the 1 MB response limit.
+
 ## Revisit when
 
 Real targets (milestone 3) need other authentication schemes, non-JSON responses, pagination,

@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from accessguard.application.ports import RequestLimit
+
 MAX_REQUEST_BUDGET = 10_000
 
 
@@ -43,7 +45,9 @@ class RequestGate:
     """Admits one request at a time (concurrency 1) within the configured limits.
 
     Every outbound request must call :meth:`acquire` first; it raises
-    :class:`RunInterrupted` instead of letting a request exceed a limit.
+    :class:`RunInterrupted` instead of letting a request exceed a limit, and returns a
+    :class:`RequestLimit` that lets the transport abort the request when the run deadline
+    passes or the stop signal is set while the request is in flight.
     """
 
     def __init__(
@@ -51,12 +55,13 @@ class RequestGate:
         limits: RunLimits,
         stop: threading.Event | None = None,
         clock: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
+        sleep: Callable[[float], object] | None = None,
     ) -> None:
         self._limits = limits
         self._stop = stop or threading.Event()
         self._clock = clock
-        self._sleep = sleep
+        # Waiting on the stop event makes pacing interruptible by cancellation.
+        self._sleep = sleep or self._stop.wait
         self._deadline = clock() + limits.max_duration_seconds
         self._last_request: float | None = None
         self._used = 0
@@ -65,18 +70,23 @@ class RequestGate:
     def used(self) -> int:
         return self._used
 
-    def acquire(self) -> None:
+    def raise_if_interrupted(self) -> None:
+        """Raise :class:`RunInterrupted` if the run was cancelled or its deadline passed."""
         if self._stop.is_set():
             raise RunInterrupted(InterruptReason.CANCELLED)
+        if self._clock() >= self._deadline:
+            raise RunInterrupted(InterruptReason.DEADLINE_EXCEEDED)
+
+    def acquire(self) -> RequestLimit:
+        self.raise_if_interrupted()
         if self._used >= self._limits.max_requests:
             raise RunInterrupted(InterruptReason.BUDGET_EXHAUSTED)
-        now = self._clock()
         if self._last_request is not None:
-            wait = self._last_request + self._limits.min_interval_seconds - now
+            wait = self._last_request + self._limits.min_interval_seconds - self._clock()
             if wait > 0:
-                self._sleep(wait)
-                now = self._clock()
-        if now >= self._deadline:
-            raise RunInterrupted(InterruptReason.DEADLINE_EXCEEDED)
+                self._sleep(min(wait, max(self._deadline - self._clock(), 0.0)))
+        self.raise_if_interrupted()
+        now = self._clock()
         self._last_request = now
         self._used += 1
+        return RequestLimit(seconds=self._deadline - now, cancel=self._stop)

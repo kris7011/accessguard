@@ -80,6 +80,7 @@ class EdgeCaseTests(unittest.TestCase):
             "server-error": "INCONCLUSIVE",
             "partial": "SUSPECTED",
             "flaky": "SUSPECTED",
+            "leaky-denial": "FAIL",
         }
         policy = edge_policy(*((b, f"/edge/{b}/acme-doc") for b in behaviours))
         report = scan_edges(policy)
@@ -91,7 +92,7 @@ class EdgeCaseTests(unittest.TestCase):
         self.assertEqual(
             outcome_of(report, "flaky@globex-member")["verification"], "not_reproduced"
         )
-        self.assertEqual(report["status"]["overall"], "needs_review")
+        self.assertEqual(report["status"]["overall"], "findings")
 
     def test_redirect_to_metadata_endpoint_is_not_followed(self) -> None:
         report = scan_edges(edge_policy(("redirect", "/edge/redirect/acme-doc")))

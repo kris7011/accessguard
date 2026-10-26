@@ -8,6 +8,7 @@ USAGE_ERROR = 2  # argparse convention
 INCOMPLETE = 3
 CONFIG_ERROR = 4
 PLANNER_ERROR = 5
+CANCELLED = 130  # stopped by Ctrl+C/SIGTERM; a partial report was written (128 + SIGINT)
 
 _BY_STATUS = {
     OverallStatus.CHECKS_PASSED: OK,

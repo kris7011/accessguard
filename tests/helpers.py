@@ -7,6 +7,7 @@ import json
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from accessguard.application.ports import RequestLimit
 from accessguard.domain.credentials import Secret
 from accessguard.domain.observation import HttpObservation
 from accessguard.domain.policy import (
@@ -114,7 +115,9 @@ class ScriptedClient:
         }
         self.calls: list[tuple[str, str | None]] = []
 
-    def get(self, path: str, credential: Secret | None) -> HttpObservation:
+    def get(
+        self, path: str, credential: Secret | None, limit: RequestLimit | None = None
+    ) -> HttpObservation:
         key = (path, credential.reveal() if credential else None)
         self.calls.append(key)
         queue = self._routes.get(key)

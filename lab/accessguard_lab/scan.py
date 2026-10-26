@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
@@ -39,8 +40,13 @@ def scan_lab(
     limits: RunLimits,
     out_dir: Path | None = None,
     timeout_seconds: float = 5.0,
+    stop: threading.Event | None = None,
 ) -> LabScanResult:
-    """Start the lab with ``flaws``, scan it and optionally write the report files."""
+    """Start the lab with ``flaws``, scan it and optionally write the report files.
+
+    Setting ``stop`` ends the run early; the report is still written and marks every
+    unfinished check as SKIPPED. The lab is shut down in every case.
+    """
     with run_lab(flaws) as lab:
         scope = TargetScope.from_origin(lab.origin)
         report = run_scan(
@@ -52,6 +58,7 @@ def scan_lab(
             target_label=f"accessguard-lab:{profile}",
             planner=planner,
             limits=limits,
+            stop=stop,
         )
         secrets = [credential.reveal() for credential in lab.credentials.values()]
     report_path = write_report(report, out_dir, secrets) if out_dir is not None else None

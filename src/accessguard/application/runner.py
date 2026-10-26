@@ -84,6 +84,8 @@ class CheckRunner:
                     continue
                 except RunInterrupted as stop:
                     interrupted = stop.reason
+                    results.append(_skipped(check, interrupted, in_progress=True))
+                    continue
             results.append(_skipped(check, interrupted))
 
         verified, interrupted = self._verify_failures(results, interrupted)
@@ -187,9 +189,15 @@ class CheckRunner:
         )
 
     def _send(self, path: str, actor: str) -> HttpObservation:
-        self._gate.acquire()
+        limit = self._gate.acquire()
         credential = None if actor == ANONYMOUS else self._credentials[actor]
-        return self._client.get(path, credential)
+        try:
+            return self._client.get(path, credential, limit)
+        except TransportError:
+            # A request aborted by the run deadline or the stop signal is an interruption
+            # of the run, not a technical error of the target.
+            self._gate.raise_if_interrupted()
+            raise
 
     def _session_of(self, actor: str) -> SessionStatus:
         if actor == ANONYMOUS:
@@ -245,5 +253,7 @@ class CheckRunner:
         return result
 
 
-def _skipped(check: Check, reason: InterruptReason) -> CheckResult:
-    return CheckResult(check, Outcome.SKIPPED, f"Not executed: {reason.value}", executed=False)
+def _skipped(check: Check, reason: InterruptReason, *, in_progress: bool = False) -> CheckResult:
+    """Mark a check that did not complete. Partial observations are discarded, not judged."""
+    prefix = "Interrupted while in progress, no verdict" if in_progress else "Not executed"
+    return CheckResult(check, Outcome.SKIPPED, f"{prefix}: {reason.value}", executed=False)

@@ -35,12 +35,14 @@ The tool therefore legitimately holds sensitive capabilities.
 | T4 | Proxy environment variables redirecting traffic | `http.client` does not read proxy variables | `test_proxy_environment_is_ignored` |
 | T5 | Path injection changing host or request line | Paths validated against an RFC 3986 allowlist; no `//`, dot segments, query, CR/LF | `test_unsafe_paths_never_reach_the_network` |
 | T6 | Destructive or state-changing tests | Only GET exists in the client API; no write checks | `test_only_get_is_ever_sent` |
-| T7 | Request flooding / runaway run | Hard request budget, pacing, deadline, stop signal, concurrency 1, timeout, 1 MB response cap | `tests/unit/test_gate.py`, `test_budget_and_stop_signal`, `test_oversized_response_is_rejected` |
+| T7 | Request flooding / runaway run / slow target holding the run | Hard request budget, interruptible pacing, run deadline and stop signal that also bound **in-flight** requests, total (not per-read) request timeout, concurrency 1, 1 MB response cap; Ctrl+C/SIGTERM stop the run with a partial report (exit 130) | `tests/unit/test_gate.py`, `tests/integration/test_time_limits.py`, `tests/e2e/test_cancellation.py`, `test_budget_and_stop_signal`, `test_oversized_response_is_rejected` |
 | T8 | Credential disclosure in reports/console | Credentials live only in `Secret` (masked repr), never in results; reports scrubbed for known secrets and `Bearer`-style values before writing | `tests/security/test_secret_leakage.py`, `tests/unit/test_redaction.py` |
 | T9 | Customer data disclosure in evidence | Evidence contains field *names*, status, size and body hash; never values | `test_report_contains_no_protected_values_or_credentials`, secret-leakage test |
 | T10 | Credentials embedded in policy files | Strict schema rejects unknown keys such as `token` | `test_credentials_cannot_be_embedded` |
 | T11 | Model expands scope or drops checks (prompt injection) | Model only reorders; output must be an exact permutation of approved check ids; it never sees credentials or paths and cannot issue requests | `tests/unit/test_ollama_planner.py`, `test_model_planner_cannot_send_target_requests` |
 | T12 | False PASS (expired session, login page, rate limit, error, missing baseline) | Owner baseline required; session probe before the run and after every 401; strict outcome taxonomy; overall green only if every check passes | `tests/unit/test_evaluation.py`, `tests/integration/test_edge_cases.py` |
+| T17 | False PASS when a denial or error response still carries protected data (found in the pre-M2 hardening: e21c8ff reported such a lab as `checks_passed`) | Protected content is matched for **every** status code; a complete match is FAIL and a partial match SUSPECTED before the status is interpreted; only a denial without protected content is PASS | `tests/unit/test_evaluation_status_matrix.py`, `leaky-denial` edge case, `denial-body-leak` lab profile |
+| T18 | Verification that reports success although a check failed (e.g. `cmd \| tail` without `pipefail`) | `ops/verify.sh` / `ops/verify.ps1` take exit codes from the commands, aggregate failures and exit with the first failing code; CI uses `shell: bash` (`-eo pipefail`) and the same scripts | `tests/e2e/test_verify_scripts.py` (negative control) |
 | T13 | Flaky single observation reported as fact | Every FAIL is retested; non-reproduced → SUSPECTED | `test_failure_that_does_not_reproduce_is_downgraded`, flaky edge case |
 | T14 | Lab flaws or fixed tokens shipped as product features | Lab is a separate package; random tokens per start; CI checks the wheel; static test forbids lab imports in product | `tests/security/test_architecture.py`, `ops/ci/check_wheel.py` |
 | T15 | Malicious/huge policy or response (DoS of the tool) | Policy ≤ 1 MiB with item caps; response ≤ 1 MB; JSON recursion errors handled | `test_malformed_and_oversized_input` |
@@ -52,8 +54,11 @@ The tool therefore legitimately holds sensitive capabilities.
   time window, permitted methods), HTTPS with certificate validation plus pinning, private-range
   policy for authorized internal targets, credential storage with encryption and rotation,
   per-customer isolation, audit log, evidence retention and deletion.
-- The per-request timeout applies per socket operation; a server that drips bytes slowly can
-  exceed it in total until the run deadline is reached.
+- Request time limits are enforced with 50 ms granularity during reads; TCP connect and request
+  sending are bounded by the remaining time but are not cancellable mid-call.
+- Leak detection matches exact JSON string values only; protected data in HTML, plain-text or
+  otherwise encoded error bodies is not detected (such a response is INCONCLUSIVE or, for a
+  denial status, PASS).
 - Response bodies are held in memory (≤ 1 MB each) for the duration of a check.
 - Report files are written unencrypted to a local directory chosen by the user.
 - The lab binds to `127.0.0.1` only, but any local process can reach it while it runs.

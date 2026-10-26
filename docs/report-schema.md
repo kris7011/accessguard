@@ -1,4 +1,4 @@
-# Report schema 1.0
+# Report schema 1.1
 
 `report.json` is the machine-readable result of one run. Keys are stable within a
 `schema_version`; additive changes bump the minor version, breaking changes the major version.
@@ -9,10 +9,10 @@ scrubbing.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | `"1.0"` |
+| `schema_version` | string | `"1.1"` (1.1 added `run.completed` and `status.complete`; 1.0 readers can ignore them) |
 | `tool` | object | `name`, `version` |
 | `run` | object | Provenance, scope, planner, limits (below) |
-| `status` | object | `overall` (`findings`, `needs_review`, `incomplete`, `checks_passed`) and `meaning` |
+| `status` | object | `overall` (`findings`, `needs_review`, `incomplete`, `checks_passed`), `complete` (false if the run was interrupted) and `meaning` (includes an interruption note) |
 | `summary` | object | Count per outcome; every outcome key is always present |
 | `coverage` | object | See "Coverage" |
 | `sessions` | object | Per identity: `state` (`valid`/`invalid`) and `reason` from the session probe |
@@ -27,17 +27,22 @@ scrubbing.
 `scope.constraints`, `policy.id`, `policy.sha256` (of the exact policy bytes), `planner`
 (`kind`, `uses_ai`, `model`, `prompt_version`, `latency_ms`), `limits` (`max_requests`,
 `min_interval_seconds`, `max_duration_seconds`, `retest_findings`, `concurrency`),
-`requests_used`, `interrupted` (reason or `null`), `python`.
+`requests_used`, `interrupted` (`request budget exhausted`, `run deadline exceeded`, `run cancelled by stop signal` or `null`), `completed` (`true` only if the run was not interrupted), `python`.
+
+An interrupted run still produces a complete report document: results gathered before the
+interruption are kept, the check that was in flight is SKIPPED with the reason
+`Interrupted while in progress, no verdict: ...`, and later checks are SKIPPED with
+`Not executed: ...`. The coverage numbers show the partial coverage.
 
 ## Outcomes
 
 | Outcome | Meaning |
 | --- | --- |
-| `PASS` | The declared expectation was verified with a valid baseline and session |
-| `FAIL` | Evidence contradicts the policy (all protected values leaked, or granted access denied) |
+| `PASS` | The declared expectation was verified with a valid baseline and session; for a denied actor, the response contained none of the protected values |
+| `FAIL` | Evidence contradicts the policy: all protected values leaked (with **any** status code, including 401/403/404/5xx), or granted access denied without content |
 | `SUSPECTED` | Partial evidence, or a FAIL that did not reproduce on retest |
 | `INCONCLUSIVE` | Insufficient basis: no baseline, invalid session, redirect, 429, 5xx, soft error |
-| `SKIPPED` | Not executed because of the budget, deadline or stop signal |
+| `SKIPPED` | Not executed or not completed because of the budget, deadline or stop signal (no verdict) |
 | `ERROR` | Technical failure: timeout, connection error, oversized response, scope violation |
 
 ## Coverage

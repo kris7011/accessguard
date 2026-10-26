@@ -11,6 +11,7 @@ from accessguard.adapters.http_transport import (
     decode_observation,
     send,
 )
+from accessguard.application.ports import RequestLimit
 from accessguard.domain.credentials import Secret
 from accessguard.domain.errors import ScopeViolationError, TransportError
 from accessguard.domain.observation import HttpObservation
@@ -52,7 +53,9 @@ class ScopedHttpClient:
         self._max_response_bytes = max_response_bytes
         self._resolver = resolver
 
-    def get(self, path: str, credential: Secret | None) -> HttpObservation:
+    def get(
+        self, path: str, credential: Secret | None, limit: RequestLimit | None = None
+    ) -> HttpObservation:
         if not is_safe_request_path(path):
             raise ScopeViolationError(f"Request path {path!r} is not a safe absolute path")
         address = self._validated_address()
@@ -66,8 +69,9 @@ class ScopedHttpClient:
             method="GET",
             path=path,
             headers=headers,
-            timeout_seconds=self._timeout,
+            timeout_seconds=self._timeout if limit is None else min(self._timeout, limit.seconds),
             max_response_bytes=self._max_response_bytes,
+            cancel=None if limit is None else limit.cancel,
         )
         return decode_observation(raw)
 

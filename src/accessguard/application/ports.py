@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol
 
 from accessguard.domain.checks import Check
@@ -11,14 +12,25 @@ from accessguard.domain.credentials import Secret
 from accessguard.domain.observation import HttpObservation
 
 
+@dataclass(frozen=True)
+class RequestLimit:
+    """Bounds one in-flight request: a wall-clock limit and an external cancel signal."""
+
+    seconds: float
+    cancel: threading.Event = field(default_factory=threading.Event)
+
+
 class TargetClient(Protocol):
     """Sends a read-only request to the authorized target.
 
-    Implementations must enforce the target scope and raise ``ScopeViolationError`` or
-    ``TransportError`` instead of returning partial data.
+    Implementations must enforce the target scope, abort the request when ``limit``
+    expires or is cancelled, and raise ``ScopeViolationError`` or ``TransportError``
+    instead of returning partial data.
     """
 
-    def get(self, path: str, credential: Secret | None) -> HttpObservation: ...
+    def get(
+        self, path: str, credential: Secret | None, limit: RequestLimit | None = None
+    ) -> HttpObservation: ...
 
 
 @dataclass(frozen=True)

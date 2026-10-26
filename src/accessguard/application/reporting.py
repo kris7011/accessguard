@@ -22,7 +22,7 @@ from accessguard.domain.results import (
 )
 from accessguard.domain.scope import TargetScope
 
-REPORT_SCHEMA_VERSION = "1.0"
+REPORT_SCHEMA_VERSION = "1.1"
 
 NOT_TESTED = (
     "Write operations (POST, PUT, PATCH, DELETE): only GET requests are sent.",
@@ -96,9 +96,14 @@ def build_report(
             },
             "requests_used": outcome.requests_used,
             "interrupted": outcome.interrupted.value if outcome.interrupted else None,
+            "completed": outcome.interrupted is None,
             "python": platform.python_version(),
         },
-        "status": {"overall": status.value, "meaning": OVERALL_STATUS_MEANING[status]},
+        "status": {
+            "overall": status.value,
+            "complete": outcome.interrupted is None,
+            "meaning": OVERALL_STATUS_MEANING[status] + _interruption_note(outcome),
+        },
         "summary": coverage.by_outcome,
         "coverage": {
             "planned_checks": coverage.planned,
@@ -122,6 +127,16 @@ def build_report(
         "not_tested": [*NOT_TESTED, *invalid_sessions],
         "disclaimer": DISCLAIMER,
     }
+
+
+def _interruption_note(outcome: RunOutcome) -> str:
+    if outcome.interrupted is None:
+        return ""
+    unfinished = sum(1 for r in outcome.results if r.outcome is Outcome.SKIPPED)
+    return (
+        f" The run was interrupted ({outcome.interrupted.value}); {unfinished} planned checks "
+        "did not complete and coverage is partial."
+    )
 
 
 def _evidence(evidence: Evidence | None) -> dict[str, Any] | None:

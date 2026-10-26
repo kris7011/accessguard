@@ -40,6 +40,8 @@ class Flaw(StrEnum):
     """GET /documents returns documents of every tenant."""
     SHARE_IGNORED = "share-ignored"
     """Over-restrictive "fix": explicit shares are no longer honoured."""
+    DENIAL_BODY_LEAK = "denial-body-leak"
+    """GET /documents/{id} answers 403 but echoes the document in the error body."""
 
 
 Response = tuple[int, dict[str, object] | str, str]
@@ -55,6 +57,7 @@ _EDGE_BEHAVIOURS = frozenset(
         "partial",
         "flaky",
         "slow",
+        "leaky-denial",
     }
 )
 SLOW_RESPONSE_SECONDS = 1.5
@@ -114,6 +117,8 @@ class LabApplication:
         if document is None:
             return 404, {"error": "not found"}, _JSON
         if Flaw.DOCUMENT_IDOR not in self._flaws and not self._visible(user, document):
+            if Flaw.DENIAL_BODY_LEAK in self._flaws:
+                return 403, {"error": "forbidden", "requested": _document_body(document)}, _JSON
             return 403, {"error": "forbidden"}, _JSON
         return 200, _document_body(document), _JSON
 
@@ -133,6 +138,8 @@ class LabApplication:
             return 404, {"error": "not found"}, _JSON
         if user is not None and user.tenant == document.tenant:
             return 200, _document_body(document), _JSON
+        if behaviour == "leaky-denial":
+            return 403, {"error": "forbidden", "debug": _document_body(document)}, _JSON
         if behaviour == "soft-error":
             return 200, {"error": "forbidden", "success": False}, _JSON
         if behaviour == "login-page":

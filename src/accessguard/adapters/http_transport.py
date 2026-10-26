@@ -10,11 +10,18 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import socket
+import threading
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from accessguard.domain.errors import TransportError
 from accessguard.domain.observation import HttpObservation
+
+if TYPE_CHECKING:
+    from _typeshed import ReadableBuffer, WriteableBuffer
 
 DEFAULT_MAX_RESPONSE_BYTES = 1_000_000
 
@@ -24,6 +31,71 @@ class RawResponse:
     status: int
     headers: Mapping[str, str]
     body: bytes
+
+
+_SLICE_SECONDS = 0.05
+"""How often a blocked read re-checks the time limit and the cancel signal."""
+
+
+class _GuardedSocket(socket.socket):
+    """A socket whose blocking reads re-check a wall-clock deadline and a cancel signal.
+
+    ``http.client`` timeouts apply to each socket operation, so a server that drips bytes
+    could keep a request alive indefinitely, and a blocked read cannot be cancelled from
+    another thread portably. Reading in short timeout slices bounds the total time and
+    makes in-flight requests cancellable without cross-thread socket operations.
+    """
+
+    deadline: float
+    cancel: threading.Event | None
+    abort_reason: str | None
+
+    def _check_limits(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            self.abort_reason = "Request cancelled"
+        elif time.monotonic() >= self.deadline:
+            self.abort_reason = "Request exceeded its time limit"
+        else:
+            return
+        raise TimeoutError(self.abort_reason)
+
+    def recv_into(self, buffer: WriteableBuffer, nbytes: int = 0, flags: int = 0) -> int:
+        while True:
+            self._check_limits()
+            try:
+                return super().recv_into(buffer, nbytes, flags)
+            except TimeoutError:
+                continue  # one slice elapsed without data; re-check the limits
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0, /) -> None:
+        self._check_limits()
+        self.settimeout(max(self.deadline - time.monotonic(), 0.001))
+        try:
+            super().sendall(data, flags)
+        finally:
+            self.settimeout(_SLICE_SECONDS)
+
+
+class _GuardedConnection(http.client.HTTPConnection):
+    def __init__(
+        self, address: str, port: int, deadline: float, cancel: threading.Event | None
+    ) -> None:
+        super().__init__(address, port, timeout=max(deadline - time.monotonic(), 0.001))
+        self._deadline = deadline
+        self._cancel = cancel
+        self.guarded: _GuardedSocket | None = None
+
+    def connect(self) -> None:
+        raw = socket.create_connection((self.host, self.port), self.timeout)
+        guarded = _GuardedSocket(raw.family, raw.type, raw.proto, fileno=raw.detach())
+        guarded.deadline = self._deadline
+        guarded.cancel = self._cancel
+        guarded.abort_reason = None
+        guarded.settimeout(_SLICE_SECONDS)
+        self.sock = self.guarded = guarded
+
+    def abort_reason(self) -> str | None:
+        return self.guarded.abort_reason if self.guarded is not None else None
 
 
 def send(
@@ -37,26 +109,42 @@ def send(
     body: bytes | None = None,
     timeout_seconds: float,
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    cancel: threading.Event | None = None,
 ) -> RawResponse:
-    """Send one request. Raises :class:`TransportError` for every failure mode."""
-    connection = http.client.HTTPConnection(address, port, timeout=timeout_seconds)
+    """Send one request within ``timeout_seconds`` of total wall-clock time.
+
+    Raises :class:`TransportError` for every failure mode, including expiry of the time
+    limit and cancellation via ``cancel``. The connection is always closed.
+    """
+    if timeout_seconds <= 0:
+        raise TransportError("Request exceeded its time limit")
+    connection = _GuardedConnection(address, port, time.monotonic() + timeout_seconds, cancel)
+    response: http.client.HTTPResponse | None = None
     try:
         connection.request(method, path, body=body, headers={"Host": host_header, **headers})
         response = connection.getresponse()
         data = response.read(max_response_bytes + 1)
-        if len(data) > max_response_bytes:
-            raise TransportError(f"Response exceeds the {max_response_bytes}-byte limit")
-        return RawResponse(
-            status=response.status,
-            headers={name.lower(): value for name, value in response.getheaders()},
-            body=data,
-        )
     except TimeoutError as error:
-        raise TransportError(f"Request timed out after {timeout_seconds} s") from error
+        raise TransportError(
+            connection.abort_reason() or f"Request timed out after {timeout_seconds} s"
+        ) from error
     except (OSError, http.client.HTTPException) as error:
-        raise TransportError(f"{type(error).__name__}: {error}") from error
+        raise TransportError(
+            connection.abort_reason() or f"{type(error).__name__}: {error}"
+        ) from error
     finally:
+        # The response's file object holds its own reference to the socket; closing only
+        # the connection would leave the socket open after a timeout or cancellation.
+        if response is not None:
+            response.close()
         connection.close()
+    if len(data) > max_response_bytes:
+        raise TransportError(f"Response exceeds the {max_response_bytes}-byte limit")
+    return RawResponse(
+        status=response.status,
+        headers={name.lower(): value for name, value in response.getheaders()},
+        body=data,
+    )
 
 
 def decode_observation(raw: RawResponse) -> HttpObservation:

@@ -54,15 +54,36 @@ py -3 -m venv .venv
 After the editable install, the console scripts `accessguard` and `accessguard-lab` are available
 in the virtual environment.
 
+### One-command verification
+
+Both scripts run the same steps (lint, format, types, tests, audit, secrets, build, demo), keep
+each step's log, never hide a failing exit code behind a pipe, and exit with the first failing
+step's original exit code:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ops\verify.ps1 -Python .\.venv\Scripts\python.exe
+powershell -ExecutionPolicy Bypass -File ops\verify.ps1 -Steps tests,demo   # no tools needed
+```
+
+```bash
+PYTHON=.venv/Scripts/python bash ops/verify.sh          # Git Bash / Linux
+bash ops/verify.sh selftest-fail; echo $?               # negative control: prints 3
+```
+
 ## Commands
 
 | Command | Purpose | Exit codes |
 | --- | --- | --- |
-| `accessguard-lab demo [--out DIR]` | Scan the vulnerable and the fixed lab, compare with ground truth | 0 expected result, 1 mismatch, 5 planner error |
-| `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--max-requests N] [--no-retest]` | Scan one lab profile | 0 all checks passed, 1 findings, 3 incomplete or needs review |
+| `accessguard-lab demo [--out DIR]` | Scan the vulnerable and the fixed lab, compare with ground truth | 0 expected result, 1 mismatch, 5 planner error, 130 cancelled |
+| `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--no-retest]` | Scan one lab profile | 0 all checks passed, 1 findings, 3 incomplete or needs review, 130 cancelled |
 | `accessguard-lab profiles` | List lab profiles and their flaws | 0 |
 | `accessguard validate-policy FILE` | Validate a policy file (no network) | 0 valid, 4 invalid |
 | `accessguard plan FILE [--json]` | Print the deterministic check matrix (no network) | 0, 4 |
+
+Run limits for `demo` and `scan`: `--max-requests N` (budget), `--min-interval SECONDS` (rate
+limit), `--max-duration SECONDS` (hard wall-clock limit that also aborts in-flight requests).
+Ctrl+C (or SIGTERM / Ctrl+Break) stops a run in a controlled way: completed results are kept,
+unfinished checks are marked SKIPPED, a partial report is written, and the exit code is 130.
 
 Without an editable install, use `py -3 -m accessguard_lab ...` and `py -3 -m accessguard ...` with
 `PYTHONPATH` set as above. Only a complete pass exits with 0: findings, inconclusive results,
@@ -76,15 +97,17 @@ skipped checks and technical errors never do.
 - **Deterministic check matrix:** every identity plus the anonymous actor against every resource
   and listing (56 checks for the lab policy).
 - **Evidence-based verdicts:** the owner's access is confirmed first; a leak requires the protected
-  values in the response, not just HTTP 200. Outcomes: PASS, FAIL, SUSPECTED, INCONCLUSIVE,
+  values in the response, not just HTTP 200. Leaked values count with every status code: a 403
+  whose body still contains the data is a FAIL, not a PASS. Outcomes: PASS, FAIL, SUSPECTED, INCONCLUSIVE,
   SKIPPED, ERROR. Redirects, 429, 5xx, login pages, soft errors and expired sessions are never PASS.
 - **Separate retest** of every failure; a failure that does not reproduce becomes SUSPECTED.
 - **Safety limits:** loopback-only scope, DNS re-validation and pinning, GET only, no redirects,
-  no proxies, response size limit, timeout, request budget, pacing, deadline and stop signal.
+  no proxies, response size limit, total request timeout, request budget, pacing, run deadline and
+  stop signal (the last two also abort in-flight requests).
 - **Reports:** versioned JSON ([schema](docs/report-schema.md)) and an accessible Danish HTML page.
   Credentials and protected values are never written; reports are scrubbed before writing.
 - **Lab:** three tenants, two roles each, an expired session, documents, admin-only invoices, one
-  explicit share, a listing endpoint, five switchable flaws with hand-written ground truth, and
+  explicit share, a listing endpoint, six switchable flaws with hand-written ground truth, and
   edge-case routes for ambiguous responses. The lab is a separate package and is not part of the
   product wheel.
 
@@ -103,10 +126,10 @@ adaptive agent, no customer scanning and no automatic code repair. The agent loo
 
 | Item | Status |
 | --- | --- |
-| 137 unit, integration, security and e2e tests | Run locally: Windows 11, CPython 3.13.13 (venv) and 3.12.7 (no install, PowerShell) |
-| Ruff lint/format, mypy `--strict`, pip-audit, detect-secrets, wheel build and content check | Run locally on CPython 3.13.13 |
+| 160 unit, integration, security and e2e tests | Passed locally on Windows 11 (10.0.26300): CPython 3.13.13 (venv) and 3.12.7 (no install), via both `ops/verify.sh` (Git Bash) and `ops/verify.ps1` (Windows PowerShell 5.1) |
+| Ruff lint/format, mypy `--strict`, pip-audit, detect-secrets, wheel build and content check | Passed locally on CPython 3.13.13 |
 | GitHub Actions workflow (Ubuntu 3.11/3.13, Windows 3.13) | Written, **not yet run** (repository not pushed) |
-| Python 3.11 | Expected to work (declared minimum, in CI matrix), not verified locally |
+| Python 3.11, Linux, macOS | **Not verified** (the local 3.11 install is broken; no Linux/macOS host) |
 | Real Ollama model | **Not verified** |
 
 ## Documentation
@@ -122,6 +145,6 @@ adaptive agent, no customer scanning and no automatic code repair. The agent loo
 
 See [known limitations](docs/PROJECT_WALKTHROUGH.md#known-limitations). The most important ones:
 results on the synthetic lab say nothing about detection rates on real systems; only exact JSON
-string matches count as evidence; listings are not paginated; write operations, side channels
+string matches count as evidence (data leaked in an HTML error page is not detected); listings are not paginated; write operations, side channels
 and undeclared endpoints are not tested. Competitive advantage and willingness to pay have not been
 validated.

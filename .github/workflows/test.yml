@@ -12,6 +12,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Explicit `shell: bash` runs steps with `-eo pipefail`, so a failing command in a pipeline
+# cannot be hidden. The verification steps themselves never pipe a command's exit code.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   quality:
     name: Lint, types, security scans, build
@@ -29,20 +35,8 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
           python -m pip install --no-deps --no-build-isolation -e . -e ./lab
-      - name: Ruff lint
-        run: python -m ruff check .
-      - name: Ruff format
-        run: python -m ruff format --check .
-      - name: mypy (strict)
-        run: python -m mypy
-      - name: Dependency audit
-        run: python -m pip_audit --strict --require-hashes -r requirements-dev.txt
-      - name: Secret scan
-        run: git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
-      - name: Build product wheel and verify the lab is excluded
-        run: |
-          python -m build --no-isolation --outdir dist .
-          python ops/ci/check_wheel.py dist
+      - name: Lint, format, types, dependency audit, secret scan, build
+        run: bash ops/verify.sh lint format types audit secrets build
 
   tests:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -62,12 +56,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      # The runtime has no third-party dependencies: tests run without installing anything.
-      - name: Unit, integration, security and end-to-end tests
-        env:
-          PYTHONPATH: ${{ runner.os == 'Windows' && 'src;lab' || 'src:lab' }}
-        run: python -m unittest discover -s tests -t . -v
-      - name: Lab demo (before/after)
-        env:
-          PYTHONPATH: ${{ runner.os == 'Windows' && 'src;lab' || 'src:lab' }}
-        run: python -m accessguard_lab demo --out reports
+      # The runtime has no third-party dependencies: tests and demo run without installing.
+      - name: Tests and before/after demo (bash)
+        if: runner.os != 'Windows'
+        run: bash ops/verify.sh tests demo
+      - name: Tests and before/after demo (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./ops/verify.ps1 -Steps tests,demo

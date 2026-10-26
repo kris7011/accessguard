@@ -149,40 +149,70 @@ def _fields(match: ContentMatch) -> str:
     return ", ".join(match.matched_fields)
 
 
+def _leak_verdict(status: int, matches: list[ContentMatch], what: str) -> Verdict | None:
+    """Return FAIL/SUSPECTED when protected content of non-granted resources is present.
+
+    Evaluated before the status code: a denial status does not make a response safe if
+    its body still carries the data. Complete matches take precedence over partial ones.
+    """
+    despite = "" if 200 <= status < 300 else " despite the non-success status"
+    complete = tuple(m for m in matches if m.complete)
+    if complete:
+        return Verdict(
+            Outcome.FAIL,
+            f"HTTP {status}{despite}: {what} contained all protected fields of "
+            f"{_describe(complete)}, which the policy does not grant",
+            FindingType.UNAUTHORIZED_ACCESS,
+            complete,
+        )
+    partial = tuple(m for m in matches if m.partial)
+    if partial:
+        return Verdict(
+            Outcome.SUSPECTED,
+            f"HTTP {status}{despite}: {what} contained some protected fields of "
+            f"{_describe(partial)}",
+            FindingType.UNAUTHORIZED_ACCESS,
+            partial,
+        )
+    return None
+
+
+def _describe(matches: tuple[ContentMatch, ...]) -> str:
+    return "; ".join(f"{m.resource!r} ({_fields(m)})" for m in matches)
+
+
 def evaluate_item(
     expectation: Expectation,
     baseline: BaselineResult,
     observation: HttpObservation,
     session: SessionState,
 ) -> Verdict:
-    """Judge a single-resource read against the expectation derived from the policy."""
+    """Judge a single-resource read against the expectation derived from the policy.
+
+    Protected content is matched for every status code. For a non-granted actor a
+    complete match is FAIL and a partial match SUSPECTED, regardless of the status.
+    """
     if isinstance(baseline, BaselineUnavailable):
         return Verdict(Outcome.INCONCLUSIVE, f"Owner baseline unavailable: {baseline.reason}")
     status = observation.status
-    if observation.is_success:
-        match = match_content(baseline, observation.string_leaves())
-        if expectation is Expectation.DENY:
-            if match.complete:
-                return Verdict(
-                    Outcome.FAIL,
-                    f"HTTP {status} returned all protected fields ({_fields(match)}) "
-                    f"of resource {baseline.resource!r} to an actor the policy does not grant",
-                    FindingType.UNAUTHORIZED_ACCESS,
-                    (match,),
-                )
-            if match.partial:
-                return Verdict(
-                    Outcome.SUSPECTED,
-                    f"HTTP {status} returned some protected fields ({_fields(match)}) "
-                    f"of resource {baseline.resource!r}",
-                    FindingType.UNAUTHORIZED_ACCESS,
-                    (match,),
-                )
+    match = match_content(baseline, observation.string_leaves())
+    if expectation is Expectation.DENY:
+        leak = _leak_verdict(status, [match], "the response")
+        if leak is not None:
+            return leak
+        if observation.is_success:
             return Verdict(
                 Outcome.INCONCLUSIVE,
                 f"HTTP {status} without protected content: possibly a soft error, "
                 "login page or different representation; not counted as a denial",
             )
+        if _is_denial(status, session):
+            return Verdict(
+                Outcome.PASS, f"Access denied with HTTP {status} without protected content"
+            )
+        return _unusable_response(status, session)
+
+    if observation.is_success:
         if match.complete:
             return Verdict(Outcome.PASS, f"HTTP {status} with the expected protected content")
         return Verdict(
@@ -190,9 +220,14 @@ def evaluate_item(
             f"HTTP {status} but the response does not contain all protected fields of the baseline",
             matches=(match,) if match.matched_fields else (),
         )
+    if match.matched_fields:
+        return Verdict(
+            Outcome.INCONCLUSIVE,
+            f"HTTP {status} contradicts its body, which contains protected content the actor "
+            "is granted; neither a confirmed denial nor a verified access",
+            matches=(match,),
+        )
     if _is_denial(status, session):
-        if expectation is Expectation.DENY:
-            return Verdict(Outcome.PASS, f"Access denied with HTTP {status}")
         return Verdict(
             Outcome.FAIL,
             f"HTTP {status}: access the policy grants was denied",
@@ -209,14 +244,26 @@ def evaluate_list(
 ) -> Verdict:
     """Judge a collection listing: hidden resources must be absent, visible ones present.
 
-    The visible resources are a positive control: an empty or truncated listing
-    cannot prove that hidden resources are excluded.
+    Hidden content is matched for every status code and takes precedence. The visible
+    resources are a positive control: an empty or truncated listing cannot prove that
+    hidden resources are excluded.
     """
     status = observation.status
+    leaves = observation.string_leaves()
+    hidden_matches = [
+        match_content(baseline, leaves)
+        for resource_id in check.hidden
+        if isinstance(baseline := baselines[resource_id], Baseline)
+    ]
+    leak = _leak_verdict(status, hidden_matches, "the listing")
+    if leak is not None:
+        return leak
     if not observation.is_success:
         if _is_denial(status, session):
             if check.expectation is Expectation.DENY:
-                return Verdict(Outcome.PASS, f"Listing denied with HTTP {status}")
+                return Verdict(
+                    Outcome.PASS, f"Listing denied with HTTP {status} without hidden content"
+                )
             return Verdict(
                 Outcome.INCONCLUSIVE,
                 f"Listing denied with HTTP {status}; "
@@ -224,30 +271,6 @@ def evaluate_list(
             )
         return _unusable_response(status, session)
 
-    leaves = observation.string_leaves()
-    hidden_matches = [
-        match_content(baseline, leaves)
-        for resource_id in check.hidden
-        if isinstance(baseline := baselines[resource_id], Baseline)
-    ]
-    leaks = tuple(m for m in hidden_matches if m.complete)
-    if leaks:
-        leaked = ", ".join(repr(m.resource) for m in leaks)
-        return Verdict(
-            Outcome.FAIL,
-            f"HTTP {status} listing contained all protected fields of hidden resources: {leaked}",
-            FindingType.UNAUTHORIZED_ACCESS,
-            leaks,
-        )
-    partial = tuple(m for m in hidden_matches if m.partial)
-    if partial:
-        leaked = ", ".join(repr(m.resource) for m in partial)
-        return Verdict(
-            Outcome.SUSPECTED,
-            f"HTTP {status} listing contained some protected fields of hidden resources: {leaked}",
-            FindingType.UNAUTHORIZED_ACCESS,
-            partial,
-        )
     unavailable = [
         rid
         for rid in (*check.visible, *check.hidden)

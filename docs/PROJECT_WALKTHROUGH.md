@@ -34,10 +34,11 @@ Layered modular monolith; dependencies point inwards (ADR 0001), enforced by
 | `src/accessguard/domain/` | `policy.py` (identities, grants, resources, invariants), `checks.py` (matrix generation, plan validation), `evaluation.py` (baselines and verdicts), `results.py` (results, overall status, coverage), `scope.py` (origin and destination rules, path validation), `redaction.py`, `credentials.py` (`Secret`), `errors.py` |
 | `src/accessguard/application/` | `ports.py` (`TargetClient`, `Planner`), `planning.py` (`DeterministicPlanner`), `gate.py` (`RequestGate`, `RunLimits`), `runner.py` (`CheckRunner`), `reporting.py` (`build_report`), `scan.py` (`run_scan` use case) |
 | `src/accessguard/adapters/` | `http_transport.py` (`send`, `decode_observation`), `http_target.py` (`ScopedHttpClient`), `policy_json.py`, `ollama_planner.py`, `report_files.py` |
-| `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `exit_codes.py` |
+| `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `exit_codes.py`, `interrupt.py` (signals → stop event, worker thread) |
 | `lab/accessguard_lab/` | Vulnerable synthetic API (`server.py`), data (`dataset.py`), profiles, hand-written `ground_truth.py`, lab composition root (`scan.py`), lab CLI (`cli.py`), policies |
-| `tests/{unit,integration,security,e2e}/` | 137 tests |
-| `ops/ci/check_wheel.py` | Verifies the product wheel contains no lab code |
+| `tests/{unit,integration,security,e2e}/` | 160 tests |
+| `ops/verify.sh`, `ops/verify.ps1` | One verification entry point per shell; preserve exit codes |
+| `ops/ci/` | `check_wheel.py` (no lab code in the wheel), `build_check.py`, `secret_scan.py` |
 | `docs/` | This walkthrough, threat model, ADRs, report schema, milestone report |
 
 ## 3. Technologies
@@ -63,8 +64,8 @@ pip-audit, detect-secrets, build, setuptools; GitHub Actions. Rationale in ADR 0
 - Policy input: strict JSON schema with unknown-key rejection, size and count caps, identifier and
   path validation (`adapters/policy_json.py`, `domain/policy.py`). Tested.
 - Outbound requests: loopback-only scope, DNS re-validation and IP pinning, no redirects or
-  proxies, GET only, 1 MB response cap, timeout, budget, pacing, deadline, stop signal
-  (ADR 0004). Tested.
+  proxies, GET only, 1 MB response cap, total request timeout, budget, interruptible pacing, and a
+  run deadline and stop signal that also abort in-flight requests (ADR 0004). Tested.
 - Reports: no credentials or protected values; final scrub of known secrets and auth-scheme values.
   Tested.
 - Model output: schema-validated permutation only (ADR 0006). Tested with mocks.
@@ -89,10 +90,13 @@ SHA-256 so results can be tied to the exact policy bytes.
    1. probes every identity's session (`_probe_session`);
    2. for each check: skips with INCONCLUSIVE if the actor's session is invalid; fetches and caches
       the owner baseline (`_baseline` → `establish_baseline`); sends the actor's request through
-      the gate (`_send`); on 401 re-probes the session; evaluates with `evaluate_item` or
-      `evaluate_list`; records minimal `Evidence`;
+      the gate (`_send`, which passes the gate's `RequestLimit` to the client); on 401 re-probes
+      the session; evaluates with `evaluate_item` or `evaluate_list`, which match protected
+      content for every status code before interpreting the status; records minimal `Evidence`;
    3. retests every FAIL (`_verify_failures`); converts non-reproduced failures to SUSPECTED;
-   4. on budget/deadline/stop marks remaining checks SKIPPED.
+   4. on budget/deadline/stop marks the in-flight check and all remaining checks SKIPPED and
+      keeps completed results; the CLI maps Ctrl+C/SIGTERM/Ctrl+Break to the stop event and exits
+      with 130 after writing the partial report.
 5. `build_report` computes coverage and overall status and builds findings with rule, actor,
    subject, expected/actual, evidence, reproduction steps, scope, time, versions, verification.
 6. `write_report` scrubs secrets and writes `report.json` and the Danish `report.html`.
@@ -107,8 +111,9 @@ SHA-256 so results can be tied to the exact policy bytes.
 | `tests/security` | SSRF/DNS rebinding/path injection, credential and data leakage into reports and console, architecture rules |
 | `tests/e2e` | CLI subprocess runs: demo, exit codes, policy validation |
 
-Run: `py -3 -m unittest discover -s tests -t .` (with `PYTHONPATH=src;lab` or an editable install).
-A manual mutation check (five injected bugs) was detected by the suite; it is not automated.
+Run: `py -3 -m unittest discover -s tests -t .` (with `PYTHONPATH=src;lab` or an editable install),
+or all checks with `ops/verify.ps1` / `ops/verify.sh`. Manual mutation checks (five injected bugs
+in M1 and five in the pre-M2 hardening) were all detected by the suite; they are not automated.
 
 ## 9. Local development and deployment
 
@@ -143,12 +148,14 @@ model planner). Notable trade-offs:
   INCONCLUSIVE.
 - Read-only: write operations, privilege escalation via writes, side channels and undeclared
   endpoints are not tested.
-- Timeout is per socket operation, not per whole request.
-- CLI Ctrl+C aborts without a partial report; cancellation exists in the engine API.
+- Time limits are enforced with 50 ms granularity during reads; TCP connect and request sending
+  are bounded by time but not cancellable mid-call.
+- Leaked data is only recognized as exact JSON string values; a leak inside an HTML or plain-text
+  error page is not detected (a 403 HTML page with data would still be PASS).
 - The Ollama planner only reorders; with every check executed, the order does not affect results.
   Verified with mocks only.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.
-- CI has not been run on GitHub; Python 3.11 is not verified locally.
+- CI has not been run on GitHub; Python 3.11, Linux and macOS are not verified locally.
 
 ## 13. Ownership and AI assistance
 
@@ -156,7 +163,7 @@ Milestone 1 code, tests, configuration and documentation were written by an AI c
 (Claude Code) following the owner's requirements document (`AccessGuard-Claude-Code.md`). The
 owner defined the product goals, constraints and milestones. The assistant verified the results by
 running the commands listed in `docs/milestones/M1.md`. Decisions the owner should review and
-explicitly accept or change: the outcome taxonomy and the changed v0.1 behaviour for denied granted
-access (ADR 0002), unittest over pytest (ADR 0005), and the lab packaging (ADR 0003).
+explicitly accept or change: the outcome taxonomy, the changed v0.1 behaviour for denied granted
+access and the leak-precedence rule (ADR 0002), exit code 130 for cancelled runs (ADR 0004), unittest over pytest (ADR 0005), and the lab packaging (ADR 0003).
 
 Interview preparation for this milestone: `docs/interview-prep/M1.md`.

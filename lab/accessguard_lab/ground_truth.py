@@ -57,6 +57,26 @@ EXPECTED_FAILURES: Mapping[Flaw, frozenset[str]] = {
             "list:documents@initech-member",
         }
     ),
+    # A denial status does not make a response safe: the 403 body still carries the data.
+    # Same blast radius as the IDOR, but every response is HTTP 403.
+    Flaw.DENIAL_BODY_LEAK: frozenset(
+        {
+            "acme-doc@globex-admin",
+            "acme-doc@globex-member",
+            "acme-doc@initech-admin",
+            "acme-doc@initech-member",
+            "globex-doc@acme-admin",
+            "globex-doc@acme-member",
+            "globex-doc@initech-admin",
+            "globex-doc@initech-member",
+            "initech-doc@acme-admin",
+            "initech-doc@acme-member",
+            "initech-doc@globex-admin",
+            "initech-doc@globex-member",
+            "acme-shared-brief@initech-admin",
+            "acme-shared-brief@initech-member",
+        }
+    ),
     # Over-restrictive "fix": the legitimate share is denied. Shared resources act as
     # negative controls, so this must be reported rather than counted as secure.
     Flaw.SHARE_IGNORED: frozenset(
