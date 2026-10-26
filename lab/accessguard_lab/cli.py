@@ -1,4 +1,4 @@
-"""Lab CLI: run the before/after demo or scan a single lab profile. Local 127.0.0.1 only."""
+"""Lab CLI: before/after demo, single-profile scans and agent runs. Local 127.0.0.1 only."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from accessguard.adapters.ollama_planner import OllamaPlanner
+from accessguard.application.agent import FAILED_STATUSES, AgentStatus
 from accessguard.application.gate import MAX_REQUEST_BUDGET, InterruptReason, RunLimits
-from accessguard.application.planning import DeterministicPlanner
+from accessguard.application.planning import DeterministicPlanner, SeededRandomPlanner
 from accessguard.application.ports import Planner
-from accessguard.domain.errors import PlannerError
+from accessguard.domain.errors import ModelError, PlannerError
 from accessguard.entrypoints import exit_codes
+from accessguard.entrypoints.agent_options import add_agent_arguments, agent_strategy
 from accessguard.entrypoints.interrupt import run_in_worker, stop_on_signals
 from accessguard_lab import ground_truth
 from accessguard_lab.profiles import PROFILES
@@ -32,7 +34,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="accessguard-lab", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    def add_common(command: argparse.ArgumentParser, default_out: str) -> None:
+    def add_limits(command: argparse.ArgumentParser, default_out: str) -> None:
         command.add_argument("--out", type=Path, default=Path(default_out))
         command.add_argument("--max-requests", type=_budget, default=500)
         command.add_argument(
@@ -47,8 +49,12 @@ def _build_parser() -> argparse.ArgumentParser:
             type=float,
             default=300.0,
             metavar="SECONDS",
-            help="Hard wall-clock limit per run, including in-flight requests (max 3600)",
+            help="Hard wall-clock limit per run, including in-flight requests and model "
+            "calls (max 3600)",
         )
+
+    def add_common(command: argparse.ArgumentParser, default_out: str) -> None:
+        add_limits(command, default_out)
         command.add_argument(
             "--ollama-model",
             help="Optional locally installed Ollama model that may only reorder checks; "
@@ -62,14 +68,32 @@ def _build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--profile", choices=sorted(PROFILES), required=True)
     scan.add_argument("--policy", choices=sorted(POLICIES), default="lab")
     scan.add_argument("--no-retest", action="store_true", help="Do not retest failures")
+    scan.add_argument(
+        "--order",
+        choices=("deterministic", "random"),
+        default="deterministic",
+        help="Check order without AI: policy order (baseline) or seeded random",
+    )
+    scan.add_argument("--seed", type=int, default=0, help="Seed for --order random")
     add_common(scan, "reports")
+
+    agent = commands.add_parser(
+        "agent", help="Let a model (or a scripted test adapter) choose checks one at a time"
+    )
+    agent.add_argument("--profile", choices=sorted(PROFILES), required=True)
+    agent.add_argument("--policy", choices=sorted(POLICIES), default="lab")
+    agent.add_argument("--no-retest", action="store_true", help="Do not retest failures")
+    add_limits(agent, "reports/agent")
+    add_agent_arguments(agent, model_required=True)
 
     commands.add_parser("profiles", help="List lab profiles and their flaws")
     return parser
 
 
-def _planner(model: str | None) -> Planner:
-    return OllamaPlanner(model) if model else DeterministicPlanner()
+def _planner(model: str | None, order: str = "deterministic", seed: int = 0) -> Planner:
+    if model:
+        return OllamaPlanner(model)
+    return SeededRandomPlanner(seed) if order == "random" else DeterministicPlanner()
 
 
 def _limits(args: argparse.Namespace, *, retest: bool = True) -> RunLimits:
@@ -160,7 +184,7 @@ def _scan(args: argparse.Namespace, stop: threading.Event) -> int:
         profile=args.profile,
         flaws=PROFILES[args.profile],
         policy=load_lab_policy(args.policy),
-        planner=_planner(args.ollama_model),
+        planner=_planner(args.ollama_model, args.order, args.seed),
         limits=_limits(args, retest=not args.no_retest),
         out_dir=args.out / args.profile,
         stop=stop,
@@ -169,6 +193,44 @@ def _scan(args: argparse.Namespace, stop: threading.Event) -> int:
     if _cancelled(result):
         return _report_cancellation(result)
     return exit_codes.for_status(result.report["status"]["overall"])
+
+
+def _agent(args: argparse.Namespace, stop: threading.Event) -> int:
+    strategy = agent_strategy(args)
+    print(
+        f"Agent run on lab profile {args.profile!r} with {strategy.model.descriptor.label} "
+        "(Ctrl+C stops and keeps a partial report)",
+        flush=True,
+    )
+    result = scan_lab(
+        profile=args.profile,
+        flaws=PROFILES[args.profile],
+        policy=load_lab_policy(args.policy),
+        planner=strategy,
+        limits=_limits(args, retest=not args.no_retest),
+        out_dir=args.out / args.profile,
+        stop=stop,
+    )
+    _print_summary(args.profile, result)
+    agent = result.report["run"]["agent"]
+    print(
+        f"{'':<11} agent: {agent['status']}, {agent['model_calls']} model calls, "
+        f"{agent['invalid_replies']} invalid replies, "
+        f"{result.report['run']['requests_used']} target requests"
+    )
+    if _cancelled(result):
+        return _report_cancellation(result)
+    if AgentStatus(agent["status"]) in FAILED_STATUSES:
+        print(
+            f"Agent model failed (no fallback was used): {agent['failure']}. Completed results "
+            "were kept; checks that were not executed are SKIPPED in the partial report.",
+            file=sys.stderr,
+        )
+        return exit_codes.PLANNER_ERROR
+    return exit_codes.for_status(result.report["status"]["overall"])
+
+
+_COMMANDS = {"demo": _demo, "scan": _scan, "agent": _agent}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -182,7 +244,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as error:
         print(f"Invalid limits: {error}", file=sys.stderr)
         return exit_codes.USAGE_ERROR
-    command = _demo if args.command == "demo" else _scan
+    if args.command == "agent":
+        try:
+            agent_strategy(args)  # validates the model name, port and agent limits offline
+        except (ModelError, ValueError) as error:
+            print(f"Invalid agent configuration: {error}", file=sys.stderr)
+            return exit_codes.USAGE_ERROR
+    command = _COMMANDS[args.command]
     try:
         with stop_on_signals() as stop:
             return run_in_worker(lambda: command(args, stop))

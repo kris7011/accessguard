@@ -33,3 +33,11 @@ planner kind, `uses_ai`, model name, prompt version (`reorder-v1`) and latency.
 
 Milestone 2 introduces the bounded agent loop with budgets, where ordering matters, and a
 comparison with the deterministic baseline under the same budget is required.
+
+## Update (milestone 2)
+
+The reorder-only planner is kept unchanged in behaviour (`--ollama-model` on `demo`/`scan`).
+Its HTTP exchange now goes through the shared `OllamaModelClient` (ADR 0007), which also sends
+`options` (`temperature` 0, `seed` 0, `num_ctx` 8192) and is bounded by the same transport
+limits. The adaptive agent of milestone 2 is described in ADR 0007; the comparison under equal
+budgets in ADR 0008.

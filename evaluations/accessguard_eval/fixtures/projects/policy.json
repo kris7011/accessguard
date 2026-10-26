@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "id": "eval-projects",
+  "description": "Project workspaces: plans readable by owners and viewers of the workspace; budgets by owners and an external audit firm.",
+  "session_probe": {"path": "/session", "subject_field": "subject"},
+  "identities": [
+    {"id": "orion-owner", "tenant": "orion", "role": "owner"},
+    {"id": "orion-viewer", "tenant": "orion", "role": "viewer"},
+    {"id": "lyra-owner", "tenant": "lyra", "role": "owner"},
+    {"id": "lyra-viewer", "tenant": "lyra", "role": "viewer"},
+    {"id": "auditco-auditor", "tenant": "auditco", "role": "auditor"}
+  ],
+  "collections": [{"id": "plans", "path": "/api/plans"}],
+  "resources": [
+    {"id": "orion-plan", "category": "plan", "path": "/api/plans/orion-plan", "owner": "orion-viewer",
+     "collection": "plans", "protected_fields": ["name", "milestone"],
+     "grants": [{"tenant": "orion", "roles": ["owner", "viewer"]}]},
+    {"id": "lyra-plan", "category": "plan", "path": "/api/plans/lyra-plan", "owner": "lyra-viewer",
+     "collection": "plans", "protected_fields": ["name", "milestone"],
+     "grants": [{"tenant": "lyra", "roles": ["owner", "viewer"]}]},
+    {"id": "orion-budget", "category": "budget", "path": "/api/budgets/orion-budget", "owner": "orion-owner",
+     "protected_fields": ["line", "total_ref"],
+     "grants": [{"tenant": "orion", "roles": ["owner"]}, {"tenant": "auditco", "roles": ["auditor"]}]},
+    {"id": "lyra-budget", "category": "budget", "path": "/api/budgets/lyra-budget", "owner": "lyra-owner",
+     "protected_fields": ["line", "total_ref"],
+     "grants": [{"tenant": "lyra", "roles": ["owner"]}, {"tenant": "auditco", "roles": ["auditor"]}]}
+  ]
+}

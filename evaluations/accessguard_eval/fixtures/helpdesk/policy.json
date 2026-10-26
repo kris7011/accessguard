@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "eval-helpdesk",
+  "description": "Helpdesk: tickets readable by every role of the owning tenant; payroll readable by managers only.",
+  "session_probe": {"path": "/session", "subject_field": "subject"},
+  "identities": [
+    {"id": "alpha-agent", "tenant": "alpha", "role": "agent"},
+    {"id": "alpha-manager", "tenant": "alpha", "role": "manager"},
+    {"id": "beta-agent", "tenant": "beta", "role": "agent"},
+    {"id": "beta-manager", "tenant": "beta", "role": "manager"},
+    {"id": "gamma-agent", "tenant": "gamma", "role": "agent"},
+    {"id": "gamma-manager", "tenant": "gamma", "role": "manager"}
+  ],
+  "collections": [{"id": "tickets", "path": "/api/tickets"}],
+  "resources": [
+    {"id": "alpha-ticket", "category": "ticket", "path": "/api/tickets/alpha-ticket", "owner": "alpha-agent",
+     "collection": "tickets", "protected_fields": ["subject", "reference"],
+     "grants": [{"tenant": "alpha", "roles": ["agent", "manager"]}]},
+    {"id": "beta-ticket", "category": "ticket", "path": "/api/tickets/beta-ticket", "owner": "beta-agent",
+     "collection": "tickets", "protected_fields": ["subject", "reference"],
+     "grants": [{"tenant": "beta", "roles": ["agent", "manager"]}]},
+    {"id": "gamma-ticket", "category": "ticket", "path": "/api/tickets/gamma-ticket", "owner": "gamma-agent",
+     "collection": "tickets", "protected_fields": ["subject", "reference"],
+     "grants": [{"tenant": "gamma", "roles": ["agent", "manager"]}]},
+    {"id": "alpha-payroll", "category": "payroll", "path": "/api/payroll/alpha-payroll", "owner": "alpha-manager",
+     "protected_fields": ["period", "reference"], "grants": [{"tenant": "alpha", "roles": ["manager"]}]},
+    {"id": "beta-payroll", "category": "payroll", "path": "/api/payroll/beta-payroll", "owner": "beta-manager",
+     "protected_fields": ["period", "reference"], "grants": [{"tenant": "beta", "roles": ["manager"]}]},
+    {"id": "gamma-payroll", "category": "payroll", "path": "/api/payroll/gamma-payroll", "owner": "gamma-manager",
+     "protected_fields": ["period", "reference"], "grants": [{"tenant": "gamma", "roles": ["manager"]}]}
+  ]
+}

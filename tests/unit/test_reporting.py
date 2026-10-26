@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Any
 
 from accessguard.adapters.report_files import render_html, write_report
+from accessguard.adapters.scripted_model import ScriptedModelClient, in_order_responder
+from accessguard.application.agent import AgentLimits
 from accessguard.application.gate import RunLimits
 from accessguard.application.planning import DeterministicPlanner
-from accessguard.application.scan import run_scan
+from accessguard.application.scan import AgentStrategy, run_agent_scan, run_scan
+from accessguard.domain.errors import ModelError
 from accessguard.domain.scope import TargetScope
 from tests.helpers import (
     DOC_BODIES,
@@ -55,7 +58,7 @@ def scan(routes: dict[Any, Any]) -> dict[str, Any]:
 class ReportTests(unittest.TestCase):
     def test_passing_report(self) -> None:
         report = scan(correct_routes())
-        self.assertEqual(report["schema_version"], "1.1")
+        self.assertEqual(report["schema_version"], "1.2")
         self.assertEqual(report["status"]["overall"], "checks_passed")
         self.assertIn("not a security certification", report["status"]["meaning"])
         self.assertEqual(report["coverage"]["conclusive_ratio"], 1.0)
@@ -108,6 +111,61 @@ class ReportTests(unittest.TestCase):
             write_report(report, Path(tmp), ["secret-value-xyz"])
             for name in ("report.json", "report.html"):
                 self.assertNotIn("secret-value-xyz", (Path(tmp) / name).read_text("utf-8"))
+
+    def test_baseline_report_has_no_agent_section_and_records_request_progress(self) -> None:
+        report = scan(correct_routes())
+        self.assertIsNone(report["run"]["agent"])
+        self.assertIsNone(report["run"]["planner"]["seed"])
+        progress = [r["requests_used_after"] for r in report["results"]]
+        self.assertEqual(progress, sorted(progress))
+        self.assertTrue(all(isinstance(value, int) for value in progress))
+        self.assertIn("Deterministisk baseline (ingen AI)", render_html(report))
+
+
+def agent_report(model: ScriptedModelClient) -> dict[str, Any]:
+    return run_agent_scan(
+        policy=two_tenant_policy(with_collection=True),
+        policy_sha256="0" * 64,
+        client=ScriptedClient(correct_routes()),
+        credentials=credentials(),
+        scope=TargetScope.from_origin("http://127.0.0.1:9"),
+        target_label="unit-test",
+        agent=AgentStrategy(model, AgentLimits(max_model_calls=50)),
+        limits=RunLimits(),
+        now=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
+class AgentReportTests(unittest.TestCase):
+    def test_scripted_agent_report_is_never_labelled_ai(self) -> None:
+        report = agent_report(ScriptedModelClient(in_order_responder, name="in-order"))
+        planner = report["run"]["planner"]
+        self.assertEqual((planner["kind"], planner["uses_ai"]), ("agent", False))
+        agent = report["run"]["agent"]
+        self.assertFalse(agent["adapter"]["is_real_model"])
+        self.assertIn("not an AI model", agent["adapter"]["label"])
+        self.assertEqual(agent["status"], "completed")
+        self.assertEqual(agent["allowed_actions"], ["run_check", "stop"])
+        self.assertEqual((agent["prompt_version"], agent["tool_contract_version"]),
+                         ("agent-v1", "agent-tools-v1"))  # fmt: skip
+        self.assertEqual(agent["model_calls"], 16)
+        self.assertEqual(agent["provider_metadata"], {})
+        self.assertEqual(report["status"]["overall"], "checks_passed")
+        page = render_html(report)
+        self.assertIn("scriptet testadapter (ikke en AI-model)", page)
+        self.assertNotIn("AI-planlægning", page)
+
+    def test_failed_agent_is_visible_in_json_and_html(self) -> None:
+        report = agent_report(ScriptedModelClient([ModelError("model unavailable")], name="x"))
+        agent = report["run"]["agent"]
+        self.assertEqual((agent["status"], agent["failure"]), ("model_failed", "model unavailable"))
+        self.assertEqual(report["run"]["interrupted"], "model failure ended the agent run")
+        self.assertEqual(report["status"]["overall"], "incomplete")
+        self.assertEqual(agent["steps"], [{"call": 1, "action": "failed", "check_id": None,
+            "rejection": None, "latency_ms": None, "provider_metadata": {}}])  # fmt: skip
+        self.assertIn("modelfejl", render_html(report))
+        skipped = [r for r in report["results"] if r["outcome"] == "SKIPPED"]
+        self.assertTrue(all(r["requests_used_after"] is None for r in skipped))
 
 
 if __name__ == "__main__":

@@ -14,7 +14,9 @@ from tests.helpers import LAB_POLICY_PATH, REPO_ROOT
 def run_module(*args: str) -> subprocess.CompletedProcess[str]:
     env = {
         **os.environ,
-        "PYTHONPATH": os.pathsep.join([str(REPO_ROOT / "src"), str(REPO_ROOT / "lab")]),
+        "PYTHONPATH": os.pathsep.join(
+            str(REPO_ROOT / part) for part in ("src", "lab", "evaluations")
+        ),
     }
     return subprocess.run(  # noqa: S603 - fixed interpreter and arguments
         [sys.executable, "-m", *args],
@@ -37,7 +39,7 @@ class LabCliTests(unittest.TestCase):
             self.assertTrue(summary["demo_succeeded"])
             for name in ("vulnerable", "fixed"):
                 report = json.loads((Path(tmp) / name / "report.json").read_text("utf-8"))
-                self.assertEqual(report["schema_version"], "1.1")
+                self.assertEqual(report["schema_version"], "1.2")
                 self.assertTrue((Path(tmp) / name / "report.html").is_file())
 
     def test_scan_exit_codes_reflect_status(self) -> None:
@@ -82,7 +84,7 @@ class ProductCliTests(unittest.TestCase):
 
     def test_version(self) -> None:
         result = run_module("accessguard", "--version")
-        self.assertEqual(result.stdout.strip(), "accessguard 0.2.0")
+        self.assertEqual(result.stdout.strip(), "accessguard 0.3.0")
 
 
 if __name__ == "__main__":

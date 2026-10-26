@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from accessguard.application.gate import InterruptReason, RequestGate, RunInterrupted
@@ -38,6 +38,8 @@ class RunOutcome:
     sessions: Mapping[str, SessionStatus]
     requests_used: int
     interrupted: InterruptReason | None
+    requests_used_after: Mapping[str, int] = field(default_factory=dict)
+    """Target requests the run had used when each executed check got its first verdict."""
 
 
 _NO_SESSION = SessionStatus(SessionState.NOT_APPLICABLE, "anonymous actor")
@@ -67,29 +69,59 @@ class CheckRunner:
         self._retest_findings = retest_findings
         self._sessions: dict[str, SessionStatus] = {}
         self._baselines: dict[str, BaselineResult] = {}
+        self._progress: dict[str, int] = {}
 
     def run(self, checks: Sequence[Check]) -> RunOutcome:
-        interrupted: InterruptReason | None = None
-        try:
-            for identity in self._policy.identities:
-                self._sessions[identity.id] = self._probe_session(identity.id)
-        except RunInterrupted as stop:
-            interrupted = stop.reason
-
+        """Execute ``checks`` in the given order, then retest failures."""
+        interrupted = self.preflight()
         results: list[CheckResult] = []
         for check in checks:
             if interrupted is None:
                 try:
-                    results.append(self._execute(check))
+                    results.append(self.execute(check))
                     continue
                 except RunInterrupted as stop:
                     interrupted = stop.reason
-                    results.append(_skipped(check, interrupted, in_progress=True))
+                    results.append(skipped(check, interrupted, in_progress=True))
                     continue
-            results.append(_skipped(check, interrupted))
+            results.append(skipped(check, interrupted))
+        return self.finish(results, interrupted)
 
-        verified, interrupted = self._verify_failures(results, interrupted)
-        return RunOutcome(tuple(verified), dict(self._sessions), self._gate.used, interrupted)
+    def preflight(self) -> InterruptReason | None:
+        """Probe every identity's session. Returns the interruption reason, if any."""
+        try:
+            for identity in self._policy.identities:
+                self._sessions[identity.id] = self._probe_session(identity.id)
+        except RunInterrupted as stop:
+            return stop.reason
+        return None
+
+    def execute(self, check: Check) -> CheckResult:
+        """Execute one approved check and return its deterministic verdict.
+
+        Raises :class:`RunInterrupted` when a run limit ends the run before a verdict.
+        """
+        result = self._execute(check)
+        if result.executed:
+            self._progress.setdefault(check.id, self._gate.used)
+        return result
+
+    def finish(
+        self, results: Sequence[CheckResult], interrupted: InterruptReason | None
+    ) -> RunOutcome:
+        """Retest failures (unless the run was interrupted) and assemble the outcome."""
+        verified, interrupted = self._verify_failures(list(results), interrupted)
+        return RunOutcome(
+            tuple(verified),
+            dict(self._sessions),
+            self._gate.used,
+            interrupted,
+            dict(self._progress),
+        )
+
+    @property
+    def sessions(self) -> Mapping[str, SessionStatus]:
+        return dict(self._sessions)
 
     def _verify_failures(
         self, results: list[CheckResult], interrupted: InterruptReason | None
@@ -253,7 +285,7 @@ class CheckRunner:
         return result
 
 
-def _skipped(check: Check, reason: InterruptReason, *, in_progress: bool = False) -> CheckResult:
+def skipped(check: Check, reason: InterruptReason, *, in_progress: bool = False) -> CheckResult:
     """Mark a check that did not complete. Partial observations are discarded, not judged."""
     prefix = "Interrupted while in progress, no verdict" if in_progress else "Not executed"
     return CheckResult(check, Outcome.SKIPPED, f"{prefix}: {reason.value}", executed=False)

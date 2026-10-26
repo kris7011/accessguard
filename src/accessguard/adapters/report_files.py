@@ -59,7 +59,39 @@ def _e(value: object) -> str:
     return html.escape("" if value is None else str(value))
 
 
-def _planner_text(planner: Mapping[str, Any]) -> str:
+AGENT_STATUS_DA = {
+    "completed": "alle godkendte kontroller blev valgt og udført",
+    "stopped_early": "agenten stoppede, før alle kontroller var udført",
+    "model_failed": "modelfejl: kørslen blev afbrudt uden fallback",
+    "invalid_replies_exhausted": "for mange ugyldige modelsvar: kørslen blev afbrudt",
+    "model_calls_exhausted": "budgettet for modelkald blev opbrugt",
+    "interrupted": "kørslen blev afbrudt af en grænse (budget, tidsfrist eller stop)",
+}
+
+
+def _agent_text(agent: Mapping[str, Any]) -> str:
+    adapter = agent["adapter"]
+    if adapter["is_real_model"]:
+        who = f"Adaptiv agent med {_e(adapter['label'])}"
+    else:
+        who = "Adaptiv agentløkke med scriptet testadapter (ikke en AI-model)"
+    failure = f" Fejl: {_e(agent['failure'])}." if agent.get("failure") else ""
+    return (
+        f"{who}. Prompt {_e(agent['prompt_version'])}, {_e(agent['model_calls'])} modelkald, "
+        f"{_e(agent['invalid_replies'])} ugyldige svar. Status: "
+        f"{_e(AGENT_STATUS_DA.get(agent['status'], agent['status']))}.{failure} Modellen vælger "
+        "kun blandt godkendte kontroller; resultaterne afgøres deterministisk."
+    )
+
+
+def _planner_text(planner: Mapping[str, Any], agent: Mapping[str, Any] | None = None) -> str:
+    if agent is not None:
+        return _agent_text(agent)
+    if planner.get("kind") == "seeded-random":
+        return (
+            f"Seedet tilfældig rækkefølge (seed {_e(planner.get('seed'))}, ingen AI). "
+            "Bruges som sammenligningsgrundlag."
+        )
     if not planner.get("uses_ai"):
         return "Deterministisk baseline (ingen AI). Rækkefølgen følger politikken."
     return (
@@ -173,7 +205,7 @@ code {{ font-size: .92em; }}
   <h1>AccessGuard {_e(report["tool"]["version"])}: adgangskontrol-rapport</h1>
   <p class="muted">Mål: {_e(run["target"])} ({_e(run["scope"]["origin"])}) · Politik
     {_e(run["policy"]["id"])} · Kørsel {_e(run["id"])} · {_e(run["started_at"])}</p>
-  <p>{_planner_text(run["planner"])}</p>
+  <p>{_planner_text(run["planner"], run.get("agent"))}</p>
 </header>
 <main>
 <section class="status {_e(overall)}" aria-live="polite">

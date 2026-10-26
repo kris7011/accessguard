@@ -126,7 +126,7 @@ def send(
         data = response.read(max_response_bytes + 1)
     except TimeoutError as error:
         raise TransportError(
-            connection.abort_reason() or f"Request timed out after {timeout_seconds} s"
+            connection.abort_reason() or f"Request timed out after {timeout_seconds:.2f} s"
         ) from error
     except (OSError, http.client.HTTPException) as error:
         raise TransportError(

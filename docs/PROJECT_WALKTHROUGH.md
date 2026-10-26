@@ -1,6 +1,7 @@
 # AccessGuard project walkthrough
 
-Status as of milestone 1 (version 0.2.0). Every statement is marked by status where it matters:
+Status as of milestone 2 (version 0.3.0): implementation with mock and contract verification;
+no real language model has been run. Every statement is marked by status where it matters:
 **implemented** (code exists), **tested** (an automated test exists and was run),
 **proposed/future** (not built).
 
@@ -10,8 +11,11 @@ AccessGuard checks whether a multi-tenant API enforces its *declared* read-acces
 user of customer A read customer B's data, can a member read an admin-only resource, does a
 listing leak other tenants' items, and is legitimately shared data still reachable?
 
-Milestone 1 delivers the engine as a local CLI plus a deliberately vulnerable local lab. There is
-no hosted service, UI, database, agent or ML (all future).
+Milestone 1 delivered the engine as a local CLI plus a deliberately vulnerable local lab.
+Milestone 2 adds a bounded adaptive agent that chooses the next approved check from earlier
+results (**implemented, tested with a scripted adapter and a fake Ollama server; not run with a
+real model**), and an evaluation harness with separate fixtures. There is no hosted service, UI,
+database or ML (all future).
 
 ```text
 policy.json ──► domain.checks.generate_checks ──► Planner (deterministic | Ollama reorder-only)
@@ -32,13 +36,14 @@ Layered modular monolith; dependencies point inwards (ADR 0001), enforced by
 | Path | Responsibility |
 | --- | --- |
 | `src/accessguard/domain/` | `policy.py` (identities, grants, resources, invariants), `checks.py` (matrix generation, plan validation), `evaluation.py` (baselines and verdicts), `results.py` (results, overall status, coverage), `scope.py` (origin and destination rules, path validation), `redaction.py`, `credentials.py` (`Secret`), `errors.py` |
-| `src/accessguard/application/` | `ports.py` (`TargetClient`, `Planner`), `planning.py` (`DeterministicPlanner`), `gate.py` (`RequestGate`, `RunLimits`), `runner.py` (`CheckRunner`), `reporting.py` (`build_report`), `scan.py` (`run_scan` use case) |
-| `src/accessguard/adapters/` | `http_transport.py` (`send`, `decode_observation`), `http_target.py` (`ScopedHttpClient`), `policy_json.py`, `ollama_planner.py`, `report_files.py` |
-| `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `exit_codes.py`, `interrupt.py` (signals → stop event, worker thread) |
+| `src/accessguard/application/` | `ports.py` (`TargetClient`, `Planner`, `ModelClient`), `planning.py` (`DeterministicPlanner`, `SeededRandomPlanner`), `gate.py` (`RequestGate`, `RunLimits`, `call_limit`), `runner.py` (`CheckRunner`: `run`, `preflight`, `execute`, `finish`), `agent_view.py` (`ModelView`: aliases, minimised state), `agent_contract.py` (`parse_action`, tool contract, prompt), `agent.py` (`AgentLoop`, `AgentLimits`, `AgentStatus`), `reporting.py` (`build_report`), `scan.py` (`run_scan`, `run_agent_scan`, `AgentStrategy`) |
+| `src/accessguard/adapters/` | `http_transport.py` (`send`, `decode_observation`), `http_target.py` (`ScopedHttpClient`), `policy_json.py`, `ollama_client.py` (`OllamaModelClient`), `ollama_planner.py` (M1 reorder-only), `scripted_model.py` (`ScriptedModelClient`, not AI), `report_files.py` |
+| `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `agent_options.py` (`--model` and agent limits), `exit_codes.py`, `interrupt.py` (signals → stop event, worker thread) |
+| `evaluations/accessguard_eval/` | Evaluation harness (`harness.py`), data-driven fixture server (`fixture_server.py`), fixture loader with a separate answer-key loader (`fixtures.py`), CLI (`cli.py`), fixtures with hand-written answer keys |
 | `lab/accessguard_lab/` | Vulnerable synthetic API (`server.py`), data (`dataset.py`), profiles, hand-written `ground_truth.py`, lab composition root (`scan.py`), lab CLI (`cli.py`), policies |
-| `tests/{unit,integration,security,e2e}/` | 173 tests |
+| `tests/{unit,integration,security,e2e}/` | 266 tests (1 opt-in real-model test skipped by default) |
 | `ops/verify.sh`, `ops/verify.ps1` | One verification entry point per shell; preserve exit codes |
-| `ops/ci/` | `check_wheel.py` (no lab code in the wheel), `build_check.py`, `secret_scan.py` |
+| `ops/ci/` | `check_wheel.py` (no lab or evaluation code in the wheel), `build_check.py`, `secret_scan.py` |
 | `docs/` | This walkthrough, threat model, ADRs, report schema, milestone report |
 
 ## 3. Technologies
@@ -68,7 +73,13 @@ pip-audit, detect-secrets, build, setuptools; GitHub Actions. Rationale in ADR 0
   run deadline and stop signal that also abort in-flight requests (ADR 0004). Tested.
 - Reports: no credentials or protected values; final scrub of known secrets and auth-scheme values.
   Tested.
-- Model output: schema-validated permutation only (ADR 0006). Tested with mocks.
+- Model output: reorder planner, schema-validated permutation only (ADR 0006). Agent: strict
+  tool contract (only `run_check` with a pending approved alias, or `stop`), limits on calls,
+  invalid replies and output size, every model call bounded by the run deadline and stop
+  signal (ADR 0007). Tested with a scripted adapter, mocks and a fake Ollama server.
+- Data sent to a model: opaque aliases, engine enumerations and integers only; no
+  credentials, protected values, response bodies, verdict reasons, paths or policy strings.
+  Tested.
 - Full list with test references: `docs/threat-model.md`.
 
 ## 6. Persistence
@@ -104,6 +115,29 @@ SHA-256 so results can be tied to the exact policy bytes.
 6. `write_report` scrubs secrets and writes `report.json` and the Danish `report.html`.
 7. The demo compares results with `ground_truth.py` and writes `demo-summary.json`.
 
+### 7a. Agent workflow (milestone 2; implemented, tested with a scripted adapter)
+
+1. `accessguard_lab.cli._agent` builds an `AgentStrategy` (`entrypoints/agent_options.py`:
+   `scripted:*` → `ScriptedModelClient`, `ollama:NAME` → `OllamaModelClient`) and calls
+   `scan_lab`, which calls `application.scan.run_agent_scan`.
+2. `AgentLoop.run` asks the model for provider metadata (`identify`, recorded only as reported),
+   then runs `CheckRunner.preflight` (session probes).
+3. On each turn:
+   1. `ModelView.state` renders the aliased state.
+   2. `ModelClient.complete` is called with `RequestGate.call_limit` (per-call timeout,
+      remaining run time and the stop signal).
+   3. `parse_action` validates the reply. A rejection is counted, and its category is shown
+      in the next state. `stop` ends the loop. `run_check` maps the alias back to the approved
+      check and calls `CheckRunner.execute`, which judges it exactly as in a baseline run.
+4. The loop ends when every check ran, or on stop, a model failure, too many invalid replies,
+   the model call budget, the HTTP budget, the deadline or the stop signal. Then:
+   - checks that were not executed become SKIPPED;
+   - `CheckRunner.finish` retests failures (except after a run limit);
+   - `build_report` adds `run.agent` (schema 1.2).
+5. `accessguard_eval` runs the same engine with the deterministic, seeded random and agent
+   strategies under equal budgets on the fixtures. It scores the reports against the answer
+   keys afterwards (ADR 0008, `docs/evaluation.md`).
+
 ## 8. Testing
 
 | Suite | What it covers |
@@ -111,7 +145,8 @@ SHA-256 so results can be tied to the exact policy bytes.
 | `tests/unit` | Policy invariants, JSON parsing, check generation and plan validation, every verdict branch, overall status and coverage, gate limits, scope rules, redaction, runner behaviour with a scripted client, Ollama contract (mocked), report fields and HTML escaping, lab request handling |
 | `tests/integration` | Real HTTP against the lab: every profile against ground truth, prototype parity, edge cases (soft error, login page, redirect, 429, 5xx, partial, flaky, timeout, missing resource, expired session, budget, stop, 403 bodies in HTML, plain text, invalid JSON, misleading Content-Type and empty), HTTP client behaviour against a real socket server |
 | `tests/security` | SSRF/DNS rebinding/path injection, credential and data leakage into reports and console, architecture rules |
-| `tests/e2e` | CLI subprocess runs: demo, exit codes, policy validation |
+| `tests/e2e` | CLI subprocess runs: demo, exit codes, policy validation, agent runs (scripted, budget cut, model failure via a fake Ollama), seeded random order, evaluation CLI; opt-in real-model test (`ACCESSGUARD_REAL_MODEL`) |
+| Agent and model | `tests/unit/test_agent_contract.py`, `test_agent_loop.py`, `test_scripted_model_and_planning.py`; `tests/security/test_agent_boundaries.py` (data minimisation, prompt injection via policy strings and responses, scope-expansion attempts); `tests/integration/test_ollama_contract.py` (fake Ollama HTTP server), `test_agent_lab.py` (verdict equivalence with the baseline over real HTTP), `test_evaluation.py` |
 
 Run: `py -3 -m unittest discover -s tests -t .` (with `PYTHONPATH=src;lab` or an editable install),
 or all checks with `ops/verify.ps1` / `ops/verify.sh`. Manual mutation checks (five injected bugs
@@ -132,7 +167,7 @@ required when persistence is introduced (future).
 
 ADR 0001 (stdlib layered monolith), 0002 (explicit policy and verdict taxonomy), 0003 (lab
 separated from product), 0004 (outbound request guard), 0005 (tooling and CI), 0006 (reorder-only
-model planner). Notable trade-offs:
+model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluation). Notable trade-offs:
 
 - Exact JSON string matching: few false positives, misses transformed leaks. Bodies the engine
   cannot analyse are INCONCLUSIVE rather than scanned, which keeps the matching semantics simple
@@ -162,6 +197,13 @@ model planner). Notable trade-offs:
   and raw-byte matching are not implemented.
 - The Ollama planner only reorders; with every check executed, the order does not affect results.
   Verified with mocks only.
+- The adaptive agent has **not been run with a real model**. Its guarantees are verified with
+  a scripted adapter, mocks and a fake Ollama server. The scripted evaluation shows no
+  advantage over the deterministic baseline on 4 small synthetic fixtures; those results
+  describe the mechanics, not AI quality.
+- The agent makes one model call per check and resends the whole aliased state each turn;
+  very large policies may exceed a model's context window. Aliases hide semantics (such as
+  resource categories) that a real model might use.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.
 - CI has not been run on GitHub; Python 3.11, Linux and macOS are not verified locally.
 
@@ -174,4 +216,18 @@ running the commands listed in `docs/milestones/M1.md`. Decisions the owner shou
 explicitly accept or change: the outcome taxonomy, the changed v0.1 behaviour for denied granted
 access and the leak-precedence rule (ADR 0002), exit code 130 for cancelled runs (ADR 0004), unittest over pytest (ADR 0005), and the lab packaging (ADR 0003).
 
-Interview preparation for this milestone: `docs/interview-prep/M1.md`.
+Milestone 2 was written the same way: the code, tests, fixtures, answer keys, configuration and
+documentation are by Claude Code, and the owner specified the requirements. The assistant
+verified the results by running the commands listed in `docs/milestones/M2.md`, including a
+mutation check of the new guards. Decisions the owner should review and explicitly accept or
+change:
+
+- opaque aliases instead of policy names in prompts (ADR 0007);
+- ending the run at the N-th invalid reply;
+- running retests after a model-side stop;
+- `uses_ai` describing the configured adapter, even when the model fails;
+- exit code 5 for agent model failures;
+- the scripted `follow-up` heuristic;
+- the fixture design and the budget fractions (ADR 0008).
+
+Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`.

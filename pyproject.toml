@@ -24,7 +24,7 @@ include = ["accessguard", "accessguard.*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "lab", "tests"]
+src = ["src", "lab", "evaluations", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -40,6 +40,7 @@ ignore = [
 "tests/**" = ["S101", "S105", "S106", "PLR0915"]
 # The lab is a deliberately vulnerable local fixture, never shipped with the product package.
 "lab/**" = ["S104"]
+"evaluations/**" = ["S104"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -48,5 +49,5 @@ quote-style = "double"
 python_version = "3.11"
 strict = true
 warn_unreachable = true
-mypy_path = ["src", "lab"]
-files = ["src", "lab", "tests", "ops"]
+mypy_path = ["src", "lab", "evaluations"]
+files = ["src", "lab", "evaluations", "tests", "ops"]

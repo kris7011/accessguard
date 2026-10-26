@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accessguard-eval"
+version = "0.3.0"
+description = "Reproducible evaluation of AccessGuard check-selection strategies on synthetic fixtures."
+requires-python = ">=3.11"
+dependencies = ["accessguard==0.3.0", "accessguard-lab==0.3.0"]
+
+[project.scripts]
+accessguard-eval = "accessguard_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["accessguard_eval", "accessguard_eval.*"]
+
+[tool.setuptools.package-data]
+accessguard_eval = ["fixtures/*.json", "fixtures/*/*.json"]

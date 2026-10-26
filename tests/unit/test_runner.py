@@ -142,6 +142,29 @@ class RunnerTests(unittest.TestCase):
             all(o is Outcome.SKIPPED for o in outcomes[outcomes.index(Outcome.SKIPPED) :])
         )
 
+    def test_primitives_compose_to_the_same_outcome_as_run(self) -> None:
+        policy = two_tenant_policy(with_collection=True)
+        checks = generate_checks(policy)
+        whole = run(ScriptedClient(correct_routes()))
+        runner = CheckRunner(
+            policy=policy,
+            client=ScriptedClient(correct_routes()),
+            credentials=credentials(),
+            gate=RequestGate(RunLimits()),
+            now=lambda: FIXED_TIME,
+        )
+        self.assertIsNone(runner.preflight())
+        parts = runner.finish([runner.execute(check) for check in checks], None)
+        self.assertEqual(parts, whole)
+
+    def test_requests_used_after_counts_probes_baselines_and_checks(self) -> None:
+        outcome = run(ScriptedClient(correct_routes()))
+        progress = outcome.requests_used_after
+        # 3 session probes + the acme-doc baseline + the first check
+        self.assertEqual(progress["acme-doc@acme-admin"], 5)
+        self.assertEqual(max(progress.values()), outcome.requests_used)
+        self.assertEqual(len(progress), len(outcome.results))
+
     def test_stop_signal_skips_everything(self) -> None:
         stop = threading.Event()
         stop.set()

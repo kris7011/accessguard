@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 from collections.abc import Iterable, Mapping
+from datetime import UTC, datetime
 from pathlib import Path
 
-from accessguard.application.ports import RequestLimit
+from accessguard.application.agent import AgentLimits, AgentLoop, AgentRunResult
+from accessguard.application.gate import RequestGate, RunLimits
+from accessguard.application.ports import ModelClient, ModelRequest, RequestLimit
+from accessguard.application.runner import CheckRunner
+from accessguard.domain.checks import generate_checks
 from accessguard.domain.credentials import Secret
 from accessguard.domain.observation import BodyFormat, HttpObservation
 from accessguard.domain.policy import (
@@ -156,3 +162,50 @@ def correct_routes() -> dict[tuple[str, str | None], Response | list[Response]]:
     for path in ("/d/acme", "/d/globex", "/d/shared", "/d", "/me"):
         routes[(path, None)] = observation(401, {"error": "unauthorized"})
     return routes
+
+
+def run_agent(
+    client: ScriptedClient,
+    model: ModelClient,
+    *,
+    policy: AccessPolicy | None = None,
+    limits: RunLimits | None = None,
+    agent_limits: AgentLimits | None = None,
+    stop: threading.Event | None = None,
+    gate: RequestGate | None = None,
+) -> AgentRunResult:
+    """Run the agent loop against a scripted target with fixed timestamps."""
+    policy = policy or two_tenant_policy(with_collection=True)
+    limits = limits or RunLimits()
+    gate = gate or RequestGate(limits, stop)
+    runner = CheckRunner(
+        policy=policy,
+        client=client,
+        credentials=credentials(),
+        gate=gate,
+        now=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+        retest_findings=limits.retest_findings,
+    )
+    return AgentLoop(
+        policy=policy,
+        checks=generate_checks(policy),
+        runner=runner,
+        gate=gate,
+        run_limits=limits,
+        model=model,
+        limits=agent_limits or AgentLimits(),
+    ).run()
+
+
+def flawed_routes() -> dict[tuple[str, str | None], Response | list[Response]]:
+    """:func:`correct_routes` plus two flaws: globex-member reads acme-doc (IDOR) and
+    acme-member lists every document (listing leak)."""
+    routes = correct_routes()
+    routes[("/d/acme", TOKENS["globex-member"])] = observation(200, DOC_BODIES["acme-doc"])
+    routes[("/d", TOKENS["acme-member"])] = observation(200, {"items": list(DOC_BODIES.values())})
+    return routes
+
+
+def model_inputs(requests: Iterable[ModelRequest]) -> str:
+    """Everything that was sent to a model client, as one string."""
+    return "\n".join(m.content for r in requests for m in r.messages)

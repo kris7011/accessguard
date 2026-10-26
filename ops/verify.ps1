@@ -29,7 +29,7 @@ if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) {
     exit 2
 }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$env:PYTHONPATH = 'src' + [IO.Path]::PathSeparator + 'lab'
+$env:PYTHONPATH = @('src', 'lab', 'evaluations') -join [IO.Path]::PathSeparator
 
 $definitions = @{
     'lint'          = @('-m', 'ruff', 'check', '.')

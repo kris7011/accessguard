@@ -14,9 +14,15 @@ MAX_REQUEST_BUDGET = 10_000
 
 
 class InterruptReason(StrEnum):
+    """Why a run ended before every planned check produced a verdict."""
+
     BUDGET_EXHAUSTED = "request budget exhausted"
     DEADLINE_EXCEEDED = "run deadline exceeded"
     CANCELLED = "run cancelled by stop signal"
+    AGENT_STOPPED = "agent stopped before every check was executed"
+    MODEL_FAILED = "model failure ended the agent run"
+    INVALID_REPLIES_EXHAUSTED = "too many invalid model replies"
+    MODEL_CALLS_EXHAUSTED = "model call budget exhausted"
 
 
 class RunInterrupted(Exception):  # noqa: N818 - control-flow signal, not an error condition
@@ -76,6 +82,15 @@ class RequestGate:
             raise RunInterrupted(InterruptReason.CANCELLED)
         if self._clock() >= self._deadline:
             raise RunInterrupted(InterruptReason.DEADLINE_EXCEEDED)
+
+    def call_limit(self, max_seconds: float) -> RequestLimit:
+        """Bound a non-target call (e.g. a model call) by the run deadline and stop signal.
+
+        It does not consume the target request budget and is not paced.
+        """
+        self.raise_if_interrupted()
+        remaining = self._deadline - self._clock()
+        return RequestLimit(seconds=min(max_seconds, remaining), cancel=self._stop)
 
     def acquire(self) -> RequestLimit:
         self.raise_if_interrupted()

@@ -1,0 +1,13 @@
+{
+  "fixture": "helpdesk",
+  "expected_findings": [
+    "alpha-payroll@alpha-agent",
+    "beta-payroll@beta-agent",
+    "gamma-payroll@gamma-agent",
+    "gamma-ticket@alpha-agent",
+    "gamma-ticket@alpha-manager",
+    "gamma-ticket@beta-agent",
+    "gamma-ticket@beta-manager"
+  ],
+  "notes": "role_bypass on payroll: each tenant's agent reads its own tenant's payroll. denial_leak on gamma-ticket: every authenticated non-gamma user gets 403 with the ticket in the body (anonymous gets a plain 401)."
+}

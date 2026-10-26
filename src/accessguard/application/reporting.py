@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from accessguard.application.agent import AgentTrace
+from accessguard.application.agent_contract import PROMPT_VERSION, TOOL_CONTRACT_VERSION, Action
 from accessguard.application.gate import RunLimits
 from accessguard.application.ports import PlannerInfo
 from accessguard.application.runner import RunOutcome
@@ -22,7 +24,7 @@ from accessguard.domain.results import (
 )
 from accessguard.domain.scope import TargetScope
 
-REPORT_SCHEMA_VERSION = "1.1"
+REPORT_SCHEMA_VERSION = "1.2"
 
 NOT_TESTED = (
     "Write operations (POST, PUT, PATCH, DELETE): only GET requests are sent.",
@@ -57,6 +59,7 @@ class ReportContext:
     limits: RunLimits
     started_at: datetime
     finished_at: datetime
+    agent: AgentTrace | None = None
 
 
 def build_report(
@@ -89,7 +92,9 @@ def build_report(
                 "model": context.planner.model,
                 "prompt_version": context.planner.prompt_version,
                 "latency_ms": context.planner.latency_ms,
+                "seed": context.planner.seed,
             },
+            "agent": _agent(context.agent) if context.agent is not None else None,
             "limits": {
                 "max_requests": context.limits.max_requests,
                 "min_interval_seconds": context.limits.min_interval_seconds,
@@ -126,7 +131,9 @@ def build_report(
             for result in results
             if result.outcome in _FINDING_OUTCOMES
         ],
-        "results": [_result(result) for result in results],
+        "results": [
+            _result(result, outcome.requests_used_after.get(result.check.id)) for result in results
+        ],
         "not_tested": [*NOT_TESTED, *invalid_sessions],
         "disclaimer": DISCLAIMER,
     }
@@ -158,7 +165,50 @@ def _evidence(evidence: Evidence | None) -> dict[str, Any] | None:
     }
 
 
-def _result(result: CheckResult) -> dict[str, Any]:
+def _agent(trace: AgentTrace) -> dict[str, Any]:
+    descriptor = trace.descriptor
+    limits = trace.limits
+    return {
+        "adapter": {
+            "provider": descriptor.provider,
+            "model": descriptor.model,
+            "is_real_model": descriptor.is_real_model,
+            "label": descriptor.label,
+            "settings": dict(descriptor.settings),
+        },
+        "provider_metadata": dict(trace.provider_metadata),
+        "provider_metadata_error": trace.provider_metadata_error,
+        "prompt_version": PROMPT_VERSION,
+        "tool_contract_version": TOOL_CONTRACT_VERSION,
+        "allowed_actions": [action.value for action in Action],
+        "verdicts_by": "deterministic engine; the model only selects approved checks",
+        "limits": {
+            "max_model_calls": limits.max_model_calls,
+            "max_invalid_replies": limits.max_invalid_replies,
+            "max_output_chars": limits.max_output_chars,
+            "model_timeout_seconds": limits.model_timeout_seconds,
+            "max_output_tokens": limits.max_output_tokens,
+        },
+        "status": trace.status.value,
+        "failure": trace.failure,
+        "model_calls": trace.model_calls,
+        "invalid_replies": trace.invalid_replies,
+        "model_latency_ms_total": trace.model_latency_ms,
+        "steps": [
+            {
+                "call": step.call,
+                "action": step.action.value,
+                "check_id": step.check_id,
+                "rejection": step.rejection,
+                "latency_ms": step.latency_ms,
+                "provider_metadata": dict(step.provider_metadata),
+            }
+            for step in trace.steps
+        ],
+    }
+
+
+def _result(result: CheckResult, requests_used_after: int | None) -> dict[str, Any]:
     check = result.check
     target: dict[str, Any]
     if isinstance(check, ItemCheck):
@@ -182,6 +232,7 @@ def _result(result: CheckResult) -> dict[str, Any]:
         "finding_type": result.finding_type.value if result.finding_type else None,
         "verification": result.verification.value if result.verification else None,
         "evidence": _evidence(result.evidence),
+        "requests_used_after": requests_used_after,
     }
 
 

@@ -1,4 +1,4 @@
-"""Fail if the built product wheel contains lab or test code (deliberate flaws must never ship).
+"""Fail if the product wheel contains lab, evaluation or test code (flaws must never ship).
 
 Usage: python ops/ci/check_wheel.py dist/
 """
@@ -9,8 +9,8 @@ import sys
 import zipfile
 from pathlib import Path
 
-FORBIDDEN_PREFIXES = ("accessguard_lab/", "tests/", "lab/")
-FORBIDDEN_TEXT = (b"SYNTHETIC-CANARY",)
+FORBIDDEN_PREFIXES = ("accessguard_lab/", "accessguard_eval/", "tests/", "lab/", "evaluations/")
+FORBIDDEN_TEXT = (b"SYNTHETIC-CANARY", b"EVAL-CANARY")
 
 
 def main(dist: Path) -> int:

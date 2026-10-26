@@ -1,6 +1,7 @@
-# Threat model (milestone 1)
+# Threat model (milestones 1 and 2)
 
-Status: covers the implemented milestone 1 system (local CLI + local lab). Must be revised before
+Status: covers the implemented milestone 1 and 2 system (local CLI, local lab, adaptive agent,
+evaluation fixtures). Must be revised before
 any external target, hosted service or real credentials are supported (milestones 3–4).
 
 ## System and assets
@@ -21,7 +22,9 @@ The tool therefore legitimately holds sensitive capabilities.
 1. **Policy file → engine** (`adapters/policy_json.py`): untrusted input.
 2. **Engine → target HTTP API** (`adapters/http_target.py`): outbound network; responses are
    untrusted data.
-3. **Engine ↔ optional model** (`adapters/ollama_planner.py`): model output is untrusted.
+3. **Engine ↔ model** (`application/agent_view.py` out, `application/agent_contract.py` in;
+   adapters `ollama_client.py`, `scripted_model.py`, `ollama_planner.py`): everything sent is
+   minimised, everything received is untrusted.
 4. **Engine → report files** (`adapters/report_files.py`): output that may be shared.
 5. **Product ↔ lab**: deliberately vulnerable code must never ship with the product.
 
@@ -39,7 +42,12 @@ The tool therefore legitimately holds sensitive capabilities.
 | T8 | Credential disclosure in reports/console | Credentials live only in `Secret` (masked repr), never in results; reports scrubbed for known secrets and `Bearer`-style values before writing | `tests/security/test_secret_leakage.py`, `tests/unit/test_redaction.py` |
 | T9 | Customer data disclosure in evidence | Evidence contains field *names*, status, size and body hash; never values | `test_report_contains_no_protected_values_or_credentials`, secret-leakage test |
 | T10 | Credentials embedded in policy files | Strict schema rejects unknown keys such as `token` | `test_credentials_cannot_be_embedded` |
-| T11 | Model expands scope or drops checks (prompt injection) | Model only reorders; output must be an exact permutation of approved check ids; it never sees credentials or paths and cannot issue requests | `tests/unit/test_ollama_planner.py`, `test_model_planner_cannot_send_target_requests` |
+| T11 | Model expands scope, changes policy/expectations or drops checks (prompt injection) | Reorder planner: output must be an exact permutation. Agent: only `run_check` with a pending approved alias or `stop`; strict validation (size, JSON, duplicate keys, extra/missing fields, unknown actions and ids, repeats); the engine executes the immutable check and decides the verdict; model adapters cannot import the HTTP target client or the runner | `tests/unit/test_agent_contract.py`, `tests/security/test_agent_boundaries.py::ScopeExpansionTests`, `test_model_adapters_cannot_send_target_requests`, `tests/unit/test_ollama_planner.py` |
+| T19 | Prompt injection through customer input (identity, tenant, role, resource, category, collection ids, paths, field names, descriptions) or through target responses | The model sees only generated aliases, engine enumerations and integers; no policy string, response body or verdict reason is ever sent; model text is never echoed into later prompts or reports (fixed rejection categories) | `test_injection_in_policy_identifiers_never_reaches_the_model`, `test_target_response_content_never_reaches_the_model`, `test_state_contains_only_aliases_enumerations_and_numbers`, `test_rejections_never_echo_model_text_into_the_trace` |
+| T20 | Credentials or protected data disclosed to a model provider | Same minimisation; `Secret` values are only revealed by the HTTP target client; the Ollama client only connects to 127.0.0.1 | `test_model_never_receives_credentials_values_paths_or_policy_strings`, `test_lab_run_sends_no_lab_secret_to_the_model`, `AgentOverOllamaContractTests` |
+| T21 | Model-side denial of service: endless or huge output, slow or hanging model, endless invalid replies | Limits on model calls, invalid replies, output characters (checked before parsing) and output tokens; 256 KiB response cap; every model call bounded by the per-call timeout, the run deadline and the stop signal (also in flight) | `StopAndBudgetTests`, `DeadlineAndCancellationTests`, `test_slow_model_is_bounded_by_the_time_limit`, `test_in_flight_model_call_is_cancellable`, `test_oversized_reply_is_rejected` |
+| T22 | Hidden model failure or silent fallback that misstates how results were produced | No fallback; explicit `agent.status` and `failure`; partial results kept, remaining checks SKIPPED, `completed: false`; CLI exit 5; scripted adapter is never labelled AI (`uses_ai: false`, "not an AI model") | `ModelFailureTests`, `test_model_failure_exits_5_with_a_partial_report`, `AgentReportTests` |
+| T23 | Evaluation leakage: the agent sees the answer key or the active flaws, which inflates results | Runs receive only the policy, origin and credentials; answer keys are loaded once per fixture after its runs; flaws live only in the fixture server's target definition; the product wheel excludes evaluation code and markers | `test_agent_never_sees_answer_key_or_flaw_configuration`, `test_answer_key_is_loaded_only_after_the_runs`, `test_evaluation_strategies_never_load_the_answer_key`, `ops/ci/check_wheel.py` |
 | T12 | False PASS (expired session, login page, rate limit, error, missing baseline) | Owner baseline required; session probe before the run and after every 401; strict outcome taxonomy; overall green only if every check passes | `tests/unit/test_evaluation.py`, `tests/integration/test_edge_cases.py` |
 | T17 | False PASS when a denial or error response still carries protected data (found in the pre-M2 hardening: e21c8ff reported such a lab as `checks_passed`) | Protected content is matched for **every** status code; a complete match is FAIL and a partial match SUSPECTED before the status is interpreted; only a denial without protected content is PASS | `tests/unit/test_evaluation_status_matrix.py`, `leaky-denial` edge case, `denial-body-leak` lab profile |
 | T18 | Verification that reports success although a check failed (e.g. `cmd \| tail` without `pipefail`) | `ops/verify.sh` / `ops/verify.ps1` take exit codes from the commands, aggregate failures and exit with the first failing code; CI uses `shell: bash` (`-eo pipefail`) and the same scripts | `tests/e2e/test_verify_scripts.py` (negative control) |
@@ -64,6 +72,13 @@ The tool therefore legitimately holds sensitive capabilities.
 - Response bodies are held in memory (≤ 1 MB each) for the duration of a check.
 - Report files are written unencrypted to a local directory chosen by the user.
 - The lab binds to `127.0.0.1` only, but any local process can reach it while it runs.
+- A real model has not been run. The agent's guarantees do not depend on model behaviour, but
+  real-model latency, invalid-reply rates and prompt-size limits (context window) are unmeasured.
+- The Ollama endpoint is assumed to be a trustworthy local process; AccessGuard does not
+  authenticate it, and any local process listening on the configured port could answer.
+  Its replies are still treated as untrusted and validated.
+- The agent state grows linearly with the number of checks; very large policies may exceed a
+  model's context window (a provider would then truncate or fail; failures are reported).
 - The secret scrubber is defense in depth; the primary control is that results never contain
   credentials. Unknown credential formats that are not `Bearer/Basic/Token` values are only
   scrubbed if they are known secrets.

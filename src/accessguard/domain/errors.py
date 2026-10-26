@@ -23,3 +23,10 @@ class TransportError(AccessGuardError):
 
 class PlannerError(AccessGuardError):
     """The optional model-backed planner failed or returned invalid output."""
+
+
+class ModelError(AccessGuardError):
+    """A model provider call failed: unreachable, timed out, cancelled or malformed envelope.
+
+    Messages are written by AccessGuard and never contain model output or target data.
+    """

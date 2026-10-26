@@ -1,4 +1,4 @@
-# AccessGuard 0.2 (milestone 1)
+# AccessGuard 0.3 (milestone 2)
 
 AccessGuard tests whether one customer of a multi-tenant API can read another customer's data.
 You declare the intended access policy explicitly; the engine derives every check from it, sends
@@ -9,8 +9,12 @@ failures, and writes a machine-readable report with coverage.
 > security product. A passing report covers only the declared policy and checks: it is **not** a
 > guarantee of security.
 
-**Milestone 1 scope:** the engine only runs against the isolated local laboratory
+**Scope:** the engine only runs against the isolated local laboratory and evaluation fixtures
 (`127.0.0.1`, synthetic data). Scanning external systems is deliberately not possible.
+
+**Milestone 2 status: implementation with mock and contract verification.** A bounded adaptive
+agent can choose the next approved check from earlier results. It is verified with a scripted
+test adapter and a fake Ollama server; **no real language model has been run yet**.
 
 ## Quick start (Windows PowerShell)
 
@@ -19,13 +23,13 @@ and the tests run without installing anything:
 
 ```powershell
 cd C:\AccessGuard
-$env:PYTHONPATH = "src;lab"
+$env:PYTHONPATH = "src;lab;evaluations"
 py -3 -m accessguard_lab demo
 Start-Process .\reports\vulnerable\report.html
 py -3 -m unittest discover -s tests -t .
 ```
 
-On Linux/macOS use `export PYTHONPATH=src:lab` and `python3`.
+On Linux/macOS use `export PYTHONPATH=src:lab:evaluations` and `python3`.
 
 Expected demo output (verified, see "Verification status"):
 
@@ -43,7 +47,7 @@ flaws were found and the fixed lab passed), **not** that any system is secure.
 ```powershell
 py -3 -m venv .venv
 .\.venv\Scripts\python -m pip install --require-hashes -r requirements-dev.txt
-.\.venv\Scripts\python -m pip install --no-deps --no-build-isolation -e . -e .\lab
+.\.venv\Scripts\python -m pip install --no-deps --no-build-isolation -e . -e .\lab -e .\evaluations
 .\.venv\Scripts\python -m ruff check .
 .\.venv\Scripts\python -m ruff format --check .
 .\.venv\Scripts\python -m mypy
@@ -75,17 +79,22 @@ bash ops/verify.sh selftest-fail; echo $?               # negative control: prin
 | Command | Purpose | Exit codes |
 | --- | --- | --- |
 | `accessguard-lab demo [--out DIR]` | Scan the vulnerable and the fixed lab, compare with ground truth | 0 expected result, 1 mismatch, 5 planner error, 130 cancelled |
-| `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--no-retest]` | Scan one lab profile | 0 all checks passed, 1 findings, 3 incomplete or needs review, 130 cancelled |
+| `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--no-retest] [--order deterministic\|random --seed N]` | Scan one lab profile (policy order or seeded random order, no AI) | 0 all checks passed, 1 findings, 3 incomplete or needs review, 130 cancelled |
+| `accessguard-lab agent --profile P --model scripted:follow-up\|scripted:in-order\|ollama:NAME` | Adaptive agent selects one approved check at a time (`scripted:*` = test adapter, not AI) | as `scan`, plus 2 invalid configuration, 5 model failure (partial report written) |
+| `accessguard-eval run [--model ...] [--fixtures ...] [--seeds ...] [--fractions ...]` | Compare deterministic, seeded random and agent selection under equal HTTP budgets | 0 done, 1 fixture/answer-key mismatch, 2 usage, 5 an agent run failed |
 | `accessguard-lab profiles` | List lab profiles and their flaws | 0 |
 | `accessguard validate-policy FILE` | Validate a policy file (no network) | 0 valid, 4 invalid |
 | `accessguard plan FILE [--json]` | Print the deterministic check matrix (no network) | 0, 4 |
 
-Run limits for `demo` and `scan`: `--max-requests N` (budget), `--min-interval SECONDS` (rate
-limit), `--max-duration SECONDS` (hard wall-clock limit that also aborts in-flight requests).
+Run limits for `demo`, `scan` and `agent`: `--max-requests N` (budget, also counting session
+probes, owner baselines and retests), `--min-interval SECONDS` (rate limit), `--max-duration
+SECONDS` (hard wall-clock limit that also aborts in-flight requests and model calls). Agent
+limits: `--max-model-calls`, `--max-invalid-replies`, `--model-timeout SECONDS`,
+`--ollama-port`.
 Ctrl+C (or SIGTERM / Ctrl+Break) stops a run in a controlled way: completed results are kept,
 unfinished checks are marked SKIPPED, a partial report is written, and the exit code is 130.
 
-Without an editable install, use `py -3 -m accessguard_lab ...` and `py -3 -m accessguard ...` with
+Without an editable install, use `py -3 -m accessguard_lab ...`, `py -3 -m accessguard_eval ...` and `py -3 -m accessguard ...` with
 `PYTHONPATH` set as above. Only a complete pass exits with 0: findings, inconclusive results,
 skipped checks and technical errors never do.
 
@@ -114,28 +123,53 @@ skipped checks and technical errors never do.
 ## AI status (important)
 
 The default run is a deterministic baseline **without AI or ML** and is labelled
-`"uses_ai": false` in every report. An optional Ollama planner (`--ollama-model NAME`) may only
-reorder the approved checks; its output is schema-validated and must be an exact permutation.
-Errors are reported (exit 5) and never replaced by a silent fallback.
+`"uses_ai": false` in every report.
 
-The Ollama adapter is tested with mocked responses only. **No real model has been run** in this
-milestone (Ollama was not installed on the development machine). There is no ML training, no
-adaptive agent, no customer scanning and no automatic code repair. The agent loop is milestone 2.
+**Adaptive agent (milestone 2, [ADR 0007](docs/adr/0007-bounded-adaptive-agent.md)).**
+`accessguard-lab agent` lets a model choose the next check, one at a time:
+
+- **Allowed actions:** the model may only reply `run_check` with the id of a pending,
+  approved check, or `stop`.
+- **Validation:** every reply is validated strictly. Repeats, unknown ids, extra fields,
+  oversized output and invalid JSON are rejected and counted.
+- **Execution and verdicts:** the existing engine executes the check and decides the verdict.
+  The model cannot change scope, endpoints, credentials, policy, expectations or verdicts.
+- **What the model sees:** opaque aliases and engine enumerations only. It never sees
+  credentials, protected values, response bodies, paths or any policy string.
+- **Limits:** model calls, invalid replies, output size, the HTTP budget (including probes,
+  baselines and retests) and the run deadline and stop signal (also during model calls).
+- **Failures:** a model failure ends the run visibly (`run.agent.status`, exit 5). Completed
+  results are kept, and every check that was not executed is SKIPPED. There is no fallback.
+
+The `scripted:*` models are a **scripted test adapter, not an AI model**. Their reports say
+`"uses_ai": false` and "not an AI model". The `ollama:NAME` adapter talks to a local Ollama
+server on 127.0.0.1; it is contract-tested against a fake server only. **No real model has been
+run.** The evaluation with the scripted adapter showed no advantage over the deterministic
+baseline ([evaluation](docs/evaluation.md)). There is no ML training, no customer scanning and
+no automatic code repair.
+
+The M1 option `--ollama-model NAME` on `demo`/`scan` (reorder-only planner, exit 5 on error)
+is unchanged.
 
 ## Verification status
 
 | Item | Status |
 | --- | --- |
-| 173 unit, integration, security and e2e tests | Passed locally on Windows 11 (10.0.26300): CPython 3.13.13 (venv) and 3.12.7 (no install), via both `ops/verify.sh` (Git Bash) and `ops/verify.ps1` (Windows PowerShell 5.1) |
-| Ruff lint/format, mypy `--strict`, pip-audit, detect-secrets, wheel build and content check | Passed locally on CPython 3.13.13 |
+| 266 unit, integration, security and e2e tests (1 opt-in real-model test skipped) | Passed locally on Windows 11 (10.0.26300): CPython 3.13.13 (venv) via `ops/verify.sh` and `ops/verify.ps1` (Windows PowerShell 5.1), and CPython 3.12.7 without installation |
+| Ruff lint/format, mypy `--strict`, pip-audit, detect-secrets, wheel build and content check, demo | Passed locally on CPython 3.13.13 |
+| Agent loop, limits, failure handling, data minimisation | Verified with the scripted test adapter and mocked model clients |
+| Ollama adapter | Contract-tested against a local fake Ollama HTTP server |
 | GitHub Actions workflow (Ubuntu 3.11/3.13, Windows 3.13) | Written, **not yet run** (repository not pushed) |
-| Python 3.11, Linux, macOS | **Not verified** (the local 3.11 install is broken; no Linux/macOS host) |
-| Real Ollama model | **Not verified** |
+| Python 3.11, Linux, macOS | **Not verified** |
+| Real Ollama model | **Not verified** (opt-in test `tests/e2e/test_real_model.py` is skipped) |
 
 ## Documentation
 
 - [Project walkthrough](docs/PROJECT_WALKTHROUGH.md): architecture, flows, testing, limitations
-- [Milestone 1 report](docs/milestones/M1.md): acceptance criteria and evidence
+- [Milestone 1 report](docs/milestones/M1.md) and [milestone 2 report](docs/milestones/M2.md):
+  acceptance criteria and evidence
+- [Evaluation of selection strategies](docs/evaluation.md)
+- [Handoff status](docs/HANDOFF.md) for resuming interrupted work
 - [Threat model](docs/threat-model.md)
 - [Architecture decision records](docs/adr/)
 - [Report schema](docs/report-schema.md)
@@ -147,5 +181,6 @@ See [known limitations](docs/PROJECT_WALKTHROUGH.md#known-limitations). The most
 results on the synthetic lab say nothing about detection rates on real systems; only exact JSON
 string matches count as evidence (data leaked in an HTML or plain-text error page is not reported as
 a finding; such responses are INCONCLUSIVE, never PASS); listings are not paginated; write operations, side channels
-and undeclared endpoints are not tested. Competitive advantage and willingness to pay have not been
-validated.
+and undeclared endpoints are not tested. The agent has not been run with a real model, and the
+scripted evaluation shows no advantage over the baseline. Competitive advantage and willingness to
+pay have not been validated.
