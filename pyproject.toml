@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accessguard"
+dynamic = ["version"]
+description = "Policy-driven access-control testing for multi-tenant APIs (research prototype)."
+readme = "README.md"
+requires-python = ">=3.11"
+# The engine and CLI deliberately use the standard library only (see docs/adr/0001).
+dependencies = []
+
+[project.scripts]
+accessguard = "accessguard.entrypoints.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "accessguard.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["accessguard", "accessguard.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "lab", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "B", "UP", "SIM", "C4", "RET", "PTH", "RUF", "S", "PL",
+]
+ignore = [
+    "PLR0911", # verdict functions intentionally enumerate every HTTP outcome explicitly
+    "PLR0913", # keyword-only constructors with explicit dependencies are preferred over hidden globals
+    "PLR2004", # HTTP status codes are clearer inline than as named constants
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "PLR0915"]
+# The lab is a deliberately vulnerable local fixture, never shipped with the product package.
+"lab/**" = ["S104"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+mypy_path = ["src", "lab"]
+files = ["src", "lab", "tests", "ops"]

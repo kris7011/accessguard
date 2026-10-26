@@ -1,12 +1,73 @@
-name: Prototype tests
-on: [push, pull_request]
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Least privilege: the workflow only needs to read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  quality:
+    name: Lint, types, security scans, build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Actions are pinned to full commit SHAs (tag shown for readability).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          python-version: '3.12'
-      - run: python -m unittest discover -s tests -v
-      - run: python guard.py
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install locked tooling
+        run: |
+          python -m pip install --require-hashes -r requirements-dev.txt
+          python -m pip install --no-deps --no-build-isolation -e . -e ./lab
+      - name: Ruff lint
+        run: python -m ruff check .
+      - name: Ruff format
+        run: python -m ruff format --check .
+      - name: mypy (strict)
+        run: python -m mypy
+      - name: Dependency audit
+        run: python -m pip_audit --strict --require-hashes -r requirements-dev.txt
+      - name: Secret scan
+        run: git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
+      - name: Build product wheel and verify the lab is excluded
+        run: |
+          python -m build --no-isolation --outdir dist .
+          python ops/ci/check_wheel.py dist
+
+  tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.11" }
+          - { os: ubuntu-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.13" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+      # The runtime has no third-party dependencies: tests run without installing anything.
+      - name: Unit, integration, security and end-to-end tests
+        env:
+          PYTHONPATH: ${{ runner.os == 'Windows' && 'src;lab' || 'src:lab' }}
+        run: python -m unittest discover -s tests -t . -v
+      - name: Lab demo (before/after)
+        env:
+          PYTHONPATH: ${{ runner.os == 'Windows' && 'src;lab' || 'src:lab' }}
+        run: python -m accessguard_lab demo --out reports

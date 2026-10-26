@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accessguard-lab"
+version = "0.2.0"
+description = "Deliberately vulnerable synthetic multi-tenant API used only to test AccessGuard locally."
+requires-python = ">=3.11"
+dependencies = ["accessguard==0.2.0"]
+
+[project.scripts]
+accessguard-lab = "accessguard_lab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["accessguard_lab", "accessguard_lab.*"]
+
+[tool.setuptools.package-data]
+accessguard_lab = ["policies/*.json"]
