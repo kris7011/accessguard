@@ -2,78 +2,85 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-27, seventh M2 session)
+## Current state (2026-10-27, eighth M2 session)
 
 - Branch: `feature/m2-adaptive-agent`.
-- Commits: M2 itself is `c0abc42`, the real-model readiness work `735d118`, the retest reserve
-  `9bd4846`, the smoke-test record `01fb104`, the stopped full-test attempt `d14fb33`, and the
-  passed full test `62467bc`. This session added two commits: the pre-registration `00f860f`
-  and the results commit after it (see git log).
-- No source or test code changed in the fourth to seventh sessions; only documentation.
+- This session added four commits on top of `5b2d4b7`: the list-first adapter `f6d8d25`, the
+  post-hoc control record `7a15505`, the pre-registration `a047f3c`, and the results commit
+  after it (see git log).
+- **Code changed this session** (first time since the fourth session): a new non-AI responder
+  `scripted:list-first` plus tests. No prompt, fixture, engine, budget or limit changed.
 - Nothing is pushed or merged.
-- Milestone 2 status: **mock and contract verification, plus a passed real-model smoke test, a
-  passed full opt-in test and a bounded comparative real-model evaluation** (all under runtime
-  setup B).
-  - The bounded comparison shows an advantage **per HTTP request** on `projects`, limited to
-    those scenarios.
-  - There is no advantage in waiting time.
-  - Generalisation is not shown.
-- The larger evaluation matrix has not been run.
-- No Ollama or `llama-server` process is running: the server started this session was stopped,
-  and port 11434 is free.
+- Milestone 2 status: **mock and contract verification, a passed real-model smoke test, a
+  passed full opt-in test, and bounded real-model comparisons on all four fixtures at 25 % and
+  50 % budgets** (all under runtime setup B).
+  - **No demonstrated advantage of AI prioritisation over simple rules.** On `projects` the
+    post-hoc `list-first` rule matches the model; on `helpdesk` and `clinic` the model was
+    worse than the best simple baseline in three of four cells and equal in one.
+  - The model's choices were identical across three separate server sessions.
+- The full evaluation at 100 % budgets has not been run with the model.
+- No Ollama or `llama-server` process is running: the three servers started this session were
+  stopped, and port 11434 is not listening.
 - M3 has not been started.
 
-## Done in this session (2026-10-27): bounded comparative real-model evaluation
+## Done in this session (2026-10-27): list-first control and bounded helpdesk/clinic evaluation
+
+Full record: `docs/evaluation.md` → "Post-hoc list-first control on `projects` and `library`"
+and "Bounded evaluation on `helpdesk` and `clinic` (pre-registered 2026-10-27)" (design,
+results, conclusion); summary in `docs/milestones/M2.md`.
+
+- **Adapter** (`f6d8d25`): `scripted:list-first` in `adapters/scripted_model.py`, registered in
+  `RESPONDERS` and the CLI help (`entrypoints/agent_options.py`). Every pending list check
+  first, then every other pending check, in listed order; reads only `kind` and `status` from
+  the model-visible state; does not follow findings. Shared budget, retest reserve, deadline
+  and safety limits unchanged.
+- **Tests:** `tests/unit/test_scripted_model_and_planning.py` (`ListFirstResponderTests`:
+  priority, stable order and no reaction to findings, executed checks never chosen again, a
+  real `ModelView` state yields an alias only; plus the stop test) and
+  `tests/integration/test_agent_lab.py` (full-budget verdicts equal the baseline for every lab
+  profile; a 30-request run takes listings first in policy order, then items, nothing twice,
+  budget respected, a last-request finding stays `not_retested`). 280 → 285 tests.
+- **Post-hoc control** (`7a15505`, marked as chosen after seeing the model; not independent
+  confirmation): list-first on `projects`/`library` at the bounded evaluation's budgets
+  confirmed 2 and 5 findings on `projects` with the first at request 8, exactly the model's
+  saved results; 0 false positives on `library`. The model was not rerun; the 24 baseline runs
+  reproduced the saved ones.
+- **Pre-registration** (`a047f3c`) before any run on `helpdesk`/`clinic`.
+- **Runs:** `deny-first` and `list-first` (3 repetitions each, 3.8 s and 3.7 s), then three
+  model sessions (fresh `ollama serve` each, setup B, warm-up 17.9 / 10.6 / 12.2 s, evaluations
+  214.9 / 215.2 / 220.8 s, all exit 0). 177 model calls, all valid, `truncated = 0`,
+  `prompt cache is disabled` in every log. The watchdog never intervened (free commit at least
+  3118 MB; `llama-server` peak 4651 MB; VRAM 2295 MiB; free RAM at least 57 MB).
+- **Resources before:** RAM 0.71 of 7.35 GB free; commit 7.85 of 28.52 GB free; VRAM
+  3962 MiB free; C: 14.03 GB free. No program was closed.
+- **Results** (confirmed findings; `helpdesk` 17/34, `clinic` 16/31): model 0, 1, 0, 0 in every
+  session; best simple baseline 1 (random median), 5 (`deny-first`), 0, 2 (random median);
+  `list-first` 0, 2, 0, 0. 0 false positives in all 96 scored runs. Model runs took 27-87 s.
+- **Conclusion by the pre-registered rule:** no demonstrated advantage; worse in three cells.
+  There is no gain, so there is no consistency or cost-benefit case for the model time.
+- **Kept locally (git-ignored):** `reports/eval-list-first-2026-10-27/` (post-hoc control,
+  `compare_posthoc.py`) and `reports/eval-hc-2026-10-27/` (`deny-first/`, `list-first/`,
+  `model-s1..3/` with raw reports, server logs, warm-up, memory CSVs, start/stop records;
+  `analysis.md`; scratch scripts `session.sh`, `save_reports.py`, `watchdog.py`, `analyze.py`).
+- **Docs:** `evaluation.md`, `M2.md`, `README.md`, `PROJECT_WALKTHROUGH.md`,
+  `interview-prep/M2.md` (new addendum), this file.
+- No prompt optimisation, no fixture change, no downloads, no paid services, no external
+  scans, no push, no merge.
+
+## Earlier session (2026-10-27): bounded comparative real-model evaluation
 
 Full record: `docs/evaluation.md` → "Bounded comparative real-model evaluation
-(pre-registered 2026-10-27)" (design, results, conclusion); summary in `docs/milestones/M2.md`.
+(pre-registered 2026-10-27)". In short:
 
-- **Pre-registered** design, metrics and decision rule, committed as `00f860f` before the
-  model run.
-- **Setup:**
-  - fixtures `projects` and `library` at `--fractions 0.25,0.5` (budgets 12/23 and 10/20);
-  - deterministic order, seeds 1-5, and `scripted:deny-first` ×3, then the real model ×3;
-  - `--model-timeout 300 --max-run-seconds 1800`, otherwise the CLI defaults (200 calls,
-    3 invalid replies), as in the passed full test;
-  - setup B, the same digest, prompt `agent-v1` and settings;
-  - sequential, with the watchdog running (300 MB free-commit rule);
-  - a warm-up load (9.27 s) before the measured runs.
-- **Resources before:** RAM 0.77 of 7.35 GB free; commit 7.94 of 27.78 GB free; VRAM
-  3962 MiB free; C: 13 GB free; no Ollama running. No program was closed.
-- **Execution:** both evaluations exit 0 (scripted 3.0 s, model 415.3 s). The server log
-  confirmed `prompt cache is disabled`. 99 model calls, all valid, all with `truncated = 0`.
-  Every agent run ended `interrupted` (budget used up); there were no failures or deadline
-  stops.
-- **Memory:** the watchdog did not intervene (free commit at least 2947 MB; `llama-server`
-  peak 4656 MB; VRAM 2299 MiB). Free physical RAM was below 100 MB in 139 of 186 samples, so
-  the machine was paging; single calls took up to 14 s.
-- **Results, `projects`:** the model confirmed **2 / 5** findings at 12 / 23 requests in every
-  repetition. The baselines confirmed:
-  - deterministic: 0 / 0;
-  - `deny-first`: 0 / 1;
-  - seeded random: a median of 1 / 2 (range 1-1 / 1-4).
-
-  The model's first finding came at request 8 (random: 8-11; the others: not reached, or 20).
-- **Results, `library`:** 0 false positives everywhere.
-- **Run time:** the model took 12-16 s and 42-47 s per run on `projects` (18-73 s on
-  `library`), against 0.01-0.05 s for the simple strategies.
-- **Conclusion by the pre-registered rule:** advantage per request on `projects`, limited to
-  these scenarios. It is explained by a consistent "listings first" choice: 5 of the 7
-  `projects` flaws are listing checks.
-- **Not shown:**
-  - an advantage in waiting time;
-  - generalisation to other fixtures;
-  - that the model beats a simple scripted "listings first" rule (not tested);
-  - repeatability across server sessions. The three repetitions were identical, all in one
-    session.
-- The deterministic and random runs were identical in both evaluations.
-- **Kept locally (git-ignored):** `reports/eval-real-bounded-2026-10-27/`, with `scripted/`,
-  `model/` (results, raw reports, server log, memory CSV, warm-up reply), `analysis.md` and the
-  scratch scripts `save_reports.py` and `analyze.py`.
-- **Docs:** `evaluation.md`, `M2.md`, `README.md`, `PROJECT_WALKTHROUGH.md`,
-  `interview-prep/M2.md` (addendum), this file.
-- No prompt, fixture, strategy, limit or code was changed. No downloads, no paid services, no
-  push, no merge.
+- Pre-registered (`00f860f`); `projects` and `library` at 25 % and 50 %; deterministic,
+  seeds 1-5, `deny-first` ×3, model ×3 in one server session; setup B; exit 0, 415.3 s,
+  99 valid model calls.
+- `projects`: the model confirmed 2 / 5 at 12 / 23 requests in every repetition, against
+  deterministic 0 / 0, `deny-first` 0 / 1 and a random median of 1 / 2. `library`: 0 false
+  positives everywhere. By its rule: an advantage per request, limited.
+- Explained by a "listings first" preference (5 of 7 `projects` flaws are listing checks), which
+  this session's post-hoc control confirmed.
+- Kept locally: `reports/eval-real-bounded-2026-10-27/`.
 
 ## Earlier session (2026-10-27): prompt-cache fix and full-test rerun
 
@@ -295,11 +302,9 @@ server log; the "llm server error" status during load is the normal start-up wai
 
 ## Not done
 
-- **Larger real-model evaluation.** The smoke test, the full opt-in test and the bounded
-  comparison (setup B) have run. The subset evaluation (`clinic,projects`) and the full
-  evaluation (all fixtures, including 100 %) have not. Ollama and the model are installed.
-- **"Listings first" control.** A scripted "listings first" adapter does not exist and was not
-  run. It is the natural non-AI control for the bounded result.
+- **Full real-model evaluation.** Bounded comparisons now cover all four fixtures at 25 % and
+  50 %. The full evaluation (100 % budgets) has not run with the model. Ollama and the model are
+  installed.
 - The smoke-test report itself was saved only in the session scratchpad and is not kept; the
   numbers above (and in `docs/milestones/M2.md` → "Real-model smoke test") are its record.
 - `agent-v2` (more anonymous structure in the model state) is proposed, not implemented. Measure
@@ -312,7 +317,12 @@ server log; the "llm server error" status during load is the normal start-up wai
 export PYTHONPATH="src;lab;evaluations"          # Git Bash on Windows (use ':' on Linux)
 PYTHON=.venv/Scripts/python bash ops/verify.sh    # all quality gates
 .venv/Scripts/python -m accessguard_eval run --model scripted:deny-first --agent-repeats 3 --out reports/evaluation-deny-first
+.venv/Scripts/python -m accessguard_eval run --model scripted:list-first --agent-repeats 3 --out reports/evaluation-list-first
 ```
+
+One model-server session (start, watchdog, warm-up, evaluation, stop), as used in the eighth
+session: `bash reports/eval-hc-2026-10-27/session.sh <k>` (a git-ignored scratch script; it
+starts the server with setup B from Git Bash and stops only the process it started).
 
 For the real-model sequence (smoke test → full test → subset evaluation → full evaluation),
 see `docs/evaluation.md` → "Real-model protocol". Start the local server first, loopback
@@ -330,6 +340,13 @@ After the first model call, check that the server log contains
 
 ## Latest actual results
 
+- Bounded `helpdesk`/`clinic` evaluation (2026-10-27, eighth session, setup B, three server
+  sessions, each exit 0): 177 valid model calls, 0 invalid. Confirmed findings, model vs best
+  simple baseline: `helpdesk` 17: 0 vs 1; `helpdesk` 34: 1 vs 5; `clinic` 16: 0 vs 0;
+  `clinic` 31: 0 vs 2. **No demonstrated advantage** (worse in 3 of 4 cells). Identical choices
+  across sessions. 0 false positives.
+- Post-hoc list-first control on `projects` (eighth session, no model run): confirmed 2 / 5 at
+  12 / 23 requests, equal to the model's saved results.
 - Bounded comparative real-model evaluation (2026-10-27, this session, setup B): exit 0;
   99 valid model calls, 0 invalid.
   - `projects`, confirmed findings at 12 / 23 requests: model 2 / 5 (every repetition);
@@ -347,6 +364,14 @@ After the first model call, check that the server log contains
 
 ### Quality gates
 
+- Rerun 2026-10-27 at the end of the eighth session (after the code changes and every
+  documentation change except this file): `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0.
+  - **285 tests run, 283 passed, 0 failed, 2 skipped** (the real-model tests; the variable is
+    not set in `verify.sh`). 280 → 285: +4 list-first unit tests and +1 list-first lab test;
+    two existing tests were extended to include list-first.
+  - mypy: no issues in 91 files. detect-secrets: 136 tracked files clean. Wheel: 40 files,
+    0 problems. Demo: exact match. pip-audit: no known vulnerabilities.
+  - The same gate also passed after the adapter commit, before the documentation changes.
 - Rerun 2026-10-27 after the seventh session's documentation changes:
   `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0.
   - 280 tests run, 278 passed, 0 failed, 2 skipped (the real-model tests, since the variable
@@ -398,19 +423,19 @@ Previous run (2026-10-27, after the retest reserve):
 
 ## Next step
 
-The bounded comparison is done. **Every further experiment needs the owner's go-ahead; none
-was started.** No prompt optimisation was started either. Options to decide on, in a
-suggested order:
+Every further experiment needs the owner's go-ahead. None was started, and no prompt
+optimisation was started. The bounded results give no reason to expect an AI advantage at
+these settings. Options to decide on:
 
-1. A scripted "listings first" control. It is a small new non-AI adapter, so it is a code
-   change. It would test whether the model adds anything beyond that simple rule on
-   `projects`.
-2. The larger matrix (subset, then full evaluation), as in `docs/evaluation.md`. Use setup B,
-   the watchdog (`reports/real-model-cram0-2026-10-27/watchdog.py`), a warm-up load, and
-   repetitions spread over **separate server sessions**, since in-session repetitions were
-   identical. At the measured 3-5 s per call, about 800 calls take roughly 1 hour (an
-   estimate).
-3. Pre-register again before each run (design, rule, then commit), as was done here.
+1. Stop the real-model comparison for M2 here and record M2 as complete with a negative
+   prioritisation result: the agent's safety and contract guarantees are verified, and its
+   prioritisation adds no measured value with this model.
+2. If AI prioritisation is still of interest: `agent-v2` (more anonymous structure in the
+   state; see `docs/evaluation.md` → "Information basis") or a larger model, each as a new
+   pre-registered comparison against the same simple rules. Ideally use fresh fixtures, since
+   the current four have now been seen.
+3. The full evaluation at 100 % budgets. It mostly checks that every strategy converges and
+   cannot show a prioritisation advantage.
 
 M3 (a separately authorised test application through configuration and an explicit policy)
 needs a separate go-ahead.

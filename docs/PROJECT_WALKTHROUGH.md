@@ -2,9 +2,10 @@
 
 Status as of milestone 2 (version 0.3.0): implementation with mock and contract verification.
 A real local model passed a 3-call smoke test and, with the runtime's prompt cache disabled,
-the full opt-in real-model test (2026-10-27). A bounded comparison against the baselines
-(2 fixtures, 25 % and 50 % budgets) showed an advantage per HTTP request on one flawed
-fixture, at a much longer waiting time; the full evaluation has not run. Every statement is marked by status where it matters:
+the full opt-in real-model test (2026-10-27). Bounded comparisons against simple strategies
+(all four fixtures, 25 % and 50 % budgets) showed no demonstrated AI advantage: a simple
+"listings first" rule matches the model on `projects`, and the model was worse than the best
+simple baseline on `helpdesk` and `clinic`; 100 % budgets have not been run with the model. Every statement is marked by status where it matters:
 **implemented** (code exists), **tested** (an automated test exists and was run),
 **proposed/future** (not built).
 
@@ -202,13 +203,16 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   and raw-byte matching are not implemented.
 - The Ollama planner only reorders; with every check executed, the order does not affect results.
   Verified with mocks only.
-- The adaptive agent has been compared with a real model only in a **bounded** evaluation
-  (2026-10-27; `docs/evaluation.md`). There it confirmed 2 and 5 findings on `projects` at
-  12 and 23 requests, against at most a median of 1 and 2 for the simple strategies. It had
-  0 false positives on the flaw-free `library` fixture. This is an advantage per request, not
-  per waiting time (12-73 s per run against hundredths of a second). It comes from a "listings
-  first" preference that matches that fixture's flaw layout, and a scripted "listings first"
-  rule was not tested. Its guarantees are verified with a scripted adapter, mocks and a fake
+- The adaptive agent has been compared with a real model only in **bounded** evaluations
+  (2026-10-27; `docs/evaluation.md`), at 25 % and 50 % budgets:
+  - `projects`: it confirmed 2 and 5 findings at 12 and 23 requests, against at most a median
+    of 1 and 2 for the first simple strategies. A scripted `list-first` rule, added afterwards
+    as a post-hoc control, matches it exactly, so the gain is explained by "listings first".
+  - `helpdesk` and `clinic` (pre-registered, three separate server sessions with identical
+    choices): no demonstrated advantage. It confirmed 0, 1, 0 and 0 findings, against best
+    simple baselines of 1, 5, 0 and 2.
+  - It had 0 false positives everywhere and took 12-87 s per run against hundredths of a
+    second. Its guarantees are verified with a scripted adapter, mocks and a fake
   Ollama server. Against a real local model
   (`qwen3:4b-instruct-2507-q4_K_M`, Ollama 0.40.11), the 3-call smoke test passed. The first
   full-test attempt was stopped after 12 valid choices, because the runtime's host prompt cache
@@ -227,7 +231,8 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   - aliases follow policy order.
 
   A structural non-AI heuristic (`scripted:deny-first`) beats the policy order slightly, but
-  not seeded random, on the fixtures. See `docs/evaluation.md` → "Information basis of the
+  not seeded random, on the fixtures. A second one, `scripted:list-first` (every list check
+  first, then policy order), was added as a control for the real model's behaviour. See `docs/evaluation.md` → "Information basis of the
   agent".
 - Retests run in a separate phase after the selected checks, but the runner holds back one
   request per finding so they are confirmed within the same HTTP budget (2026-10-27 reserve;
@@ -274,5 +279,11 @@ runner holds back one request per finding so budget-limited runs confirm their f
 the same policy for every strategy and the model input unchanged (ADR 0008 amendment). The
 owner should review the trade-off that confirming a finding slightly lowers coverage at tight
 budgets.
+
+The `scripted:list-first` control and the bounded `helpdesk`/`clinic` evaluation (2026-10-27,
+eighth session) were implemented and run by Claude Code at the owner's request; the owner set
+the design (fixtures, budgets, strategies, three server sessions), and the decision rule was
+committed before the model runs. The owner should review the conclusion that the measured
+advantage on `projects` is explained by a simple rule.
 
 Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`.

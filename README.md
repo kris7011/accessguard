@@ -16,10 +16,11 @@ failures, and writes a machine-readable report with coverage.
 agent can choose the next approved check from earlier results. It is verified with a scripted
 test adapter and a fake Ollama server. A real local model passed a bounded 3-call smoke test
 and the full opt-in real-model test (56/56 checks, exact match with the lab's answer key, with
-the runtime's prompt cache disabled). A bounded, pre-registered comparison (2 fixtures, 25 % and
-50 % budgets) showed an advantage **per HTTP request** on one flawed synthetic fixture, at a far
-longer waiting time and with clear limits. The full evaluation has not run, so **there is no
-general documented advantage of AI prioritisation**
+the runtime's prompt cache disabled). Bounded comparisons against simple strategies (all four
+synthetic fixtures, 25 % and 50 % budgets) found **no demonstrated advantage of AI
+prioritisation**: on `projects` a simple scripted "listings first" rule matches the model
+(a post-hoc check), and on `helpdesk` and `clinic` the model was worse than the best simple
+baseline in three of four cells, in each of three server sessions
 ([status](docs/milestones/M2.md), [evaluation](docs/evaluation.md)).
 
 ## Quick start (Windows PowerShell)
@@ -86,7 +87,7 @@ bash ops/verify.sh selftest-fail; echo $?               # negative control: prin
 | --- | --- | --- |
 | `accessguard-lab demo [--out DIR]` | Scan the vulnerable and the fixed lab, compare with ground truth | 0 expected result, 1 mismatch, 5 planner error, 130 cancelled |
 | `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--no-retest] [--order deterministic\|random --seed N]` | Scan one lab profile (policy order or seeded random order, no AI) | 0 all checks passed, 1 findings, 3 incomplete or needs review, 130 cancelled |
-| `accessguard-lab agent --profile P --model scripted:follow-up\|scripted:deny-first\|scripted:in-order\|ollama:NAME` | Adaptive agent selects one approved check at a time (`scripted:*` = test adapter, not AI) | as `scan`, plus 2 invalid configuration, 5 model failure (partial report written) |
+| `accessguard-lab agent --profile P --model scripted:follow-up\|scripted:deny-first\|scripted:list-first\|scripted:in-order\|ollama:NAME` | Adaptive agent selects one approved check at a time (`scripted:*` = test adapter, not AI) | as `scan`, plus 2 invalid configuration, 5 model failure (partial report written) |
 | `accessguard-eval run [--model ...] [--fixtures ...] [--seeds ...] [--fractions ...] [--agent-repeats N] [--max-run-seconds S]` | Compare deterministic, seeded random and agent selection under equal HTTP budgets | 0 done, 1 fixture/answer-key mismatch, 2 usage, 5 an agent run failed |
 | `accessguard-lab profiles` | List lab profiles and their flaws | 0 |
 | `accessguard validate-policy FILE` | Validate a policy file (no network) | 0 valid, 4 invalid |
@@ -151,10 +152,12 @@ The `scripted:*` models are a **scripted test adapter, not an AI model**. Their 
 `"uses_ai": false` and "not an AI model". The `ollama:NAME` adapter talks to a local Ollama
 server on 127.0.0.1. It is contract-tested against a fake server and has run against a real
 local model in a 3-call smoke test and one passed full opt-in test (2026-10-27).
-A real model has been compared with the baselines only in a bounded evaluation (2 fixtures,
-25 % and 50 % budgets): more confirmed findings per request on `projects`, 0 false positives on
-`library`, and 12-73 s per run instead of milliseconds. The evaluation with the scripted adapter
-showed no advantage over seeded random order ([evaluation](docs/evaluation.md)). There is no ML training, no customer scanning and
+A real model has been compared with the baselines only in bounded evaluations (all four
+fixtures, 25 % and 50 % budgets). It had 0 false positives everywhere and took 12-87 s per run
+instead of milliseconds. Its gain per request on `projects` is matched by a simple scripted
+"listings first" rule, and on `helpdesk` and `clinic` it confirmed fewer findings than the best
+simple baseline. The evaluation with the scripted adapter showed no advantage over seeded
+random order ([evaluation](docs/evaluation.md)). There is no ML training, no customer scanning and
 no automatic code repair.
 
 The M1 option `--ollama-model NAME` on `demo`/`scan` (reorder-only planner, exit 5 on error)
@@ -190,7 +193,7 @@ See [known limitations](docs/PROJECT_WALKTHROUGH.md#12-known-limitations). The m
 results on the synthetic lab say nothing about detection rates on real systems; only exact JSON
 string matches count as evidence (data leaked in an HTML or plain-text error page is not reported as
 a finding; such responses are INCONCLUSIVE, never PASS); listings are not paginated; write operations, side channels
-and undeclared endpoints are not tested. The agent has been compared with a real model only on
-two synthetic fixtures. The advantage per request found there is not shown to generalise or to
-beat a simple "listings first" rule. Competitive advantage and willingness to
+and undeclared endpoints are not tested. The agent has been compared with a real model only in
+bounded runs on four synthetic fixtures, with one 4B model, and showed no advantage over simple
+rules. Competitive advantage and willingness to
 pay have not been validated.
