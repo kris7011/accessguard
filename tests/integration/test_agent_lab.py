@@ -7,6 +7,7 @@ from accessguard.adapters.scripted_model import (
     ScriptedModelClient,
     follow_up_responder,
     in_order_responder,
+    list_first_responder,
 )
 from accessguard.application.agent import AgentLimits
 from accessguard.application.gate import RunLimits
@@ -47,7 +48,7 @@ class AgentLabTests(unittest.TestCase):
             Flaw.SHARE_IGNORED.value,
         ):
             baseline = scan(profile, DeterministicPlanner())
-            for responder in (in_order_responder, follow_up_responder):
+            for responder in (in_order_responder, follow_up_responder, list_first_responder):
                 report = scan(profile, agent(responder))
                 with self.subTest(profile=profile, responder=responder.__name__):
                     self.assertEqual(verdicts(report), verdicts(baseline))
@@ -82,6 +83,27 @@ class AgentLabTests(unittest.TestCase):
         # left unverified and never presented as a pass. The total still respects the budget.
         self.assertTrue(all(f["verification"] == "reproduced" for f in report["findings"]))
         self.assertLessEqual(report["run"]["requests_used"], 30)
+
+    def test_list_first_runs_listings_first_within_the_shared_budget_and_retest_policy(
+        self,
+    ) -> None:
+        baseline = scan("vulnerable", DeterministicPlanner())["results"]
+        listings = [r["check_id"] for r in baseline if r["kind"] == "list"]
+        report = scan("vulnerable", agent(list_first_responder), RunLimits(max_requests=30))
+        executed = [r["check_id"] for r in report["results"] if r["executed"]]
+        self.assertGreater(len(executed), len(listings))
+        # Every listing first, in policy order; then the item checks in policy order.
+        self.assertEqual(executed[: len(listings)], listings)
+        items = [r["check_id"] for r in baseline if r["kind"] == "item"]
+        self.assertEqual(executed[len(listings) :], items[: len(executed) - len(listings)])
+        self.assertEqual(len(executed), len(set(executed)))  # nothing is chosen twice
+        # The shared budget and retest reserve apply unchanged: the budget is never exceeded,
+        # and a finding made with the last affordable request stays honestly unverified.
+        self.assertEqual(report["run"]["requests_used"], 30)
+        self.assertEqual(report["run"]["agent"]["status"], "interrupted")
+        verification = [f["verification"] for f in report["findings"]]
+        self.assertEqual(verification[:-1], ["reproduced"] * (len(verification) - 1))
+        self.assertIn(verification[-1], {"reproduced", "not_retested"})
 
 
 if __name__ == "__main__":

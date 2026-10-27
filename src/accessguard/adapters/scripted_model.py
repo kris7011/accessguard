@@ -149,8 +149,20 @@ def deny_first_responder(request: ModelRequest) -> str:
     return _choose(request, deny_first=True)
 
 
+def list_first_responder(request: ModelRequest) -> str:
+    """Every pending list check first, then every other pending check; listed order within each.
+
+    A non-AI control for a single, fixed rule ("listings first"). It reads only the check kind
+    and status from the model-visible state, does not react to findings, and never stops early.
+    """
+    pending = [c for c in _state(request)["checks"] if c["status"] == "pending"]
+    listings = [c for c in pending if c["kind"] == "list"]
+    return _run((listings or pending)[0]) if pending else _STOP
+
+
 RESPONDERS: Mapping[str, Responder] = {
     "in-order": in_order_responder,
     "follow-up": follow_up_responder,
     "deny-first": deny_first_responder,
+    "list-first": list_first_responder,
 }

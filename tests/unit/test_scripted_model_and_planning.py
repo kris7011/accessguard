@@ -10,6 +10,7 @@ from accessguard.adapters.scripted_model import (
     deny_first_responder,
     follow_up_responder,
     in_order_responder,
+    list_first_responder,
 )
 from accessguard.application.agent_view import Budget, ModelView
 from accessguard.application.planning import DeterministicPlanner, SeededRandomPlanner
@@ -61,7 +62,12 @@ class ScriptedModelTests(unittest.TestCase):
 
     def test_responders_stop_when_nothing_is_pending(self) -> None:
         state = {"checks": [{"id": "c001", "status": "done", "actor": "a1"}]}
-        for responder in (in_order_responder, follow_up_responder, deny_first_responder):
+        for responder in (
+            in_order_responder,
+            follow_up_responder,
+            deny_first_responder,
+            list_first_responder,
+        ):
             with self.subTest(responder=responder.__name__):
                 self.assertEqual(json.loads(responder(request_for(state))), {"action": "stop"})
 
@@ -106,6 +112,63 @@ class ScriptedModelTests(unittest.TestCase):
         state["checks"][1].update(status="done", outcome="FAIL")  # r2 is now suspicious
         reply = json.loads(deny_first_responder(request_for(state)))
         self.assertEqual(reply["check_id"], "c004")
+
+
+def picks(state: dict[str, list[dict[str, object]]]) -> list[str]:
+    """Drive the list-first responder to the end, marking each choice done as the engine would."""
+    chosen: list[str] = []
+    while (reply := json.loads(list_first_responder(request_for(state))))["action"] == "run_check":
+        chosen.append(reply["check_id"])
+        row = next(c for c in state["checks"] if c["id"] == reply["check_id"])
+        row.update(status="done", outcome="FAIL")
+    return chosen
+
+
+class ListFirstResponderTests(unittest.TestCase):
+    @staticmethod
+    def row(alias: str, kind: str, **extra: object) -> dict[str, object]:
+        return {"id": alias, "kind": kind, "status": "pending", **extra}
+
+    def test_list_checks_go_first_then_the_rest_in_listed_order(self) -> None:
+        state = {
+            "checks": [
+                self.row("c001", "item", expectation="deny", relation="cross_tenant"),
+                self.row("c002", "list", expectation="allow"),
+                self.row("c003", "item", expectation="allow", relation="owner"),
+                self.row("c004", "list", expectation="deny"),
+            ]
+        }
+        self.assertEqual(picks(state), ["c002", "c004", "c001", "c003"])
+
+    def test_order_is_stable_and_ignores_findings(self) -> None:
+        def fresh() -> dict[str, list[dict[str, object]]]:
+            return {"checks": [self.row(f"c{i:03d}", "item") for i in range(1, 6)]}
+
+        # No list checks: exactly the listed order, identical on every call. A finding
+        # (outcome FAIL) does not pull related checks forward, unlike follow-up.
+        self.assertEqual(picks(fresh()), ["c001", "c002", "c003", "c004", "c005"])
+        self.assertEqual(picks(fresh()), picks(fresh()))
+
+    def test_executed_checks_are_never_chosen_again(self) -> None:
+        state = {
+            "checks": [
+                self.row("c001", "list", status="done", outcome="FAIL"),
+                self.row("c002", "item"),
+                self.row("c003", "list", status="done", outcome="PASS"),
+                self.row("c004", "list"),
+                self.row("c005", "item", status="done", outcome="SKIPPED"),
+            ]
+        }
+        self.assertEqual(picks(state), ["c004", "c002"])
+
+    def test_uses_only_the_model_visible_state(self) -> None:
+        view = ModelView(POLICY, CHECKS)
+        state = view.state(results=[], sessions={}, budget=BUDGET, last_rejection=None)
+        reply = json.loads(list_first_responder(request_for(state)))
+        listing = next(c for c in state["checks"] if c["kind"] == "list")
+        self.assertEqual(reply, {"action": "run_check", "check_id": listing["id"]})
+        # The chosen id is an opaque alias, never a policy check id.
+        self.assertNotIn(reply["check_id"], {check.id for check in CHECKS})
 
 
 class SeededRandomPlannerTests(unittest.TestCase):
