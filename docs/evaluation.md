@@ -14,6 +14,9 @@ pre-registered rule, the model shows an advantage **per HTTP request** on `proje
 confirmed findings against at most 2 for the simple strategies' medians at 50 %), at a much
 longer waiting time and with important limits. See
 [Bounded comparative real-model evaluation](#bounded-comparative-real-model-evaluation-pre-registered-2026-10-27).
+A post-hoc control afterwards showed that a simple scripted "listings first" rule matches the
+model on `projects`, so that advantage is explained by the rule
+([details](#post-hoc-list-first-control-on-projects-and-library-2026-10-27)).
 The full evaluation matrix has not been run, so there is no general documented advantage of AI
 prioritisation.
 
@@ -537,7 +540,9 @@ What the result does **not** show:
 - **That the advantage generalises.** It rests on one flawed fixture, in which most flaws sit in
   listing checks, which the model happens to prefer. `helpdesk` (role bypass) and `clinic`
   (one cross-tenant record) were not part of this experiment.
-- **That the model beats a trivial "listings first" rule.** That rule was not tested.
+- **That the model beats a trivial "listings first" rule.** That rule was not tested in this
+  experiment. A later, post-hoc control found that it matches the model on `projects` (see
+  [the next section](#post-hoc-list-first-control-on-projects-and-library-2026-10-27)).
 - **Repeatability across server sessions.** All repetitions were identical, but they ran in one
   server session.
 
@@ -548,3 +553,60 @@ Kept locally (git-ignored, not committed): `reports/eval-real-bounded-2026-10-27
 - `model/`: the server log, the warm-up reply, the memory CSV and the watchdog summary;
 - `analysis.md`, with every run listed;
 - the scratch scripts `save_reports.py` and `analyze.py`.
+
+Later addendum: the "listings first" rule was tested afterwards; see the next section.
+
+## Post-hoc list-first control on `projects` and `library` (2026-10-27)
+
+**This is an after-the-fact check, not an independent confirmation.** The rule was chosen
+*after* the bounded evaluation showed that the model put listings first. It can test whether
+that rule alone explains the model's measured advantage on `projects`. It cannot show that the
+model or the rule generalises, because the rule was fitted to an observation on these very
+fixtures.
+
+**The rule** (`scripted:list-first`, `adapters/scripted_model.py`, not AI): among the pending
+checks in the model-visible state, run every list check first, then every other check, in
+listed (policy) order within each group. It reads only the check `kind` and `status`, the same
+state the model receives. It has no access to the answer key, the flaw configuration, fixture
+names or particular check ids, and it does not react to findings (unlike `follow-up` and
+`deny-first`). Budget, retest reserve, deadline and safety limits are the shared engine's,
+unchanged.
+
+**Run.** The same command and settings as the bounded scripted evaluation, with only the
+adapter changed (no model run, no server):
+
+```bash
+python save_reports.py <out>/raw run --model scripted:list-first --fixtures projects,library --fractions 0.25,0.5 --agent-repeats 3 --model-timeout 300 --max-run-seconds 1800 --out <out>
+```
+
+Exit 0. The 24 deterministic and seeded-random runs were identical to the saved bounded
+evaluation, so the baselines reproduced. The model numbers below are the **saved** results of
+the bounded evaluation; the model was not rerun.
+
+| Fixture | Budget | Strategy | Found | Confirmed | FP | Executed / 30 | First finding (requests) | Seconds per run |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | --- | ---: |
+| projects | 12 | model (saved, 3 runs) | 2 | **2** | 0 | 3 | 8 | 12.0-15.9 |
+| projects | 12 | list-first (3 runs) | 3 | **2** | 0 | 3 | 8 | 0.02 |
+| projects | 23 | model (saved, 3 runs) | 5 | **5** | 0 | 10 | 8 | 42.6-47.1 |
+| projects | 23 | list-first (3 runs) | 5 | **5** | 0 | 11 | 8 | 0.02-0.04 |
+| library | 10 | model / list-first | 0 / 0 | 0 / 0 | 0 / 0 | 4 / 4 | not reached | 18.3-22.6 / 0.01-0.03 |
+| library | 20 | model / list-first | 0 / 0 | 0 / 0 | 0 / 0 | 12 / 14 | not reached | 50.0-73.2 / 0.02-0.04 |
+
+Every list-first value was the same in all three repetitions (one selection order).
+
+What it shows:
+
+- **On `projects`, list-first matches the model on the primary metric** (confirmed findings:
+  2 and 5) and on requests to the first finding (8). At 12 requests it also found one more
+  candidate than the model; that finding came with the last affordable request and stayed
+  `not_retested`. At 23 requests it executed one check more (11 against 10).
+- **The orders are not identical.** The model began with the auditor's listing and the anonymous
+  listing (a PASS), then the other plan listings; list-first takes the listings in policy order.
+  On `library` at 10 requests the executed checks were the same; at 20 the model mixed item and
+  list checks.
+- **Conclusion:** on `projects` the model's measured advantage per request over the earlier
+  baselines is fully explained by the simple "listings first" rule. The model added nothing
+  measurable beyond it there, at a cost of 12-47 s per run against hundredths of a second.
+
+Kept locally (git-ignored): `reports/eval-list-first-2026-10-27/posthoc/` (results, summary,
+raw reports), `posthoc-comparison.txt` and the scratch script `compare_posthoc.py`.
