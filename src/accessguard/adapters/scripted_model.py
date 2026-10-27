@@ -20,7 +20,7 @@ else; in particular no ground truth and no lab or fixture configuration.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 from accessguard.application.ports import (
@@ -96,6 +96,38 @@ def in_order_responder(request: ModelRequest) -> str:
     return _run(pending[0]) if pending else _STOP
 
 
+def _follow_up_score(check: Mapping[str, Any], findings: Sequence[Mapping[str, Any]]) -> int:
+    total = 0
+    for finding in findings:
+        if "resource" in check and check["resource"] == finding.get("resource"):
+            total += 4
+        if "category" in check and (check["category"], check["relation"]) == (
+            finding.get("category"),
+            finding.get("relation"),
+        ):
+            total += 2
+        if "collection" in check and check["collection"] == finding.get("collection"):
+            total += 2
+        if check["actor"] == finding["actor"]:
+            total += 1
+    return total
+
+
+def _choose(request: ModelRequest, *, deny_first: bool) -> str:
+    checks = _state(request)["checks"]
+    findings = [c for c in checks if c.get("outcome") in ("FAIL", "SUSPECTED")]
+    pending = [c for c in checks if c["status"] == "pending"]
+    if not pending:
+        return _STOP
+
+    def rank(index: int) -> tuple[int, bool, int]:
+        check = pending[index]
+        denied = deny_first and check["expectation"] == "deny"
+        return (_follow_up_score(check, findings), denied, -index)
+
+    return _run(pending[max(range(len(pending)), key=rank)])
+
+
 def follow_up_responder(request: ModelRequest) -> str:
     """Deterministic follow-up heuristic: concentrate on what earlier findings point to.
 
@@ -104,33 +136,21 @@ def follow_up_responder(request: ModelRequest) -> str:
     The highest score wins; ties keep the listed order. Without findings this is the
     listed (deterministic) order. It never stops early.
     """
-    checks = _state(request)["checks"]
-    findings = [c for c in checks if c.get("outcome") in ("FAIL", "SUSPECTED")]
-    pending = [c for c in checks if c["status"] == "pending"]
-    if not pending:
-        return _STOP
+    return _choose(request, deny_first=False)
 
-    def score(check: Mapping[str, Any]) -> int:
-        total = 0
-        for finding in findings:
-            if "resource" in check and check["resource"] == finding.get("resource"):
-                total += 4
-            if "category" in check and (check["category"], check["relation"]) == (
-                finding.get("category"),
-                finding.get("relation"),
-            ):
-                total += 2
-            if "collection" in check and check["collection"] == finding.get("collection"):
-                total += 2
-            if check["actor"] == finding["actor"]:
-                total += 1
-        return total
 
-    best = max(range(len(pending)), key=lambda index: (score(pending[index]), -index))
-    return _run(pending[best])
+def deny_first_responder(request: ModelRequest) -> str:
+    """The follow-up heuristic, but among equal scores checks expected to be denied go first.
+
+    A non-AI reference for what the structural state alone allows: before any finding,
+    every check expected to be denied is tried before any check expected to be allowed,
+    in listed order. It never stops early.
+    """
+    return _choose(request, deny_first=True)
 
 
 RESPONDERS: Mapping[str, Responder] = {
     "in-order": in_order_responder,
     "follow-up": follow_up_responder,
+    "deny-first": deny_first_responder,
 }

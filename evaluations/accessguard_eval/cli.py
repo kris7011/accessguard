@@ -24,7 +24,9 @@ from accessguard.entrypoints.agent_options import (
 from accessguard_eval.fixtures import fixture_ids
 from accessguard_eval.harness import (
     DEFAULT_FRACTIONS,
+    DEFAULT_MAX_RUN_SECONDS,
     DEFAULT_SEEDS,
+    UNKNOWN,
     EvaluationConfig,
     evaluate,
 )
@@ -50,6 +52,20 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--fixtures", type=_csv(str), default=None, help="Comma-separated ids")
     run.add_argument("--fractions", type=_csv(float), default=DEFAULT_FRACTIONS)
     run.add_argument("--seeds", type=_csv(int), default=DEFAULT_SEEDS)
+    run.add_argument(
+        "--agent-repeats",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Agent runs per fixture and budget; every repetition is scored (default 1)",
+    )
+    run.add_argument(
+        "--max-run-seconds",
+        type=float,
+        default=DEFAULT_MAX_RUN_SECONDS,
+        metavar="SECONDS",
+        help="Deadline for every run of every strategy, including model time",
+    )
     add_agent_arguments(run, model_required=False)
     run.set_defaults(model=DEFAULT_MODEL)
     commands.add_parser("fixtures", help="List evaluation fixtures")
@@ -58,6 +74,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _cell(value: object) -> str:
     return "-" if value is None else str(value)
+
+
+def _statuses(value: Mapping[str, int] | None) -> str:
+    return "-" if not value else ", ".join(f"{name} {count}" for name, count in value.items())
 
 
 def render_markdown(result: Mapping[str, Any]) -> str:
@@ -72,17 +92,26 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         f"tool contract `{meta['tool_contract_version']}`",
         f"- Agent adapter: {adapter['label']} (real model: {adapter['is_real_model']}), "
         f"settings `{json.dumps(adapter['settings'])}`",
-        f"- Provider-reported metadata: `{json.dumps(adapter['provider_metadata_reported'])}`",
-        f"- Random seeds: {meta['seeds']}; budget fractions of a complete run: "
-        f"{meta['budget_fractions']}",
+        f"- Model provenance (`{UNKNOWN}` = not reported by the provider): "
+        f"`{json.dumps(adapter['provenance'])}`",
+        f"- Provider metadata errors: `{json.dumps(adapter['provider_metadata_errors'])}`",
+        f"- Random seeds: {meta['seeds']}; agent repetitions: {meta['agent_repeats']}; "
+        f"budget fractions of a complete run: {meta['budget_fractions']}; "
+        f"deadline per run: {meta['max_run_seconds']} s",
         "",
-        "Seeded-random rows are means over the seeds (TP min-max in brackets). "
-        '"First TP" is the number of target requests used when the first expected finding '
-        "was observed (mean over runs that found one). Times are wall-clock and machine-dependent.",
+        "Rows with several runs (seeded random, repeated agent) are means "
+        '(TP min-max in brackets). "Confirmed" counts true positives with outcome FAIL and a '
+        'reproducing retest. "First TP" is the number of target requests used when the first '
+        "expected finding was observed (mean over runs that found one). Request counts include "
+        "session probes, owner baselines and retests. Times are wall-clock and "
+        'machine-dependent; "Seconds" includes "Model s". "Orders" is the number of distinct '
+        "agent selection orders.",
         "",
-        "| Fixture | Budget | Strategy | TP / expected | FP | TP per 100 req | First TP (req) "
-        "| No TP runs | Conclusive | Model calls | Invalid replies | Seconds |",
-        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Fixture | Budget | Strategy | TP / expected | Confirmed | FP | TP per 100 req "
+        "| First TP (req) | No TP runs | Conclusive | Model calls | Invalid replies "
+        "| Agent status | Orders | Model s | Seconds |",
+        "| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: "
+        "| --- | ---: | ---: | ---: |",
     ]
     for row in result["summary"]:
         tp = _cell(row["true_positives"])
@@ -91,10 +120,13 @@ def render_markdown(result: Mapping[str, Any]) -> str:
         lines.append(
             f"| {row['fixture']} | {row['budget']} ({row['budget_fraction']:.0%}) "
             f"| {row['strategy']} | {tp} / {row['expected_findings']} "
+            f"| {_cell(row['confirmed_true_positives'])} "
             f"| {_cell(row['false_positives'])} | {_cell(row['findings_per_100_requests'])} "
             f"| {_cell(row['requests_to_first_finding'])} | {row['runs_without_finding']} "
             f"| {_cell(row['conclusive_ratio'])} | {_cell(row['model_calls'])} "
-            f"| {_cell(row['invalid_replies'])} | {_cell(row['total_seconds'])} |"
+            f"| {_cell(row['invalid_replies'])} | {_statuses(row['agent_statuses'])} "
+            f"| {_cell(row['distinct_selection_orders'])} | {_cell(row['model_seconds'])} "
+            f"| {_cell(row['total_seconds'])} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -107,6 +139,8 @@ def _run(args: argparse.Namespace) -> int:
             fractions=args.fractions,
             seeds=args.seeds,
             agent_limits=agent_limits(args),
+            max_duration_seconds=args.max_run_seconds,
+            agent_repeats=args.agent_repeats,
         )
     except (ModelError, ValueError) as error:
         print(f"Invalid configuration: {error}", file=sys.stderr)

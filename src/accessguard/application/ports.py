@@ -67,6 +67,9 @@ class ModelDescriptor:
 
     ``is_real_model`` is False for scripted test adapters; reports must then never be
     labelled AI. ``settings`` are the generation settings this client sends.
+    ``provenance_keys`` names the metadata :meth:`ModelClient.identify` can report (for
+    example a version or digest), so that a key the provider did not report can be shown
+    as unknown instead of silently disappearing.
     """
 
     provider: str
@@ -74,6 +77,7 @@ class ModelDescriptor:
     is_real_model: bool
     label: str
     settings: Mapping[str, ProviderValue] = field(default_factory=dict)
+    provenance_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

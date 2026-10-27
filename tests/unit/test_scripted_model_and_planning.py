@@ -7,6 +7,7 @@ import unittest
 from accessguard.adapters.scripted_model import (
     SCRIPTED_LABEL,
     ScriptedModelClient,
+    deny_first_responder,
     follow_up_responder,
     in_order_responder,
 )
@@ -60,7 +61,7 @@ class ScriptedModelTests(unittest.TestCase):
 
     def test_responders_stop_when_nothing_is_pending(self) -> None:
         state = {"checks": [{"id": "c001", "status": "done", "actor": "a1"}]}
-        for responder in (in_order_responder, follow_up_responder):
+        for responder in (in_order_responder, follow_up_responder, deny_first_responder):
             with self.subTest(responder=responder.__name__):
                 self.assertEqual(json.loads(responder(request_for(state))), {"action": "stop"})
 
@@ -83,6 +84,28 @@ class ScriptedModelTests(unittest.TestCase):
         state["checks"][0]["outcome"] = "PASS"  # no findings: listed order
         reply = json.loads(follow_up_responder(request_for(state)))
         self.assertEqual(reply["check_id"], "c002")
+
+    def test_deny_first_tries_deny_checks_first_then_follows_findings(self) -> None:
+        def item(alias: str, resource: str, expectation: str, **extra: object) -> dict[str, object]:
+            row: dict[str, object] = {"id": alias, "kind": "item", "resource": resource}
+            row.update(category="k1", relation="owner", actor="a1", status="pending")
+            return {**row, "expectation": expectation, **extra}
+
+        state = {
+            "checks": [
+                item("c001", "r1", "allow"),
+                item("c002", "r2", "allow"),
+                item("c003", "r3", "deny", relation="cross_tenant"),
+                item("c004", "r2", "deny", relation="cross_tenant"),
+            ]
+        }
+        reply = json.loads(deny_first_responder(request_for(state)))
+        self.assertEqual(reply, {"action": "run_check", "check_id": "c003"})
+        self.assertEqual(json.loads(follow_up_responder(request_for(state)))["check_id"], "c001")
+        state["checks"][2].update(status="done", outcome="PASS")
+        state["checks"][1].update(status="done", outcome="FAIL")  # r2 is now suspicious
+        reply = json.loads(deny_first_responder(request_for(state)))
+        self.assertEqual(reply["check_id"], "c004")
 
 
 class SeededRandomPlannerTests(unittest.TestCase):

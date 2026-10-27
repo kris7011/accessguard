@@ -58,3 +58,22 @@ Option 2, implemented in `evaluations/accessguard_eval/` (not part of the produc
 A real model is run (record its digest and settings), more or larger fixtures are added, or
 milestone 5 introduces trained rankers that need train/test splits by application and flaw
 type.
+
+## Amendment (2026-10-26, real-model readiness)
+
+Before a first real-model run, the harness was extended. These changes leave the request-based
+results of the scripted runs unchanged.
+
+- **Repetitions.** `agent_repeats` runs the agent several times per fixture and budget, with a
+  fresh client each time. Every repetition is scored and averaged, never selected. A
+  selection digest per run shows whether the repetitions chose identically.
+- **One deadline for all.** `max_run_seconds` applies to every strategy. Only the agent spends
+  time on a model, so a deadline that is too short would penalise it silently. The value is
+  explicit, validated and recorded.
+- **Confirmed findings.** `confirmed_true_positives` counts a FAIL only when its retest
+  reproduced it. This exposed the fact that budget-limited runs never confirm findings,
+  because retests run last.
+- **Unknown provenance.** Adapters declare the metadata keys they can report. A key that was
+  not reported is recorded as `"unknown"` instead of being left out.
+- **Non-AI reference.** The scripted `deny-first` heuristic shows what the structural state
+  alone achieves. A real model should beat it, not only the policy order.

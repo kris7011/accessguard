@@ -80,8 +80,8 @@ bash ops/verify.sh selftest-fail; echo $?               # negative control: prin
 | --- | --- | --- |
 | `accessguard-lab demo [--out DIR]` | Scan the vulnerable and the fixed lab, compare with ground truth | 0 expected result, 1 mismatch, 5 planner error, 130 cancelled |
 | `accessguard-lab scan --profile P [--policy lab\|v0.1-parity] [--no-retest] [--order deterministic\|random --seed N]` | Scan one lab profile (policy order or seeded random order, no AI) | 0 all checks passed, 1 findings, 3 incomplete or needs review, 130 cancelled |
-| `accessguard-lab agent --profile P --model scripted:follow-up\|scripted:in-order\|ollama:NAME` | Adaptive agent selects one approved check at a time (`scripted:*` = test adapter, not AI) | as `scan`, plus 2 invalid configuration, 5 model failure (partial report written) |
-| `accessguard-eval run [--model ...] [--fixtures ...] [--seeds ...] [--fractions ...]` | Compare deterministic, seeded random and agent selection under equal HTTP budgets | 0 done, 1 fixture/answer-key mismatch, 2 usage, 5 an agent run failed |
+| `accessguard-lab agent --profile P --model scripted:follow-up\|scripted:deny-first\|scripted:in-order\|ollama:NAME` | Adaptive agent selects one approved check at a time (`scripted:*` = test adapter, not AI) | as `scan`, plus 2 invalid configuration, 5 model failure (partial report written) |
+| `accessguard-eval run [--model ...] [--fixtures ...] [--seeds ...] [--fractions ...] [--agent-repeats N] [--max-run-seconds S]` | Compare deterministic, seeded random and agent selection under equal HTTP budgets | 0 done, 1 fixture/answer-key mismatch, 2 usage, 5 an agent run failed |
 | `accessguard-lab profiles` | List lab profiles and their flaws | 0 |
 | `accessguard validate-policy FILE` | Validate a policy file (no network) | 0 valid, 4 invalid |
 | `accessguard plan FILE [--json]` | Print the deterministic check matrix (no network) | 0, 4 |

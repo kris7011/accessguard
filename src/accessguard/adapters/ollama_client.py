@@ -46,6 +46,8 @@ _CHAT_METADATA = {
     "load_duration": int,
 }
 _TAG_DETAILS = ("format", "family", "parameter_size", "quantization_level")
+PROVENANCE_KEYS = ("ollama_version", "digest", "modified_at", *_TAG_DETAILS)
+"""Everything :meth:`OllamaModelClient.identify` can report."""
 
 Transport = Callable[..., RawResponse]
 
@@ -90,6 +92,7 @@ class OllamaModelClient:
             is_real_model=True,
             label=f"Ollama model {self._model} (local, {LOOPBACK}:{self._port})",
             settings={**self._options, "endpoint": f"http://{LOOPBACK}:{self._port}"},
+            provenance_keys=PROVENANCE_KEYS,
         )
 
     def identify(self, limit: RequestLimit) -> Mapping[str, ProviderValue]:

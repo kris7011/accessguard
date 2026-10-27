@@ -96,13 +96,16 @@ class EvaluationCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             result = run_module(
                 "accessguard_eval", "run", "--fixtures", "library,clinic", "--fractions",
-                "0.5,1.0", "--seeds", "1", "--out", tmp,
+                "0.5,1.0", "--seeds", "1", "--agent-repeats", "2", "--max-run-seconds", "120",
+                "--out", tmp,
             )  # fmt: skip
             results = load(Path(tmp) / "results.json")
             summary = (Path(tmp) / "summary.md").read_text("utf-8")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SCRIPTED TEST ADAPTER", summary)
-        self.assertEqual(len(results["runs"]), 2 * 2 * 3)
+        self.assertIn("agent repetitions: 2", summary)
+        self.assertIn("deadline per run: 120.0 s", summary)
+        self.assertEqual(len(results["runs"]), 2 * 2 * (1 + 1 + 2))
         self.assertTrue(
             all(f["deterministic_full_budget_exact"] for f in results["meta"]["fixtures"].values())
         )
@@ -112,6 +115,9 @@ class EvaluationCliTests(unittest.TestCase):
         self.assertEqual(listing.stdout.split(), ["helpdesk", "clinic", "projects", "library"])
         self.assertEqual(run_module("accessguard_eval", "run", "--fixtures", "nope").returncode, 2)
         self.assertEqual(run_module("accessguard_eval", "run", "--seeds", "x").returncode, 2)
+        for option in ("--agent-repeats", "--max-run-seconds"):
+            with self.subTest(option=option):
+                self.assertEqual(run_module("accessguard_eval", "run", option, "0").returncode, 2)
 
 
 if __name__ == "__main__":

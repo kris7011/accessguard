@@ -204,6 +204,17 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
 - The agent makes one model call per check and resends the whole aliased state each turn;
   very large policies may exceed a model's context window. Aliases hide semantics (such as
   resource categories) that a real model might use.
+- The agent's state has structural gaps (no names are needed to close them):
+  - list checks are not linked to tenants or categories;
+  - roles carry no privilege information;
+  - aliases follow policy order.
+
+  A structural non-AI heuristic (`scripted:deny-first`) beats the policy order slightly, but
+  not seeded random, on the fixtures. See `docs/evaluation.md` → "Information basis of the
+  agent".
+- Retests run after all selected checks, so findings from a run that exhausts its HTTP budget
+  stay unconfirmed (`not_retested`). The evaluation reports `confirmed_true_positives`
+  separately.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.
 - CI has not been run on GitHub; Python 3.11, Linux and macOS are not verified locally.
 
@@ -229,5 +240,15 @@ change:
 - exit code 5 for agent model failures;
 - the scripted `follow-up` heuristic;
 - the fixture design and the budget fractions (ADR 0008).
+
+The real-model readiness review (same day, second session) was also implemented by Claude
+Code. It covered the stricter opt-in tests, agent repetitions, one shared run deadline,
+confirmed findings, `unknown` provenance and the `deny-first` reference. It also included the
+measurement of the development machine and the model recommendation. Decisions the owner
+should review:
+
+- whether to install Ollama and `qwen3:4b-instruct-2507-q4_K_M`;
+- keeping the model state at `agent-v1` until a real model has been measured;
+- whether retests should get reserved budget.
 
 Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`.

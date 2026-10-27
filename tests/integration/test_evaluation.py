@@ -6,11 +6,12 @@ import unittest
 from typing import Any
 from unittest import mock
 
+from accessguard.adapters.ollama_client import OllamaModelClient
 from accessguard.adapters.scripted_model import ScriptedModelClient, follow_up_responder
 from accessguard.application.agent import AgentLimits
 from accessguard.application.gate import RunLimits
 from accessguard.application.planning import DeterministicPlanner
-from accessguard.application.ports import ModelRequest
+from accessguard.application.ports import ModelDescriptor, ModelRequest
 from accessguard_eval import harness
 from accessguard_eval.fixture_server import (
     FixtureApplication,
@@ -26,7 +27,14 @@ from accessguard_eval.fixtures import (
     load_answer_key,
     load_fixture,
 )
-from accessguard_eval.harness import EvaluationConfig, evaluate, run_once, score
+from accessguard_eval.harness import (
+    UNKNOWN,
+    EvaluationConfig,
+    evaluate,
+    provenance,
+    run_once,
+    score,
+)
 from tests.helpers import model_inputs
 
 ALICE = FixtureUser("alice", "north", "staff")
@@ -209,7 +217,7 @@ class HarnessTests(unittest.TestCase):
             "results": [
                 {"check_id": "a", "outcome": "PASS", "requests_used_after": 5, "observed_at": None},
                 {"check_id": "b", "outcome": "FAIL", "requests_used_after": 12,
-                 "observed_at": "2026-01-01T00:00:01.5+00:00"},
+                 "observed_at": "2026-01-01T00:00:01.5+00:00", "verification": "reproduced"},
                 {"check_id": "c", "outcome": "SUSPECTED", "requests_used_after": 9,
                  "observed_at": "2026-01-01T00:00:01+00:00"},
                 {"check_id": "d", "outcome": "FAIL", "requests_used_after": 3,
@@ -221,11 +229,75 @@ class HarnessTests(unittest.TestCase):
             fraction=1.0,
         )  # fmt: skip
         self.assertEqual((metrics.true_positives, metrics.false_positives), (2, 1))
+        self.assertEqual(metrics.confirmed_true_positives, 1, "SUSPECTED is not confirmed")
+        self.assertIsNone(metrics.model_seconds)
         self.assertEqual(metrics.recall, round(2 / 3, 4))
         self.assertEqual(metrics.requests_to_first_finding, 9)
         self.assertEqual(metrics.seconds_to_first_finding, 1.0)
         self.assertEqual(metrics.findings_per_100_requests, 10.0)
         self.assertEqual(metrics.total_seconds, 2.0)
+
+
+class RepetitionAndProvenanceTests(unittest.TestCase):
+    def test_every_agent_repetition_is_run_and_scored(self) -> None:
+        clients: list[ScriptedModelClient] = []
+
+        def factory() -> ScriptedModelClient:
+            clients.append(scripted())
+            return clients[-1]
+
+        result = evaluate(small_config(seeds=(1,), agent_repeats=3), factory)
+        agent_runs = [run for run in result["runs"] if run["strategy"] == "agent"]
+        self.assertEqual(len(agent_runs), 2 * 3)
+        self.assertEqual(sorted({run["repeat"] for run in agent_runs}), [1, 2, 3])
+        self.assertEqual(len({id(c) for c in clients if c.requests}), 2 * 3, "fresh client")
+        self.assertEqual(result["meta"]["agent_repeats"], 3)
+        for row in result["summary"]:
+            if row["strategy"] == "agent":
+                self.assertEqual(row["runs"], 3)
+                self.assertEqual(sum(row["agent_statuses"].values()), 3)
+                self.assertEqual(row["distinct_selection_orders"], 1, "scripted is deterministic")
+                self.assertEqual(row["model_seconds"], 0.0)
+            else:
+                self.assertIsNone(row["agent_statuses"])
+                self.assertIsNone(row["distinct_selection_orders"])
+
+    def test_full_budget_findings_are_confirmed_by_retest(self) -> None:
+        result = evaluate(small_config(fractions=(1.0,), seeds=(1,)), scripted)
+        for run in result["runs"]:
+            self.assertEqual(run["confirmed_true_positives"], run["true_positives"])
+
+    def test_unreported_provenance_is_marked_unknown(self) -> None:
+        descriptor = ModelDescriptor(
+            "p", "m", True, "label", provenance_keys=("version", "digest", "family")
+        )
+        reported = [{"version": "1.0", "family": "x"}, {"version": "1.0", "family": "y"}, {}]
+        self.assertEqual(
+            provenance(descriptor, reported),
+            {"version": "1.0", "digest": UNKNOWN, "family": ["x", "y"]},
+        )
+        self.assertEqual(
+            provenance(descriptor, []), dict.fromkeys(descriptor.provenance_keys, UNKNOWN)
+        )
+        self.assertIn("digest", OllamaModelClient("m").descriptor.provenance_keys)
+        self.assertIn("ollama_version", OllamaModelClient("m").descriptor.provenance_keys)
+
+    def test_scripted_adapter_declares_no_provenance(self) -> None:
+        result = evaluate(small_config(fractions=(1.0,), seeds=(1,)), scripted)
+        adapter = result["meta"]["agent_adapter"]
+        self.assertEqual(adapter["provenance"], {})
+        self.assertEqual(adapter["provider_metadata_errors"], [])
+        self.assertEqual(result["meta"]["max_run_seconds"], 300.0)
+
+    def test_invalid_configuration_is_rejected_before_any_run(self) -> None:
+        for overrides in (
+            {"agent_repeats": 0},
+            {"agent_repeats": 21},
+            {"max_duration_seconds": 0},
+            {"max_duration_seconds": 3601},
+        ):
+            with self.subTest(overrides=overrides), self.assertRaises(ValueError):
+                small_config(**overrides)
 
 
 class AgentLimitsTests(unittest.TestCase):

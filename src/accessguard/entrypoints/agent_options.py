@@ -40,7 +40,8 @@ def add_agent_arguments(parser: argparse.ArgumentParser, *, model_required: bool
         "--model",
         type=model_spec,
         required=model_required,
-        help="scripted:follow-up | scripted:in-order (scripted test adapters, not AI) or "
+        help="scripted:follow-up | scripted:deny-first | scripted:in-order (scripted test "
+        "adapters, not AI) or "
         "ollama:<name> (a locally installed Ollama model)",
     )
     parser.add_argument("--ollama-port", type=int, default=OLLAMA_PORT, metavar="PORT")
