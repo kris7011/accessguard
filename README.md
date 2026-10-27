@@ -16,9 +16,11 @@ failures, and writes a machine-readable report with coverage.
 agent can choose the next approved check from earlier results. It is verified with a scripted
 test adapter and a fake Ollama server. A real local model passed a bounded 3-call smoke test
 and the full opt-in real-model test (56/56 checks, exact match with the lab's answer key, with
-the runtime's prompt cache disabled). The comparative real-model evaluation has not run, so
-**there is no documented advantage of AI prioritisation**
-([status](docs/milestones/M2.md)).
+the runtime's prompt cache disabled). A bounded, pre-registered comparison (2 fixtures, 25 % and
+50 % budgets) showed an advantage **per HTTP request** on one flawed synthetic fixture, at a far
+longer waiting time and with clear limits. The full evaluation has not run, so **there is no
+general documented advantage of AI prioritisation**
+([status](docs/milestones/M2.md), [evaluation](docs/evaluation.md)).
 
 ## Quick start (Windows PowerShell)
 
@@ -149,8 +151,10 @@ The `scripted:*` models are a **scripted test adapter, not an AI model**. Their 
 `"uses_ai": false` and "not an AI model". The `ollama:NAME` adapter talks to a local Ollama
 server on 127.0.0.1. It is contract-tested against a fake server and has run against a real
 local model in a 3-call smoke test and one passed full opt-in test (2026-10-27).
-**No real model has been evaluated** against the baselines. The evaluation with the scripted adapter showed no advantage over the deterministic
-baseline ([evaluation](docs/evaluation.md)). There is no ML training, no customer scanning and
+A real model has been compared with the baselines only in a bounded evaluation (2 fixtures,
+25 % and 50 % budgets): more confirmed findings per request on `projects`, 0 false positives on
+`library`, and 12-73 s per run instead of milliseconds. The evaluation with the scripted adapter
+showed no advantage over seeded random order ([evaluation](docs/evaluation.md)). There is no ML training, no customer scanning and
 no automatic code repair.
 
 The M1 option `--ollama-model NAME` on `demo`/`scan` (reorder-only planner, exit 5 on error)
@@ -186,6 +190,7 @@ See [known limitations](docs/PROJECT_WALKTHROUGH.md#12-known-limitations). The m
 results on the synthetic lab say nothing about detection rates on real systems; only exact JSON
 string matches count as evidence (data leaked in an HTML or plain-text error page is not reported as
 a finding; such responses are INCONCLUSIVE, never PASS); listings are not paginated; write operations, side channels
-and undeclared endpoints are not tested. The agent has not been run with a real model, and the
-scripted evaluation shows no advantage over the baseline. Competitive advantage and willingness to
+and undeclared endpoints are not tested. The agent has been compared with a real model only on
+two synthetic fixtures. The advantage per request found there is not shown to generalise or to
+beat a simple "listings first" rule. Competitive advantage and willingness to
 pay have not been validated.

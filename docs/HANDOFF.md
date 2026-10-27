@@ -2,23 +2,80 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-27, sixth M2 session)
+## Current state (2026-10-27, seventh M2 session)
 
-- Branch: `feature/m2-adaptive-agent`. M2 itself is `c0abc42`, the real-model readiness work
-  `735d118`, the retest reserve `9bd4846`, the smoke-test record `01fb104`, and the stopped
-  full-test attempt `d14fb33`. This session's runtime fix and full-test rerun are documented in
-  the commit after it (see git log).
-- No source or test code changed in the fourth, fifth or sixth session; only documentation.
+- Branch: `feature/m2-adaptive-agent`.
+- Commits: M2 itself is `c0abc42`, the real-model readiness work `735d118`, the retest reserve
+  `9bd4846`, the smoke-test record `01fb104`, the stopped full-test attempt `d14fb33`, and the
+  passed full test `62467bc`. This session added two commits: the pre-registration `00f860f`
+  and the results commit after it (see git log).
+- No source or test code changed in the fourth to seventh sessions; only documentation.
 - Nothing is pushed or merged.
-- Milestone 2 status: **mock and contract verification, plus a passed real-model smoke test and
-  a passed full opt-in real-model test** (under runtime setup B, prompt cache disabled). The
-  comparative real-model evaluation has not been run. There is no documented advantage of AI
-  prioritisation.
-- No Ollama or `llama-server` process is running (both servers started this session were
-  stopped and port 11434 is free).
+- Milestone 2 status: **mock and contract verification, plus a passed real-model smoke test, a
+  passed full opt-in test and a bounded comparative real-model evaluation** (all under runtime
+  setup B).
+  - The bounded comparison shows an advantage **per HTTP request** on `projects`, limited to
+    those scenarios.
+  - There is no advantage in waiting time.
+  - Generalisation is not shown.
+- The larger evaluation matrix has not been run.
+- No Ollama or `llama-server` process is running: the server started this session was stopped,
+  and port 11434 is free.
 - M3 has not been started.
 
-## Done in this session (2026-10-27): prompt-cache fix and full-test rerun
+## Done in this session (2026-10-27): bounded comparative real-model evaluation
+
+Full record: `docs/evaluation.md` → "Bounded comparative real-model evaluation
+(pre-registered 2026-10-27)" (design, results, conclusion); summary in `docs/milestones/M2.md`.
+
+- **Pre-registered** design, metrics and decision rule, committed as `00f860f` before the
+  model run.
+- **Setup:**
+  - fixtures `projects` and `library` at `--fractions 0.25,0.5` (budgets 12/23 and 10/20);
+  - deterministic order, seeds 1-5, and `scripted:deny-first` ×3, then the real model ×3;
+  - `--model-timeout 300 --max-run-seconds 1800`, otherwise the CLI defaults (200 calls,
+    3 invalid replies), as in the passed full test;
+  - setup B, the same digest, prompt `agent-v1` and settings;
+  - sequential, with the watchdog running (300 MB free-commit rule);
+  - a warm-up load (9.27 s) before the measured runs.
+- **Resources before:** RAM 0.77 of 7.35 GB free; commit 7.94 of 27.78 GB free; VRAM
+  3962 MiB free; C: 13 GB free; no Ollama running. No program was closed.
+- **Execution:** both evaluations exit 0 (scripted 3.0 s, model 415.3 s). The server log
+  confirmed `prompt cache is disabled`. 99 model calls, all valid, all with `truncated = 0`.
+  Every agent run ended `interrupted` (budget used up); there were no failures or deadline
+  stops.
+- **Memory:** the watchdog did not intervene (free commit at least 2947 MB; `llama-server`
+  peak 4656 MB; VRAM 2299 MiB). Free physical RAM was below 100 MB in 139 of 186 samples, so
+  the machine was paging; single calls took up to 14 s.
+- **Results, `projects`:** the model confirmed **2 / 5** findings at 12 / 23 requests in every
+  repetition. The baselines confirmed:
+  - deterministic: 0 / 0;
+  - `deny-first`: 0 / 1;
+  - seeded random: a median of 1 / 2 (range 1-1 / 1-4).
+
+  The model's first finding came at request 8 (random: 8-11; the others: not reached, or 20).
+- **Results, `library`:** 0 false positives everywhere.
+- **Run time:** the model took 12-16 s and 42-47 s per run on `projects` (18-73 s on
+  `library`), against 0.01-0.05 s for the simple strategies.
+- **Conclusion by the pre-registered rule:** advantage per request on `projects`, limited to
+  these scenarios. It is explained by a consistent "listings first" choice: 5 of the 7
+  `projects` flaws are listing checks.
+- **Not shown:**
+  - an advantage in waiting time;
+  - generalisation to other fixtures;
+  - that the model beats a simple scripted "listings first" rule (not tested);
+  - repeatability across server sessions. The three repetitions were identical, all in one
+    session.
+- The deterministic and random runs were identical in both evaluations.
+- **Kept locally (git-ignored):** `reports/eval-real-bounded-2026-10-27/`, with `scripted/`,
+  `model/` (results, raw reports, server log, memory CSV, warm-up reply), `analysis.md` and the
+  scratch scripts `save_reports.py` and `analyze.py`.
+- **Docs:** `evaluation.md`, `M2.md`, `README.md`, `PROJECT_WALKTHROUGH.md`,
+  `interview-prep/M2.md` (addendum), this file.
+- No prompt, fixture, strategy, limit or code was changed. No downloads, no paid services, no
+  push, no merge.
+
+## Earlier session (2026-10-27): prompt-cache fix and full-test rerun
 
 Full record: `docs/milestones/M2.md` → "Runtime setups", "Control series with setup B" and
 "Full opt-in real-model test, rerun with the prompt cache disabled". In short:
@@ -238,9 +295,11 @@ server log; the "llm server error" status during load is the normal start-up wai
 
 ## Not done
 
-- **Comparative real-model evaluation.** The smoke test and the full opt-in test have passed
-  (setup B). The subset evaluation and the full evaluation have not run. Ollama and the model
-  are installed.
+- **Larger real-model evaluation.** The smoke test, the full opt-in test and the bounded
+  comparison (setup B) have run. The subset evaluation (`clinic,projects`) and the full
+  evaluation (all fixtures, including 100 %) have not. Ollama and the model are installed.
+- **"Listings first" control.** A scripted "listings first" adapter does not exist and was not
+  run. It is the natural non-AI control for the bounded result.
 - The smoke-test report itself was saved only in the session scratchpad and is not kept; the
   numbers above (and in `docs/milestones/M2.md` → "Real-model smoke test") are its record.
 - `agent-v2` (more anonymous structure in the model state) is proposed, not implemented. Measure
@@ -271,7 +330,14 @@ After the first model call, check that the server log contains
 
 ## Latest actual results
 
-- Real-model full opt-in test (2026-10-27, this session, setup B): **passed**, both tests OK.
+- Bounded comparative real-model evaluation (2026-10-27, this session, setup B): exit 0;
+  99 valid model calls, 0 invalid.
+  - `projects`, confirmed findings at 12 / 23 requests: model 2 / 5 (every repetition);
+    deterministic 0 / 0; `deny-first` 0 / 1; random median 1 / 2.
+  - `library`: 0 false positives.
+  - Model runs took 12-73 s, against hundredths of a second for the others.
+  - By the pre-registered rule: advantage per request, limited. Details are above.
+- Real-model full opt-in test (2026-10-27, setup B): **passed**, both tests OK.
   56 valid choices, 0 invalid; 56/56 checks; 23 reproduced FAILs; exact match with the answer
   key; 92 HTTP requests; 294.12 s model time. Details are above.
 - Real-model full opt-in test, first attempt (2026-10-27, setup A): **stopped for memory, not
@@ -281,6 +347,12 @@ After the first model call, check that the server log contains
 
 ### Quality gates
 
+- Rerun 2026-10-27 after the seventh session's documentation changes:
+  `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0.
+  - 280 tests run, 278 passed, 0 failed, 2 skipped (the real-model tests, since the variable
+    is not set in `verify.sh`).
+  - mypy: no issues in 91 files. detect-secrets: 136 tracked files clean. Wheel: 40 files,
+    0 problems. Demo: exact match. pip-audit: no known vulnerabilities.
 - Rerun 2026-10-27 after the sixth session's documentation changes:
   `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0. 280 tests run, 278 passed,
   0 failed, 2 skipped (the real-model tests, since the variable was not set in `verify.sh`;
@@ -326,16 +398,19 @@ Previous run (2026-10-27, after the retest reserve):
 
 ## Next step
 
-The prompt-cache blocker is resolved (setup B), and the full opt-in test has passed. **The
-comparative evaluation needs the owner's go-ahead; it was not started.**
+The bounded comparison is done. **Every further experiment needs the owner's go-ahead; none
+was started.** No prompt optimisation was started either. Options to decide on, in a
+suggested order:
 
-1. Run the subset evaluation and then the full evaluation (about 800 model calls), as in
-   `docs/evaluation.md`. Use setup B, keep a commit-memory watchdog running (the scripts are in
-   `reports/real-model-cram0-2026-10-27/`), and record the setup with the results. At the
-   measured 4-6 s per call, 800 calls take roughly 1-1.5 hours of model time (an estimate).
-2. Then conclude whether there is an advantage, no advantage or an insufficient basis
-   compared with the baselines. Include `distinct_selection_orders`, given the smoke-run
-   observation above.
+1. A scripted "listings first" control. It is a small new non-AI adapter, so it is a code
+   change. It would test whether the model adds anything beyond that simple rule on
+   `projects`.
+2. The larger matrix (subset, then full evaluation), as in `docs/evaluation.md`. Use setup B,
+   the watchdog (`reports/real-model-cram0-2026-10-27/watchdog.py`), a warm-up load, and
+   repetitions spread over **separate server sessions**, since in-session repetitions were
+   identical. At the measured 3-5 s per call, about 800 calls take roughly 1 hour (an
+   estimate).
+3. Pre-register again before each run (design, rule, then commit), as was done here.
 
 M3 (a separately authorised test application through configuration and an explicit policy)
 needs a separate go-ahead.

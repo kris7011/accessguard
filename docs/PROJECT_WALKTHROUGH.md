@@ -2,8 +2,9 @@
 
 Status as of milestone 2 (version 0.3.0): implementation with mock and contract verification.
 A real local model passed a 3-call smoke test and, with the runtime's prompt cache disabled,
-the full opt-in real-model test (2026-10-27). No real model has been evaluated against the
-baselines. Every statement is marked by status where it matters:
+the full opt-in real-model test (2026-10-27). A bounded comparison against the baselines
+(2 fixtures, 25 % and 50 % budgets) showed an advantage per HTTP request on one flawed
+fixture, at a much longer waiting time; the full evaluation has not run. Every statement is marked by status where it matters:
 **implemented** (code exists), **tested** (an automated test exists and was run),
 **proposed/future** (not built).
 
@@ -201,8 +202,14 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   and raw-byte matching are not implemented.
 - The Ollama planner only reorders; with every check executed, the order does not affect results.
   Verified with mocks only.
-- The adaptive agent has **not been evaluated with a real model**. Its guarantees are verified
-  with a scripted adapter, mocks and a fake Ollama server. Against a real local model
+- The adaptive agent has been compared with a real model only in a **bounded** evaluation
+  (2026-10-27; `docs/evaluation.md`). There it confirmed 2 and 5 findings on `projects` at
+  12 and 23 requests, against at most a median of 1 and 2 for the simple strategies. It had
+  0 false positives on the flaw-free `library` fixture. This is an advantage per request, not
+  per waiting time (12-73 s per run against hundredths of a second). It comes from a "listings
+  first" preference that matches that fixture's flaw layout, and a scripted "listings first"
+  rule was not tested. Its guarantees are verified with a scripted adapter, mocks and a fake
+  Ollama server. Against a real local model
   (`qwen3:4b-instruct-2507-q4_K_M`, Ollama 0.40.11), the 3-call smoke test passed. The first
   full-test attempt was stopped after 12 valid choices, because the runtime's host prompt cache
   exhausted the commit memory on this 8 GB machine. With the cache disabled

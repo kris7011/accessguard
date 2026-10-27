@@ -8,8 +8,14 @@ scripted test adapters (deterministic heuristics, not AI). A real local model pa
 bounded smoke test on 2026-10-27 (3 valid model choices). The full opt-in model test passed
 the same day under runtime setup B (prompt cache disabled; 56 valid choices, 56/56 checks,
 exact match with the answer key), after a first attempt was stopped for memory. See
-[Real-model protocol](#real-model-protocol). The comparative real-model evaluation has not
-been run. **There is no documented advantage of AI prioritisation.**
+[Real-model protocol](#real-model-protocol). A **bounded** comparative real-model evaluation
+(fixtures `projects` and `library`, 25 % and 50 % budgets) ran on 2026-10-27. By its
+pre-registered rule, the model shows an advantage **per HTTP request** on `projects` (5
+confirmed findings against at most 2 for the simple strategies' medians at 50 %), at a much
+longer waiting time and with important limits. See
+[Bounded comparative real-model evaluation](#bounded-comparative-real-model-evaluation-pre-registered-2026-10-27).
+The full evaluation matrix has not been run, so there is no general documented advantage of AI
+prioritisation.
 
 ## Commands
 
@@ -265,7 +271,8 @@ Progress:
 | 1. Smoke test | **Run 2026-10-27, passed**: `qwen3:4b-instruct-2507-q4_K_M` on Ollama 0.40.11, 3 valid model choices, 0 invalid, 15 HTTP requests, 80.65 s model time ([details](milestones/M2.md#real-model-smoke-test-2026-10-27)) |
 | 2. Full opt-in test | **Passed 2026-10-27 under runtime setup B** (`LLAMA_ARG_CACHE_RAM=0`; both tests in the module OK, exit 0). The agent made 56 valid choices with 0 invalid and ended `completed`. It executed 56 of 56 checks: 23 FAIL, all reproduced, and 33 PASS. That is an exact match with the answer key (0 false positives, 0 false negatives). It used 92 HTTP requests and 294.12 s of model time (agent scan 294.9 s, module 312.1 s), with no truncation. `llama-server` memory stayed flat at 4637-4801 MB, and free commit was at least 2.73 GB ([details](milestones/M2.md#full-opt-in-real-model-test-rerun-with-the-prompt-cache-disabled-2026-10-27-passed)) |
 | 2a. Earlier full-test attempt | **Stopped for memory, not passed** (runtime setup A, default prompt cache): 12 valid choices, 12/56 checks, all matching the answer key; the watchdog stopped the server at 214 MB free commit ([details](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory)) |
-| 3. Subset and full evaluation | Not yet run. Run them with runtime setup B |
+| 3a. Bounded comparison | **Run 2026-10-27 (setup B), exit 0**: `projects` and `library` at 25 % and 50 %, 3 model repetitions per cell, 99 valid model calls and 0 invalid. Advantage per request on `projects`, limited (see [results](#results-run-2026-10-27-after-the-pre-registration-commit-00f860f)) |
+| 3. Subset and full evaluation | Not yet run (needs the owner's go-ahead). Run them with runtime setup B |
 
 Prerequisites: an installed Ollama and model (installed on the development machine since
 2026-10-27; see
@@ -420,3 +427,124 @@ identical).
 - The conclusion is limited to these two synthetic fixtures, these budgets, this model and
   these settings. With three repetitions and one flawed fixture it is not a general statement
   about AI prioritisation.
+
+### Results (run 2026-10-27, after the pre-registration commit `00f860f`)
+
+The design above was followed without changes. The scripted `deny-first` evaluation ran after
+the section was written but just before it was committed. It is a deterministic script, and its
+numbers equal the earlier recorded ones.
+
+**Execution.**
+
+| Item | Result |
+| --- | --- |
+| Scripted evaluation | exit 0, 38 scans (2 complete reference runs that set the full budgets, 36 scored runs), 3.0 s in total |
+| Real-model evaluation | **exit 0**, 38 scans (2 reference, 36 scored), **415.3 s** in total (of which 409.0 s model time over 12 agent runs) |
+| Runtime | setup B. The `llama-server` log shows `prompt cache is disabled`, `n_ctx = 8192` and 21/37 layers on the GPU, as in the passed full test. Listening on `127.0.0.1:11434` only |
+| Provenance | `ollama_version` 0.40.11, digest `0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0`, gguf, qwen3, 4.0B, Q4_K_M. No `unknown` keys, no metadata errors, one distinct value per key |
+| Settings and limits | temperature 0, seed 0, `num_ctx` 8192, 64 output tokens; 200 calls, 3 invalid replies and 300 s per call; prompt `agent-v1`, tool contract `agent-tools-v1` |
+| Model calls | 99, **all valid**: 0 invalid replies, 0 rejections, 0 `stop` actions. The log shows `truncated = 0` for all 99, with `prompt_eval_count` at most 1997 of 8192 |
+| Agent end status | `interrupted` (HTTP budget used up) in all 12 runs; no `model_failed`, `invalid_replies_exhausted` or deadline stop. The deny-first runs also all ended `interrupted` |
+| Model loading | warm-up request outside the measured runs: 9.27 s (`llama-server started in 7.58 s`). Inside the measured runs, `load_duration` was at most 0.25 s per call, so no measured run contained a reload |
+| Memory | the watchdog did not intervene. Free commit stayed at least 2947 MB; `llama-server` private memory peaked at 4656 MB; the VRAM peak was 2299 MiB. **Free physical RAM was below 100 MB in 139 of 186 samples** (0 MB once). Commit was safe, but the machine was paging; this may explain single slow calls (up to 14.0 s against a typical 3-5 s) |
+| Reproducibility | the 24 deterministic and seeded-random runs were identical in both evaluations |
+| Answer-key sanity | the complete deterministic run matched the answer key exactly on both fixtures (full budgets 46 and 39, as recorded) |
+
+Every strategy used exactly its budget in every run (12, 23, 10 or 20 requests, including probes,
+baselines and retests); no run exceeded it. There were 0 false positives in all 72 scored runs.
+
+**Results table, `projects`** (7 expected findings).
+
+Values are per run where every run gave the same value. Otherwise they are the median with the
+min-max range in brackets. "Not reached" means the run found no expected finding. Seconds are
+wall-clock per run, including model time.
+
+| Budget | Strategy | Runs | Found | Confirmed | Executed / 30 | First finding (requests) | Seconds per run | Model s per run | Distinct orders |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| 12 (26 %) | deterministic | 1 | 0 | 0 | 6 | not reached | 0.01 | - | - |
+| 12 (26 %) | seeded random | 5 | 1 | 1 | 3 | 9 [8-11] | 0.01 | - | - |
+| 12 (26 %) | deny-first | 3 | 0 | 0 | 5 | not reached (3 of 3) | 0.01 | - | 1 |
+| 12 (26 %) | **model** | 3 | **2** | **2** | 3 | **8** | 13.9 [12.0-15.9] | 13.8 [11.9-15.8] | 1 |
+| 23 (50 %) | deterministic | 1 | 0 | 0 | 15 | not reached | 0.02 | - | - |
+| 23 (50 %) | seeded random | 5 | 3 [2-4] | 2 [1-4] | 12 [11-13] | 9 [8-11] | 0.02 | - | - |
+| 23 (50 %) | deny-first | 3 | 1 | 1 | 14 | 20 | 0.02 | - | 1 |
+| 23 (50 %) | **model** | 3 | **5** | **5** | 10 | **8** | 42.7 [42.6-47.1] | 42.4 [42.4-46.9] | 1 |
+
+**`library`** (no flaws, false-positive control). Every strategy found nothing and reported 0
+false positives in every run, so "first finding" is not reached for all of them.
+
+| Budget | Strategy | Runs | Executed / 30 | Seconds per run | Model s per run |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 10 (26 %) | deterministic / seeded random / deny-first | 1 / 5 / 3 | 5 / 3 [2-3] / 4 | 0.01 | - |
+| 10 (26 %) | model | 3 | 4 | 21.4 [18.3-22.6] | 21.2 [18.1-22.3] |
+| 20 (51 %) | deterministic / seeded random / deny-first | 1 / 5 / 3 | 13 / 11 / 12 | 0.02-0.03 | - |
+| 20 (51 %) | model | 3 | 12 | 52.1 [50.0-73.2] | 51.7 [49.7-72.8] |
+
+**Per request versus per waiting time (`projects`).**
+
+| Budget | Strategy | Found per 100 requests | Found per minute of wall-clock time |
+| --- | --- | ---: | ---: |
+| 12 | seeded random (median) | 8.3 | about 5,700 |
+| 12 | model (median) | 16.7 | 8.6 |
+| 23 | seeded random (median) | 13.0 | about 6,100 |
+| 23 | model (median) | 21.7 | 7.0 |
+
+The simple strategies have no model time, and the local fixture answers in milliseconds, so
+their wall-clock rate is very large. The model spent about 3-5 s per choice, or roughly 1.1-1.9 s
+per HTTP request on `projects`.
+
+**Variation between repetitions.** In every cell, the three model repetitions chose exactly the
+same checks in the same order (one distinct selection digest), with the same results. Only the
+time varied, by up to 46 % (`library` 20: 50.0-73.2 s). All repetitions ran in one server
+session. Earlier, two smoke runs in different server sessions chose differently (see
+`docs/milestones/M2.md`), so repeatability **across** sessions is still not shown. The three
+repetitions are therefore effectively one observation per cell, not three independent ones.
+
+**Why the model scored higher (inspection of the saved reports, not a new experiment).**
+
+- At 12 and 23 requests on `projects`, the model always began with the six plan-listing checks
+  (`list:plans@…`). It started the same way on `library` at 10 requests.
+- In the answer key, **5 of the 7 `projects` findings are those listing checks** (one listing
+  leak affects five actors). The model found exactly those five at 23 requests. It never reached
+  the two remaining findings, the anonymous budget reads.
+- The model's advantage on `projects` thus comes from a consistent "listings first" preference
+  that matches this fixture's flaw layout. The policy order, `deny-first` and random order do
+  not put listings first.
+- The model did not always choose listings first. On `library` at 20 requests, it began with a
+  cross-tenant item check, so its order depends on the state it sees (including the budget).
+- **A scripted "listings first" baseline was not run** (no new experiments in this round).
+  Whether the model adds anything beyond such a simple rule is therefore not shown.
+
+### Conclusion (by the pre-registered rule)
+
+- `projects` 12: **advantage.** Each model repetition confirmed 2 findings, against 0
+  (deterministic), 0 (`deny-first`) and a median of 1 (seeded random), with 0 false positives.
+  The first finding came at request 8, the lowest value any strategy reached (seeded random:
+  8-11).
+- `projects` 23: **advantage.** Each repetition confirmed 5, against 0, 1 and a median of 2
+  (best seed: 4). First finding at request 8.
+- `library`: 0 false positives for every strategy (the expected control result).
+- **Overall, by the rule: advantage, limited to the tested scenarios.** On the `projects`
+  fixture at 25 % and 50 % budgets, this model with `agent-v1` found and confirmed more
+  expected findings **per HTTP request** than the deterministic order, seeded random and
+  `deny-first`. It caused no false positives on the flaw-free `library`.
+
+What the result does **not** show:
+
+- **An advantage in waiting time.** Each model run took about 12-73 s, where the simple
+  strategies took a few hundredths of a second. The advantage counts only where requests, not
+  time, are the scarce resource, for example under rate limits or with a fragile target.
+- **That the advantage generalises.** It rests on one flawed fixture, in which most flaws sit in
+  listing checks, which the model happens to prefer. `helpdesk` (role bypass) and `clinic`
+  (one cross-tenant record) were not part of this experiment.
+- **That the model beats a trivial "listings first" rule.** That rule was not tested.
+- **Repeatability across server sessions.** All repetitions were identical, but they ran in one
+  server session.
+
+Kept locally (git-ignored, not committed): `reports/eval-real-bounded-2026-10-27/`.
+
+- `scripted/` and `model/`: `results.json`, `summary.md`, every raw report under `raw/`,
+  console output;
+- `model/`: the server log, the warm-up reply, the memory CSV and the watchdog summary;
+- `analysis.md`, with every run listed;
+- the scratch scripts `save_reports.py` and `analyze.py`.
