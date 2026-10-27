@@ -4,7 +4,11 @@ Method and rationale: [ADR 0008](adr/0008-selection-strategy-evaluation.md). Cod
 `evaluations/accessguard_eval/`. Fixtures: `evaluations/accessguard_eval/fixtures/`.
 
 **Status: no real language model has been evaluated.** Every agent result below comes from
-scripted test adapters (deterministic heuristics, not AI).
+scripted test adapters (deterministic heuristics, not AI). A real local model passed the
+bounded smoke test on 2026-10-27 (3 valid model choices; see
+[Real-model protocol](#real-model-protocol)), but the full opt-in model test and the
+comparative real-model evaluation have not been run. **There is no documented advantage of AI
+prioritisation.**
 
 ## Commands
 
@@ -35,7 +39,7 @@ Exit codes:
 - 5: at least one agent run had a failed model or ran out of valid replies (its partial results
   are still written).
 
-The real-model protocol is in [Real-model protocol](#real-model-protocol-not-yet-run) below.
+The real-model protocol is in [Real-model protocol](#real-model-protocol) below.
 
 ## What is measured
 
@@ -251,9 +255,18 @@ Assessment:
     as `agent-v2`, and measure it as an ablation under the same budgets.
   - Raw customer names, paths or server content are not to be added.
 
-## Real-model protocol (not yet run)
+## Real-model protocol
 
-Prerequisites: an installed Ollama and model, which is an owner decision (see
+Progress:
+
+| Step | Status |
+| --- | --- |
+| 1. Smoke test | **Run 2026-10-27, passed**: `qwen3:4b-instruct-2507-q4_K_M` on Ollama 0.40.11, 3 valid model choices, 0 invalid, 15 HTTP requests, 80.65 s model time ([details](milestones/M2.md#real-model-smoke-test-2026-10-27)) |
+| 2. Full opt-in test | Not yet run |
+| 3. Subset and full evaluation | Not yet run |
+
+Prerequisites: an installed Ollama and model (installed on the development machine since
+2026-10-27; see
 [docs/milestones/M2.md](milestones/M2.md#local-capacity-and-model-recommendation-2026-10-26)).
 
 Run the steps in this order and keep every run's output, including failures.
