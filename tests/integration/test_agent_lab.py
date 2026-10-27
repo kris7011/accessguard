@@ -76,7 +76,12 @@ class AgentLabTests(unittest.TestCase):
         self.assertGreater(report["summary"]["SKIPPED"], 0)
         # Findings that were made are kept, and the report never claims a pass.
         self.assertEqual(report["status"]["overall"], "findings")
-        self.assertTrue(all(f["verification"] == "not_retested" for f in report["findings"]))
+        self.assertTrue(report["findings"])
+        # The per-finding retest reserve confirms the findings within the same budget: the
+        # run is budget-limited (partial coverage) yet every finding is reproduced, never
+        # left unverified and never presented as a pass. The total still respects the budget.
+        self.assertTrue(all(f["verification"] == "reproduced" for f in report["findings"]))
+        self.assertLessEqual(report["run"]["requests_used"], 30)
 
 
 if __name__ == "__main__":

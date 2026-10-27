@@ -134,6 +134,49 @@ Other observations across all rows:
 
 The deterministic and seeded-random numbers equal the earlier M2 run, so they reproduce.
 
+## Retest budget reserve (before/after, 2026-10-27)
+
+The results above exposed a defect: under a limited budget no strategy confirmed any finding,
+because retests ran only after the scan had already spent every request. The runner now holds
+back one request per finding (its retest costs exactly one, as the baseline and session are
+cached) and releases the reserve for the existing separate retest phase. The policy lives in
+the shared engine, so it is identical for the deterministic order, seeded random and the agent;
+the model input and model choice are unchanged. See ADR 0008 (2026-10-27 amendment) for the
+decision and the alternatives.
+
+Same command and defaults as above (`scripted:follow-up`, `--agent-repeats 3`, seeds 1-5,
+fractions 25/50/100 %, 300 s). Columns are `true positives` and `confirmed` (a FAIL whose
+separate retest reproduced it), before and after; `cov` is the conclusive ratio. Only the rows
+with finding activity at a partial budget are shown; every full-budget (100 %) row and every
+`library` row (no flaws) is unchanged. Across all 108 runs, no run exceeded its budget.
+
+| Fixture | Budget | Strategy | TP before | conf before | TP after | conf after | cov before | cov after |
+| --- | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| helpdesk | 17 (25 %) | seeded-random | 1.0 | 0.0 | 1.0 | 1.0 | 0.12 | 0.11 |
+| helpdesk | 34 (50 %) | deterministic | 5.0 | 0.0 | 4.0 | 4.0 | 0.49 | 0.43 |
+| helpdesk | 34 (50 %) | seeded-random | 3.4 | 0.0 | 3.0 | 2.8 | 0.45 | 0.40 |
+| helpdesk | 34 (50 %) | follow-up | 5.0 | 0.0 | 4.0 | 4.0 | 0.49 | 0.43 |
+| clinic | 16 (26 %) | seeded-random | 0.4 | 0.0 | 0.4 | 0.4 | 0.10 | 0.09 |
+| clinic | 31 (51 %) | seeded-random | 1.6 | 0.0 | 1.6 | 1.6 | 0.40 | 0.36 |
+| projects | 12 (26 %) | seeded-random | 1.0 | 0.0 | 1.0 | 1.0 | 0.12 | 0.10 |
+| projects | 23 (50 %) | seeded-random | 3.4 | 0.0 | 3.0 | 2.2 | 0.47 | 0.40 |
+
+What the numbers show:
+
+- **Confirmed findings rose from 0 to the number the run can confirm within budget.** At full
+  budget nothing changed (every finding was already confirmed); `library` is untouched, so the
+  reserve never fires and never invents a confirmation when there are no findings.
+- **The drawback is a small coverage and candidate cost at partial budgets.** Confirming a
+  finding spends a request that would otherwise probe another check, so the conclusive ratio
+  and the raw true-positive count drop slightly (e.g. `helpdesk` 50 % deterministic: 5
+  unconfirmed candidates became 4 confirmed findings). This is deliberate: a confirmed finding
+  is worth more than an unconfirmed candidate (requirements §7), and the cost is paid only when
+  a finding is actually made.
+- **When the budget cannot confirm every finding, the report is honest.** `projects` 50 %
+  seeded random finds 3.0 but confirms 2.2 on average: a finding made on nearly the last
+  affordable request leaves nothing to retest, so it stays FAIL / `not_retested` rather than
+  disappearing or being shown as reproduced.
+
 ## Interpretation
 
 - **Neither scripted adapter shows an advantage over seeded random order.**
@@ -144,12 +187,12 @@ The deterministic and seeded-random numbers equal the earlier M2 run, so they re
 - **Seeded random wins at small budgets on these fixtures** because the flawed resources are
   declared late in each policy. This is a property of the fixture layout, not of random
   ordering in general.
-- **Findings under a limited budget are not confirmed.** The engine runs retests after all
-  selected checks, so when the budget is exhausted the retests are refused and the FAILs stay
-  `not_retested`. A strategy that "finds" more within a budget therefore finds more
-  *unconfirmed* candidates. This applies to every strategy alike, so the comparison stays
-  fair, but the budget-limited columns should be read as "candidates", not confirmed
-  findings.
+- **Findings under a limited budget are now confirmed within that budget** (since the
+  2026-10-27 retest reserve; see the before/after section). The runner holds back one request
+  per finding for its retest, so a budget-limited run reports confirmed findings rather than
+  unconfirmed candidates. The reserve is enforced identically for every strategy, so the
+  comparison stays fair. The recorded 2026-10-26 table above predates the fix and its
+  budget-limited columns are unconfirmed candidates.
 - At full budget, every strategy finds and confirms every expected finding.
 - These results validate the evaluation mechanics: equal budgets, isolation from the answer
   key, scoring, repetitions, reproducibility and agent accounting. They say **nothing about the

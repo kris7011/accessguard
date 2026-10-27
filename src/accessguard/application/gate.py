@@ -54,6 +54,11 @@ class RequestGate:
     :class:`RunInterrupted` instead of letting a request exceed a limit, and returns a
     :class:`RequestLimit` that lets the transport abort the request when the run deadline
     passes or the stop signal is set while the request is in flight.
+
+    An optional retest reserve (:meth:`reserve_for_retest`) lowers the budget available to
+    the scan phase so the separate retest phase has room; :meth:`release_reserve` returns
+    the held-back requests. The reserve only shifts budget between phases and never lets the
+    total exceed ``max_requests``.
     """
 
     def __init__(
@@ -71,10 +76,25 @@ class RequestGate:
         self._deadline = clock() + limits.max_duration_seconds
         self._last_request: float | None = None
         self._used = 0
+        self._reserve = 0
 
     @property
     def used(self) -> int:
         return self._used
+
+    def reserve_for_retest(self) -> None:
+        """Hold back one request from the scan phase so a finding can be retested later.
+
+        The runner calls this once per executed finding while retests are enabled. It lowers
+        only the scan phase's effective budget; :meth:`release_reserve` hands the held-back
+        requests to the separate retest phase. The reserve never raises the total above
+        ``max_requests``, so the hard budget is preserved.
+        """
+        self._reserve = min(self._reserve + 1, self._limits.max_requests)
+
+    def release_reserve(self) -> None:
+        """Release the retest reserve before the retest phase, up to the full budget."""
+        self._reserve = 0
 
     def raise_if_interrupted(self) -> None:
         """Raise :class:`RunInterrupted` if the run was cancelled or its deadline passed."""
@@ -94,7 +114,7 @@ class RequestGate:
 
     def acquire(self) -> RequestLimit:
         self.raise_if_interrupted()
-        if self._used >= self._limits.max_requests:
+        if self._used >= self._limits.max_requests - self._reserve:
             raise RunInterrupted(InterruptReason.BUDGET_EXHAUSTED)
         if self._last_request is not None:
             wait = self._last_request + self._limits.min_interval_seconds - self._clock()

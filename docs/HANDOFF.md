@@ -2,17 +2,39 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-26, end of the second M2 session)
+## Current state (2026-10-27, third M2 session)
 
 - Branch: `feature/m2-adaptive-agent`. M2 itself is committed as `c0abc42`.
-- The real-model readiness work from this session is **staged but not committed** (the owner
-  had not asked for a commit). Nothing is pushed or merged.
+- The real-model readiness work (previously staged) is committed as `735d118`.
+- The retest budget reserve (this session) is committed as a separate commit (see git log).
+- Nothing is pushed or merged.
 - Milestone 2 status: **implementation with mock and contract verification; real-model
   verification open.** No language model is installed on the development machine, so no real
   model has been run.
 - M3 has not been started.
 
-## Done in this session
+## Done in this session (2026-10-27)
+
+- **Committed the staged real-model readiness work** as `735d118` (unchanged; it had only
+  been staged last session).
+- **Fixed: budget-limited runs never confirmed findings.** The scan spent the whole request
+  budget before the separate retest phase, so retests were refused and every finding stayed
+  `not_retested`. The runner now holds back one request per finding (a finding's retest costs
+  exactly one request, since its baseline and session are cached) and releases the reserve for
+  the existing retest phase. The policy lives in the shared `CheckRunner`/`RequestGate`, so it
+  is identical for the deterministic order, seeded random and the agent. Model input and model
+  choice are unchanged, so the budget effect is isolated. ADR 0008 (2026-10-27 amendment)
+  records the decision and the rejected alternatives (immediate inline retest; fixed up-front
+  reservation). Files: `application/gate.py`, `application/runner.py`, `application/agent.py`
+  (one comment).
+- **Tests** for a limited-but-sufficient budget (confirmed), an insufficient budget (honest
+  `not_retested`, no overrun), a finding that does not reproduce on retest, cancellation during
+  the retest, the gate reserve primitive, and identical reserve rules across strategies. Files:
+  `tests/unit/test_runner.py`, `tests/unit/test_gate.py`, `tests/unit/test_agent_loop.py`,
+  `tests/integration/test_agent_lab.py` (updated to assert confirmation within budget).
+- **Docs:** ADR 0008 amendment, `docs/evaluation.md` before/after section, this handoff.
+
+### Previous session (2026-10-26), now in `735d118`
 
 | Area | Files |
 | --- | --- |
@@ -31,8 +53,6 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
   4 GB for the Ollama install. Installing it is the owner's decision.
 - `agent-v2` (more anonymous structure in the model state) is proposed, not implemented. Measure
   `agent-v1` with a real model first.
-- Reserving HTTP budget for retests is proposed, not implemented. It would affect every
-  strategy.
 - GitHub Actions not run (nothing pushed); Python 3.11, Linux and macOS not verified.
 
 ## Commands
@@ -46,27 +66,27 @@ PYTHON=.venv/Scripts/python bash ops/verify.sh    # all quality gates
 For the real-model sequence (smoke test → full test → subset evaluation → full evaluation),
 see `docs/evaluation.md` → "Real-model protocol".
 
-## Latest actual results (this session, staged tree)
+## Latest actual results (2026-10-27, after the retest reserve)
 
 - `bash ops/verify.sh` (CPython 3.13.13 venv): exit 0.
-  - Lint, format and types: mypy strict, 91 files.
-  - Tests: **273 run, 271 passed, 0 failed, 2 skipped**. Both skipped tests are the real-model
-    tests, and a skipped test is not a verification.
-  - pip-audit: no known vulnerabilities.
-  - detect-secrets: 136 tracked files clean.
-  - Wheel: 40 files, 0 problems.
-  - Demo: exact match.
-  - The first run of this session exited 1 (lint, format and type issues in new code). They
-    were fixed before the rerun.
-- Before this session (`c0abc42`): 266 run, 265 passed, 0 failed, 1 skipped. The earlier
-  "266 OK, 1 skipped" meant this.
-- Real-model test logic against the **fake** Ollama server (not a model):
-  - valid replies: 2 passed;
-  - always-invalid replies: 2 failed, as intended.
-- Evaluation (`--agent-repeats 3`) with `scripted:follow-up` and with `scripted:deny-first`:
-  - Both exited 0, with 0 false positives and 0 invalid replies.
-  - Both scripted adapters show no advantage over seeded random.
-  - No strategy confirms a finding in a budget-limited run.
+  - Lint, format and types: mypy strict, 91 files, no issues.
+  - Tests: **280 run, 278 passed, 0 failed, 2 skipped**. Both skipped tests are the real-model
+    tests, and a skipped test is not a verification. (273 → 280: +7 targeted tests for the
+    reserve; one existing budget-limited agent test was updated to assert confirmation.)
+  - pip-audit: no known vulnerabilities. detect-secrets: clean. Wheel: 40 files, 0 problems.
+    Demo: exact match.
+  - One earlier run failed on a mypy error in a new test's annotations; fixed before the rerun.
+- Evaluation before/after (`scripted:follow-up`, `--agent-repeats 3`, 108 runs), full table in
+  `docs/evaluation.md`:
+  - **Confirmed findings at partial budgets rose from 0 to the number confirmable in budget**
+    for every strategy; full-budget rows and the flaw-free `library` fixture are unchanged.
+  - **No run exceeded its budget** (max `requests_used - budget` over 108 runs is 0).
+  - Drawback: a small coverage/candidate drop at partial budgets, because confirming a finding
+    spends a request that would otherwise probe another check (e.g. `helpdesk` 50 %
+    deterministic: 5 unconfirmed candidates became 4 confirmed findings).
+  - 0 false positives and 0 invalid replies throughout. Scripted adapters still show no
+    advantage over seeded random (unchanged conclusion).
+- Previous session (`735d118`): 273 run, 271 passed, 0 failed, 2 skipped.
 
 ## Known issues and limitations
 

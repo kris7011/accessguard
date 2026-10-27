@@ -104,12 +104,16 @@ class CheckRunner:
         result = self._execute(check)
         if result.executed:
             self._progress.setdefault(check.id, self._gate.used)
+        if result.outcome is Outcome.FAIL and self._retest_findings:
+            # Hold back one request so this finding can be retested within the same budget.
+            self._gate.reserve_for_retest()
         return result
 
     def finish(
         self, results: Sequence[CheckResult], interrupted: InterruptReason | None
     ) -> RunOutcome:
-        """Retest failures (unless the run was interrupted) and assemble the outcome."""
+        """Retest failures (unless the run was stopped) and assemble the outcome."""
+        self._gate.release_reserve()
         verified, interrupted = self._verify_failures(list(results), interrupted)
         return RunOutcome(
             tuple(verified),
@@ -126,19 +130,30 @@ class CheckRunner:
     def _verify_failures(
         self, results: list[CheckResult], interrupted: InterruptReason | None
     ) -> tuple[list[CheckResult], InterruptReason | None]:
-        """Retest every FAIL separately with the same immutable check definition."""
+        """Retest every FAIL separately with the same immutable check definition.
+
+        A scan that reached the reserved budget boundary reports ``BUDGET_EXHAUSTED``, but
+        the reserve was held back for exactly these retests, so they still run. A deadline
+        or a cancellation is a real stop: retests are skipped (and the gate would refuse
+        them anyway). A finding that cannot be retested keeps its FAIL verdict and is
+        reported ``NOT_RETESTED`` -- it neither disappears nor is presented as reproduced.
+        """
+        retests_allowed = interrupted in (None, InterruptReason.BUDGET_EXHAUSTED)
         verified: list[CheckResult] = []
         for result in results:
             if result.outcome is not Outcome.FAIL:
                 verified.append(result)
                 continue
-            if interrupted is not None or not self._retest_findings:
+            if not retests_allowed or not self._retest_findings:
                 verified.append(replace(result, verification=VerificationStatus.NOT_RETESTED))
                 continue
             try:
                 retest = self._execute(result.check)
             except RunInterrupted as stop:
+                # The budget, deadline or stop signal ended retesting: the remaining
+                # findings keep their verdict and are reported NOT_RETESTED, not dropped.
                 interrupted = stop.reason
+                retests_allowed = False
                 verified.append(replace(result, verification=VerificationStatus.NOT_RETESTED))
                 continue
             if retest.outcome is Outcome.FAIL:

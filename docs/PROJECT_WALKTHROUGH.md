@@ -132,7 +132,8 @@ SHA-256 so results can be tied to the exact policy bytes.
 4. The loop ends when every check ran, or on stop, a model failure, too many invalid replies,
    the model call budget, the HTTP budget, the deadline or the stop signal. Then:
    - checks that were not executed become SKIPPED;
-   - `CheckRunner.finish` retests failures (except after a run limit);
+   - `CheckRunner.finish` retests failures (from a per-finding reserve even after the HTTP
+     budget is spent; still skipped after a deadline or cancellation);
    - `build_report` adds `run.agent` (schema 1.2).
 5. `accessguard_eval` runs the same engine with the deterministic, seeded random and agent
    strategies under equal budgets on the fixtures. It scores the reports against the answer
@@ -212,9 +213,11 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   A structural non-AI heuristic (`scripted:deny-first`) beats the policy order slightly, but
   not seeded random, on the fixtures. See `docs/evaluation.md` → "Information basis of the
   agent".
-- Retests run after all selected checks, so findings from a run that exhausts its HTTP budget
-  stay unconfirmed (`not_retested`). The evaluation reports `confirmed_true_positives`
-  separately.
+- Retests run in a separate phase after the selected checks, but the runner holds back one
+  request per finding so they are confirmed within the same HTTP budget (2026-10-27 reserve;
+  ADR 0008). A finding that still cannot be retested (the finding spent the last request, or a
+  deadline or cancellation intervened) stays `not_retested`. The evaluation reports
+  `confirmed_true_positives` separately.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.
 - CI has not been run on GitHub; Python 3.11, Linux and macOS are not verified locally.
 
@@ -248,7 +251,12 @@ measurement of the development machine and the model recommendation. Decisions t
 should review:
 
 - whether to install Ollama and `qwen3:4b-instruct-2507-q4_K_M`;
-- keeping the model state at `agent-v1` until a real model has been measured;
-- whether retests should get reserved budget.
+- keeping the model state at `agent-v1` until a real model has been measured.
+
+The retest budget reserve (2026-10-27, third session) was implemented by Claude Code: the
+runner holds back one request per finding so budget-limited runs confirm their findings, with
+the same policy for every strategy and the model input unchanged (ADR 0008 amendment). The
+owner should review the trade-off that confirming a finding slightly lowers coverage at tight
+budgets.
 
 Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`.

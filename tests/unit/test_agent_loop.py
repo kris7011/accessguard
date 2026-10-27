@@ -29,11 +29,13 @@ from accessguard.domain.evaluation import Outcome
 from accessguard.domain.results import CheckResult, VerificationStatus
 from accessguard.domain.scope import TargetScope
 from tests.helpers import (
+    DOC_BODIES,
     TOKENS,
     ScriptedClient,
     correct_routes,
     credentials,
     flawed_routes,
+    observation,
     run_agent,
     two_tenant_policy,
 )
@@ -298,6 +300,55 @@ class StopAndBudgetTests(unittest.TestCase):
             by_id(short)["acme-doc@globex-member"].verification, VerificationStatus.NOT_RETESTED
         )
         self.assertEqual(short.outcome.interrupted, InterruptReason.AGENT_STOPPED)
+
+
+class BudgetReserveAcrossStrategiesTests(unittest.TestCase):
+    """The retest reserve is enforced the same way for the planned order and the agent.
+
+    Both drive the shared :class:`CheckRunner`, so the same budget confirms the same
+    finding and the request accounting (probes, baselines, the finding and its retest) is
+    identical. Only the model chooses the order; it never decides whether a finding holds.
+    """
+
+    FINDING = "acme-doc@globex-member"
+
+    def single_idor(self) -> dict:  # type: ignore[type-arg]
+        routes = correct_routes()
+        routes[("/d/acme", TOKENS["globex-member"])] = observation(200, DOC_BODIES["acme-doc"])
+        return routes
+
+    def deterministic(self, limits: RunLimits) -> Any:
+        policy = two_tenant_policy(with_collection=True)
+        runner = CheckRunner(
+            policy=policy,
+            client=ScriptedClient(self.single_idor()),
+            credentials=credentials(),
+            gate=RequestGate(limits),
+            now=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+            retest_findings=limits.retest_findings,
+        )
+        return runner.run(generate_checks(policy))
+
+    def test_reserve_rules_are_identical_across_strategies(self) -> None:
+        reference = self.deterministic(RunLimits(max_requests=500))
+        budget = reference.requests_used_after[self.FINDING] + 1  # the finding plus one retest
+        planned = self.deterministic(RunLimits(max_requests=budget))
+        agent = run_agent(
+            ScriptedClient(self.single_idor()),
+            ScriptedModelClient(in_order_responder, name="in-order"),
+            limits=RunLimits(max_requests=budget),
+        )
+        planned_finding = {r.check.id: r for r in planned.results}[self.FINDING]
+        agent_finding = by_id(agent)[self.FINDING]
+        for label, outcome, finding in (
+            ("deterministic", planned, planned_finding),
+            ("agent", agent.outcome, agent_finding),
+        ):
+            with self.subTest(strategy=label):
+                self.assertEqual(finding.verification, VerificationStatus.REPRODUCED)
+                self.assertLessEqual(outcome.requests_used, budget)
+        # Same request accounting under the same budget for both strategies.
+        self.assertEqual(planned.requests_used, agent.outcome.requests_used)
 
 
 class ModelFailureTests(unittest.TestCase):

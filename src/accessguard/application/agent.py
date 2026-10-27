@@ -229,8 +229,9 @@ class AgentLoop:
         executed = {result.check.id for result in results}
         if interrupted is not None:
             results += [skipped(c, interrupted) for c in self._checks if c.id not in executed]
-        # Retests are deterministic engine work: they still run after the model ended the
-        # loop, but not after a run limit (they would only be refused by the gate).
+        # Retests are deterministic engine work. They run after the model ended the loop,
+        # and after the request budget is spent they draw on the reserve the runner held
+        # back per finding; a deadline or cancellation still stops them.
         outcome = self._runner.finish(
             results, interrupted if interrupted in _GATE_REASONS else None
         )

@@ -77,3 +77,40 @@ results of the scripted runs unchanged.
   not reported is recorded as `"unknown"` instead of being left out.
 - **Non-AI reference.** The scripted `deny-first` heuristic shows what the structural state
   alone achieves. A real model should beat it, not only the policy order.
+
+## Amendment (2026-10-27, retest budget reserve)
+
+The readiness amendment above exposed a defect: under a limited budget, the scan spent every
+request before the separate retest phase, so findings were found but never confirmed
+(`confirmed_true_positives` was 0 at the 25 % and 50 % budgets for every strategy). Retesting a
+finding is deterministic engine work, so the AI model must not decide confirmation; the fix is
+pure run-logic and the model input and model choice are unchanged.
+
+**Options for giving retests budget:**
+
+1. **Retest a finding immediately**, inline, right after it is observed. No reservation to
+   size, but the retest logic would move into both the planned loop and the model-driven agent
+   loop, interleaving retest requests with the scan and changing request ordering.
+2. **Reserve budget up front** for retests. Simple to place, but it holds requests back on
+   *every* run — including findings-free runs — which lowers coverage and risks starving small
+   runs, exactly what the requirements warn against.
+3. **Reserve lazily, one request per finding** (chosen). When a check first fails and retests
+   are enabled, the runner tells the shared `RequestGate` to hold back one request from the
+   scan phase; `finish()` releases the reserve before the existing separate retest phase.
+
+**Decision:** option 3. A retest of a finding costs exactly one request (its baseline and
+session are already cached), so one held-back request per finding is the precise amount. The
+change touches only the gate and the single `execute()`/`finish()` path that the planned order
+and the agent already share, so the budget and confirmation policy are identical for the
+deterministic order, seeded random and the agent. Nothing is reserved when there are no
+findings, so findings-free and generous-budget runs keep full coverage. The reserve only shifts
+budget between the scan and retest phases and never raises the total above `max_requests`. A
+finding that still cannot be retested (the finding consumed the last request, or a deadline or
+cancellation intervened) keeps its FAIL verdict and is reported `not_retested`; it never
+disappears and is never shown as reproduced.
+
+**Measured effect (scripted `follow-up` adapter, synthetic fixtures; mechanics only, not AI
+quality).** See `docs/evaluation.md` → "Retest budget reserve (before/after)" for the table.
+Confirmed true positives at partial budgets rose from 0 to the number of findings the run made,
+total requests stayed within budget, and coverage at partial budgets is equal or slightly lower
+because some later checks are skipped in order to confirm a finding already made.

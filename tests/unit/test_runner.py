@@ -4,22 +4,27 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 
 from accessguard.application.gate import InterruptReason, RequestGate, RunLimits
+from accessguard.application.ports import RequestLimit
 from accessguard.application.runner import CheckRunner, RunOutcome
 from accessguard.domain.checks import generate_checks
 from accessguard.domain.credentials import Secret
 from accessguard.domain.errors import TransportError
 from accessguard.domain.evaluation import FindingType, Outcome, SessionState
+from accessguard.domain.observation import HttpObservation
 from accessguard.domain.policy import AccessPolicy
 from accessguard.domain.results import CheckResult, VerificationStatus
 from tests.helpers import (
     DOC_BODIES,
     TOKENS,
+    Response,
     ScriptedClient,
     correct_routes,
     credentials,
     observation,
     two_tenant_policy,
 )
+
+Routes = dict[tuple[str, str | None], Response | list[Response]]
 
 FIXED_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -172,6 +177,98 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(outcome.interrupted, InterruptReason.CANCELLED)
         self.assertEqual({r.outcome for r in outcome.results}, {Outcome.SKIPPED})
         self.assertEqual(outcome.requests_used, 0)
+
+
+FINDING = "acme-doc@globex-member"
+
+
+def single_idor_routes() -> Routes:
+    """:func:`correct_routes` plus exactly one flaw: globex-member reads acme-doc."""
+    routes = correct_routes()
+    routes[("/d/acme", TOKENS["globex-member"])] = observation(200, DOC_BODIES["acme-doc"])
+    return routes
+
+
+class StopAfterCalls(ScriptedClient):
+    """A scripted client that sets a stop event once it has served ``after`` requests."""
+
+    def __init__(self, routes: Routes, stop: threading.Event, after: int) -> None:
+        super().__init__(routes)
+        self._stop = stop
+        self._after = after
+
+    def get(
+        self, path: str, credential: Secret | None, limit: RequestLimit | None = None
+    ) -> HttpObservation:
+        observed = super().get(path, credential, limit)
+        if len(self.calls) >= self._after:
+            self._stop.set()
+        return observed
+
+
+class BudgetRetestReserveTests(unittest.TestCase):
+    """The per-finding retest reserve confirms findings within the total request budget.
+
+    The same reserve policy is enforced for every strategy because it lives in the shared
+    :class:`CheckRunner`; these tests drive the deterministic order, and
+    ``test_reserve_rules_are_identical_across_strategies`` covers the agent as well.
+    """
+
+    def requests_at_finding(self) -> int:
+        """Requests used the moment the single finding gets its verdict, full budget."""
+        full = run(ScriptedClient(single_idor_routes()), limits=RunLimits(max_requests=500))
+        self.assertEqual(by_id(full)[FINDING].verification, VerificationStatus.REPRODUCED)
+        return full.requests_used_after[FINDING]
+
+    def test_finding_is_confirmed_with_a_limited_but_sufficient_budget(self) -> None:
+        budget = self.requests_at_finding() + 1  # the finding plus one retest
+        outcome = run(ScriptedClient(single_idor_routes()), limits=RunLimits(max_requests=budget))
+        result = by_id(outcome)[FINDING]
+        self.assertEqual(result.outcome, Outcome.FAIL)
+        self.assertEqual(result.verification, VerificationStatus.REPRODUCED)
+        self.assertEqual(outcome.requests_used, budget)  # the budget is fully used, never exceeded
+        # The run is genuinely budget-limited: later checks were skipped to retest the finding.
+        self.assertIn(Outcome.SKIPPED, {r.outcome for r in outcome.results})
+        self.assertEqual(outcome.interrupted, InterruptReason.BUDGET_EXHAUSTED)
+
+    def test_insufficient_budget_reports_the_finding_as_not_retested(self) -> None:
+        budget = self.requests_at_finding()  # exactly enough to make the finding, none to retest
+        outcome = run(ScriptedClient(single_idor_routes()), limits=RunLimits(max_requests=budget))
+        result = by_id(outcome)[FINDING]
+        # The finding neither disappears nor is presented as confirmed.
+        self.assertEqual(result.outcome, Outcome.FAIL)
+        self.assertEqual(result.verification, VerificationStatus.NOT_RETESTED)
+        self.assertLessEqual(outcome.requests_used, budget)  # the budget is never exceeded
+        self.assertEqual(outcome.interrupted, InterruptReason.BUDGET_EXHAUSTED)
+
+    def test_finding_that_does_not_reproduce_under_budget_is_downgraded(self) -> None:
+        routes = single_idor_routes()
+        routes[("/d/acme", TOKENS["globex-member"])] = [
+            observation(200, DOC_BODIES["acme-doc"]),  # first observation: a finding
+            observation(403, {}),  # the reserved retest does not reproduce it
+        ]
+        budget = self.requests_at_finding() + 1
+        outcome = run(ScriptedClient(routes), limits=RunLimits(max_requests=budget))
+        result = by_id(outcome)[FINDING]
+        self.assertEqual(result.outcome, Outcome.SUSPECTED)
+        self.assertEqual(result.verification, VerificationStatus.NOT_REPRODUCED)
+        self.assertLessEqual(outcome.requests_used, budget)
+
+    def test_cancellation_during_retest_keeps_an_honest_partial_report(self) -> None:
+        full = run(ScriptedClient(single_idor_routes()), limits=RunLimits(max_requests=500))
+        scan_requests = full.requests_used - 1  # every request except the single retest
+        stop = threading.Event()
+        client = StopAfterCalls(single_idor_routes(), stop, after=scan_requests)
+        outcome = run(client, limits=RunLimits(max_requests=500), stop=stop)
+        result = by_id(outcome)[FINDING]
+        # The scan finished; cancellation struck during confirmation.
+        self.assertEqual(result.outcome, Outcome.FAIL)
+        self.assertEqual(result.verification, VerificationStatus.NOT_RETESTED)
+        self.assertEqual(outcome.interrupted, InterruptReason.CANCELLED)
+        self.assertEqual(outcome.requests_used, scan_requests)  # the retest request never went out
+        # Every other check still carries its own verdict: the partial report is intact.
+        others = [r for r in outcome.results if r.check.id != FINDING]
+        self.assertNotIn(Outcome.SKIPPED, {r.outcome for r in others})
 
 
 if __name__ == "__main__":

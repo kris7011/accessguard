@@ -55,6 +55,32 @@ class RequestGateTests(unittest.TestCase):
         self.assertEqual(len(self.clock.sleeps), 1)
         self.assertAlmostEqual(self.clock.sleeps[0], 0.3)
 
+    def test_retest_reserve_shifts_budget_without_raising_the_total(self) -> None:
+        gate = self.gate(RunLimits(max_requests=5))
+        gate.acquire()
+        gate.acquire()
+        gate.acquire()  # three scan requests used
+        gate.reserve_for_retest()  # hold one back for a finding's retest
+        gate.acquire()  # the fourth scan request still fits (5 - 1 reserved)
+        self.assertEqual(self.interrupt_reason(gate), InterruptReason.BUDGET_EXHAUSTED)
+        self.assertEqual(gate.used, 4)
+        gate.release_reserve()  # the retest phase may use the held-back request
+        gate.acquire()
+        self.assertEqual(gate.used, 5)
+        # The reserve only shifts budget between phases; the total is still a hard limit.
+        self.assertEqual(self.interrupt_reason(gate), InterruptReason.BUDGET_EXHAUSTED)
+        self.assertEqual(gate.used, 5)
+
+    def test_reserve_never_lets_the_total_exceed_the_budget(self) -> None:
+        gate = self.gate(RunLimits(max_requests=2))
+        for _ in range(5):
+            gate.reserve_for_retest()  # more reservations than the budget
+        gate.release_reserve()
+        gate.acquire()
+        gate.acquire()
+        self.assertEqual(self.interrupt_reason(gate), InterruptReason.BUDGET_EXHAUSTED)
+        self.assertEqual(gate.used, 2)
+
     def test_limits_are_validated(self) -> None:
         for kwargs in (
             {"max_requests": 0},
