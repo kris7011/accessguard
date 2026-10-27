@@ -314,3 +314,109 @@ deadline, normally ends a run. An agent run that hits the deadline is reported a
 `interrupted` and is kept.
 
 Exit code 5 means at least one agent run failed. Report that, do not rerun selectively.
+
+## Bounded comparative real-model evaluation (pre-registered 2026-10-27)
+
+Written and committed **before** any run of this experiment. The owner asked for a limited
+comparison first; the larger evaluation matrix (all four fixtures, 100 % budgets) is not part
+of it and was not started.
+
+### Question
+
+On the `projects` fixture (7 expected findings) and the flaw-free `library` fixture, at 25 %
+and 50 % of the full HTTP budget, does the real local model (prompt `agent-v1`) find and
+confirm more expected findings, or find the first one with fewer requests, than three simple
+strategies: the deterministic policy order, seeded random order, and the scripted
+`deny-first` reference? What does it cost in waiting time?
+
+### Design
+
+| Item | Setting |
+| --- | --- |
+| Fixtures | `projects` (30 checks, full budget 46 requests, 7 expected findings) and `library` (30 checks, full budget 39, 0 expected) |
+| Budgets | `--fractions 0.25,0.5`; the harness rounds up: `projects` 12 and 23, `library` 10 and 20 requests (the harness re-derives the full budget from a complete deterministic run and records it) |
+| Strategies | deterministic (1 run per cell), seeded random (seeds 1-5, the documented defaults), `scripted:deny-first` (3 repetitions), real model (3 repetitions) |
+| Equal for every strategy | the same HTTP budget per cell; probes, owner baselines and retests count against it; the same retest reserve in the shared engine (ADR 0008 amendment); the same deadline of 1800 s per run (`--max-run-seconds 1800`), which for the agent includes model time |
+| Model | `ollama:qwen3:4b-instruct-2507-q4_K_M`, digest `0edcdef34593…` (checked against `meta.agent_adapter.provenance`), Ollama 0.40.11, **runtime setup B** (`LLAMA_ARG_CACHE_RAM=0`) |
+| Model settings | as the passed full test: prompt `agent-v1`, tool contract `agent-tools-v1`, temperature 0, seed 0, `num_ctx` 8192, at most 64 output tokens, at most 200 model calls and 3 invalid replies per run, **300 s per model call** (`--model-timeout 300`; the passed test used 300 s, the protocol's example command above says 120 s) |
+| Order | sequential: first the scripted evaluation (no model server), then the real-model evaluation; never in parallel |
+
+Commands (Git Bash, repository root, `PYTHONPATH="src;lab;evaluations"`):
+
+```bash
+python save_reports.py <out> run --model scripted:deny-first --fixtures projects,library --fractions 0.25,0.5 --agent-repeats 3 --model-timeout 300 --max-run-seconds 1800 --out <out>
+python save_reports.py <out> run --model ollama:qwen3:4b-instruct-2507-q4_K_M --fixtures projects,library --fractions 0.25,0.5 --agent-repeats 3 --model-timeout 300 --max-run-seconds 1800 --out <out>
+```
+
+`save_reports.py` (a scratch wrapper, git-ignored under `reports/`) calls the unchanged
+`accessguard_eval` CLI and only saves every raw scan report to disk as it returns, so the
+per-call model metadata (load time, `prompt_eval_count`) is kept. It changes no input,
+strategy, budget or scoring. Deterministic and seeded-random runs happen in both evaluations;
+they must give identical results, which doubles as a reproducibility check.
+
+### Model loading and timing
+
+- Before the real-model evaluation, one load request outside the measured runs
+  (`POST /api/generate` with an empty prompt and `num_ctx` 8192, which Ollama documents as
+  "load the model") puts the model in memory. Measured runs therefore start with a loaded
+  model, as a long-running tool would.
+- The warm-up time is reported separately and not added to any run.
+- Every measured call's `load_duration` comes from the per-step metadata. If a measured run
+  contains a reload (for example after Ollama's 5-minute idle unload), it stays in that run's
+  time and is reported, not removed.
+- Reported times: wall-clock seconds per run (including model time), model seconds per run, and
+  the wall-clock time of each whole evaluation.
+
+### Resources and safety
+
+- Check free RAM, commit, VRAM and disk before the start.
+- Run the commit-memory watchdog (`reports/real-model-cram0-2026-10-27/watchdog.py`, same
+  rule): it stops only the model server if free commit drops below 300 MB.
+- Confirm `prompt cache is disabled` in the `llama-server` log after the first model call.
+- Loopback only; no downloads; the server is stopped afterwards.
+- The model never sees the answer key or the fixture flaw configuration (the harness loads the
+  key only after every run of a fixture; enforced by `tests/security/test_agent_boundaries.py`).
+- No prompt, fixture, strategy or limit is changed during the experiment. Every run is kept,
+  including failed, interrupted or watchdog-stopped runs. Exit code 5 is reported, not
+  retried.
+
+### Metrics, per fixture, budget and strategy
+
+- expected findings found (true positives) and confirmed (FAIL with a reproducing retest);
+- false positives;
+- coverage: executed checks out of 30, and the conclusive ratio;
+- actual HTTP requests used;
+- requests until the first true positive, shown as **not reached** when a run found nothing (never
+  as 0);
+- total seconds per run and model seconds;
+- invalid replies, agent end status, and distinct selection orders across repetitions.
+
+Per-run values are listed next to the median and the min-max range, so a failed or very
+different repetition is not hidden by a mean. Two efficiency views are reported: true positives
+per 100 requests, and true positives per minute of wall-clock time.
+
+### Decision rule (fixed before the run)
+
+The primary metric is **confirmed true positives on `projects`**. The comparison value for
+seeded random is its median over the five seeds; the deterministic order and `deny-first` give
+one value each (`deny-first` is deterministic, so its three repetitions are expected to be
+identical).
+
+- **Advantage** in a `projects` cell: every one of the three model repetitions confirms more
+  expected findings than the deterministic order, `deny-first` and the seeded-random median,
+  with 0 false positives. Equal confirmed counts with fewer requests to the first finding in
+  every repetition are reported as a secondary-metric advantage only; they do not count under
+  the overall rule below.
+- **No demonstrated advantage** in a cell: the model's median confirmed count is not higher
+  than the best of the three simple strategies.
+- **Insufficient basis** in a cell: a model repetition failed (`model_failed`,
+  `invalid_replies_exhausted`), was stopped by the watchdog or the deadline, or the
+  repetitions disagree so that the median is higher but not every repetition is.
+- `library`: any false positive is a disadvantage. Zero false positives everywhere is the
+  expected control result and says nothing about prioritisation.
+- **Overall**: "advantage" only if the model has an advantage in at least one `projects` cell,
+  is not worse by median in the other, and has no false positive on `library`. Otherwise "no
+  demonstrated advantage" or, if a cell is insufficient, "insufficient basis".
+- The conclusion is limited to these two synthetic fixtures, these budgets, this model and
+  these settings. With three repetitions and one flawed fixture it is not a general statement
+  about AI prioritisation.
