@@ -1,8 +1,9 @@
 # AccessGuard project walkthrough
 
 Status as of milestone 2 (version 0.3.0): implementation with mock and contract verification.
-A real local model passed a 3-call smoke test, and a full real-model test was stopped for
-memory after 12 checks (2026-10-27). No real model has been evaluated. Every statement is marked by status where it matters:
+A real local model passed a 3-call smoke test and, with the runtime's prompt cache disabled,
+the full opt-in real-model test (2026-10-27). No real model has been evaluated against the
+baselines. Every statement is marked by status where it matters:
 **implemented** (code exists), **tested** (an automated test exists and was run),
 **proposed/future** (not built).
 
@@ -15,7 +16,8 @@ listing leak other tenants' items, and is legitimately shared data still reachab
 Milestone 1 delivered the engine as a local CLI plus a deliberately vulnerable local lab.
 Milestone 2 adds a bounded adaptive agent that chooses the next approved check from earlier
 results (**implemented, tested with a scripted adapter and a fake Ollama server; with a real
-model only a 3-call smoke test passed, and the full test was stopped for memory**), and an evaluation harness with separate fixtures. There is no hosted service, UI,
+model the 3-call smoke test and one full opt-in test run passed; not evaluated against the
+baselines**), and an evaluation harness with separate fixtures. There is no hosted service, UI,
 database or ML (all future).
 
 ```text
@@ -201,9 +203,12 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   Verified with mocks only.
 - The adaptive agent has **not been evaluated with a real model**. Its guarantees are verified
   with a scripted adapter, mocks and a fake Ollama server. Against a real local model
-  (`qwen3:4b-instruct-2507-q4_K_M`, Ollama 0.40.11), the 3-call smoke test passed. The full
-  test was stopped after 12 valid choices, because the runtime's host prompt cache exhausted
-  the commit memory on this 8 GB machine (`docs/milestones/M2.md`). The scripted evaluation shows no
+  (`qwen3:4b-instruct-2507-q4_K_M`, Ollama 0.40.11), the 3-call smoke test passed. The first
+  full-test attempt was stopped after 12 valid choices, because the runtime's host prompt cache
+  exhausted the commit memory on this 8 GB machine. With the cache disabled
+  (`LLAMA_ARG_CACHE_RAM=0` in the server's environment), the full test passed: 56 valid
+  choices, 56/56 checks, and an exact match with the answer key. One run says nothing about
+  prioritisation quality or repeatability (`docs/milestones/M2.md`). The scripted evaluation shows no
   advantage over the deterministic baseline on 4 small synthetic fixtures; those results
   describe the mechanics, not AI quality.
 - The agent makes one model call per check and resends the whole aliased state each turn;

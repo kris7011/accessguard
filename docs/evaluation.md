@@ -5,11 +5,11 @@ Method and rationale: [ADR 0008](adr/0008-selection-strategy-evaluation.md). Cod
 
 **Status: no real language model has been evaluated.** Every agent result below comes from
 scripted test adapters (deterministic heuristics, not AI). A real local model passed the
-bounded smoke test on 2026-10-27 (3 valid model choices; see
-[Real-model protocol](#real-model-protocol)). The full opt-in model test was attempted the same
-day and stopped for memory after 12 valid choices, so it has not passed. The comparative
-real-model evaluation has not been run. **There is no documented advantage of AI
-prioritisation.**
+bounded smoke test on 2026-10-27 (3 valid model choices). The full opt-in model test passed
+the same day under runtime setup B (prompt cache disabled; 56 valid choices, 56/56 checks,
+exact match with the answer key), after a first attempt was stopped for memory. See
+[Real-model protocol](#real-model-protocol). The comparative real-model evaluation has not
+been run. **There is no documented advantage of AI prioritisation.**
 
 ## Commands
 
@@ -263,8 +263,9 @@ Progress:
 | Step | Status |
 | --- | --- |
 | 1. Smoke test | **Run 2026-10-27, passed**: `qwen3:4b-instruct-2507-q4_K_M` on Ollama 0.40.11, 3 valid model choices, 0 invalid, 15 HTTP requests, 80.65 s model time ([details](milestones/M2.md#real-model-smoke-test-2026-10-27)) |
-| 2. Full opt-in test | **Attempted 2026-10-27, stopped for memory, not passed.** 12 valid model choices, 0 invalid; 12 of 56 checks executed, all matching the answer key (3 FAIL, all reproduced; 9 PASS); 24 HTTP requests; 108.49 s model time; no context truncation. A watchdog stopped the server at 214 MB free commit, because the `llama-server` host prompt cache grew by about 0.43 GiB per call ([details and options](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory)) |
-| 3. Subset and full evaluation | Not yet run. They depend on step 2, and the same prompt-cache memory growth would apply to them |
+| 2. Full opt-in test | **Passed 2026-10-27 under runtime setup B** (`LLAMA_ARG_CACHE_RAM=0`; both tests in the module OK, exit 0). The agent made 56 valid choices with 0 invalid and ended `completed`. It executed 56 of 56 checks: 23 FAIL, all reproduced, and 33 PASS. That is an exact match with the answer key (0 false positives, 0 false negatives). It used 92 HTTP requests and 294.12 s of model time (agent scan 294.9 s, module 312.1 s), with no truncation. `llama-server` memory stayed flat at 4637-4801 MB, and free commit was at least 2.73 GB ([details](milestones/M2.md#full-opt-in-real-model-test-rerun-with-the-prompt-cache-disabled-2026-10-27-passed)) |
+| 2a. Earlier full-test attempt | **Stopped for memory, not passed** (runtime setup A, default prompt cache): 12 valid choices, 12/56 checks, all matching the answer key; the watchdog stopped the server at 214 MB free commit ([details](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory)) |
+| 3. Subset and full evaluation | Not yet run. Run them with runtime setup B |
 
 Prerequisites: an installed Ollama and model (installed on the development machine since
 2026-10-27; see
@@ -293,10 +294,15 @@ Record and check:
 - model seconds next to total seconds;
 - confirmed true positives.
 
-Monitor free commit memory during every real-model run on this machine. With Ollama 0.40.11
-on Windows, the `llama-server` child keeps a host prompt cache by default (up to 8192 MiB, about
-0.43 GiB per agent call) on top of about 4.7 GB for the model load. See the
-[full-test attempt](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory).
+Start the server with runtime setup B, which adds `LLAMA_ARG_CACHE_RAM=0` to the server's
+own environment. Monitor free commit memory during every real-model run on this machine. With
+Ollama 0.40.11 on Windows, the `llama-server` child keeps a host prompt cache by default (up to
+8192 MiB, about 0.43 GiB per agent call) on top of about 4.7 GB for the model load. That
+exhausted commit memory in the
+[first full-test attempt](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory).
+With setup B the cache is disabled, which the `llama-server` log confirms, and the model
+server's memory stays flat. The start command and how it was verified are in
+[Runtime setups](milestones/M2.md#runtime-setups). Record the setup (A or B) with every result.
 
 Compare `prompt_eval_count` (in the report's `run.agent.steps`) with `num_ctx`. Use the
 first step after the model was loaded, because later calls may reuse a cached prompt prefix

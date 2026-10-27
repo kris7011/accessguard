@@ -2,21 +2,67 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-27, fifth M2 session)
+## Current state (2026-10-27, sixth M2 session)
 
 - Branch: `feature/m2-adaptive-agent`. M2 itself is `c0abc42`, the real-model readiness work
-  `735d118`, the retest reserve `9bd4846`, and the smoke-test record `01fb104`. The
-  full-test attempt is documented in the commit after it (see git log).
-- No source or test code changed in the fourth or fifth session; only documentation.
+  `735d118`, the retest reserve `9bd4846`, the smoke-test record `01fb104`, and the stopped
+  full-test attempt `d14fb33`. This session's runtime fix and full-test rerun are documented in
+  the commit after it (see git log).
+- No source or test code changed in the fourth, fifth or sixth session; only documentation.
 - Nothing is pushed or merged.
-- Milestone 2 status: **mock and contract verification, plus one passed real-model smoke test
-  (3 model calls). The full real-model test was attempted and stopped for memory after 12
-  valid model choices, so it has not passed.** The real-model evaluation has not been run.
-  There is no documented advantage of AI prioritisation.
-- No Ollama or `llama-server` process is running.
+- Milestone 2 status: **mock and contract verification, plus a passed real-model smoke test and
+  a passed full opt-in real-model test** (under runtime setup B, prompt cache disabled). The
+  comparative real-model evaluation has not been run. There is no documented advantage of AI
+  prioritisation.
+- No Ollama or `llama-server` process is running (both servers started this session were
+  stopped and port 11434 is free).
 - M3 has not been started.
 
-## Done in this session (2026-10-27): full opt-in real-model test attempt
+## Done in this session (2026-10-27): prompt-cache fix and full-test rerun
+
+Full record: `docs/milestones/M2.md` → "Runtime setups", "Control series with setup B" and
+"Full opt-in real-model test, rerun with the prompt cache disabled". In short:
+
+- **Supported setting found and verified, nothing installed:**
+  - The installed `llama-server.exe --help` documents `--cache-ram N` (env
+    `LLAMA_ARG_CACHE_RAM`, 0 disables it). The llama.cpp server README says an argument takes
+    precedence over its env var.
+  - The Ollama v0.40.11 source (`llm/llama_server.go`) copies `os.Environ()` into the child.
+    For chat models it passes no `--cache-ram`.
+  - `ollama serve --help` does not list the variable.
+  - The child's log then confirmed the setting: `prompt cache is disabled` and
+    `--cache-idle-slots requires --cache-ram, disabling`, with no prompt saves.
+- **Runtime setup B** = the smoke-test settings plus `LLAMA_ARG_CACHE_RAM=0`, set only in the
+  environment of the `ollama serve` process (command below). Model, digest, prompt `agent-v1`,
+  client settings and every AccessGuard limit are unchanged. Nothing persistent was changed.
+- **Control series** (10 calls through the test's own `agent_scan`, 600 s):
+  - free commit stayed flat at about 4.1 GB after the load, and `llama-server` private memory
+    at 4638-4644 MB;
+  - latency was flat at about 3.8 s (setup A rose from 4.3 to 15 s);
+  - 10 valid choices, 0 invalid, all matching the answer key.
+- **Full opt-in test** (`unittest tests.e2e.test_real_model`, unchanged; same watchdog rule,
+  300 MB free commit): **both tests OK, exit 0, 312.1 s.**
+  - Agent `completed`; 56 valid choices, 0 invalid; 56/56 checks executed, 0 skipped.
+  - 23 FAIL (all reproduced) and 33 PASS: an exact match with the answer key (0 false positives,
+    0 false negatives). The deterministic comparison gave the same 56 outcomes.
+  - 92 of 500 HTTP requests; model time 294.12 s of the 294.9 s agent scan.
+  - `prompt_eval_count` was at most 4381 of 8192, with `truncated = 0`.
+  - Memory: `llama-server` at 4637-4801 MB; free commit at least 2.73 GB (an unattributed
+    drift of about 1 GB, not from the model server); free RAM at least 3 MB; VRAM peak 2299 MiB.
+  - The smoke test also passed again (3 valid choices).
+- **Observation:** this session's smoke run chose different checks than the morning's smoke
+  run, although the first prompt length was the same (2965 tokens). The cause is not
+  established. Repeatability is for the evaluation to measure.
+- **Resources before:** RAM 0.81-1.28 GB free; commit 8.15-8.53 of 27.78 GB free; VRAM
+  3962 MiB free; C: 13.46 GB free. No program was closed.
+- **Kept locally (git-ignored):** `reports/real-model-cram0-2026-10-27/` (`control/`, `full/`,
+  scratch scripts). The previous attempt's directory is untouched.
+- **Docs:** `M2.md`, `evaluation.md`, `README.md`, `PROJECT_WALKTHROUGH.md` (status lines),
+  this file.
+- **Permission note:** a PowerShell launch with `-ExecutionPolicy Bypass` was refused by the
+  session's permission check. The server was started from Git Bash instead.
+
+## Earlier session (2026-10-27): full opt-in real-model test attempt, stopped for memory
 
 Full record: `docs/milestones/M2.md` → "Full opt-in real-model test (2026-10-27): stopped for
 memory". In short:
@@ -192,9 +238,9 @@ server log; the "llm server error" status during load is the normal start-up wai
 
 ## Not done
 
-- **Real-model verification beyond the smoke test.** The full opt-in test has not passed (it
-  was stopped for memory, see above). The subset evaluation and the full evaluation have not
-  run. Ollama and the model are installed.
+- **Comparative real-model evaluation.** The smoke test and the full opt-in test have passed
+  (setup B). The subset evaluation and the full evaluation have not run. Ollama and the model
+  are installed.
 - The smoke-test report itself was saved only in the session scratchpad and is not kept; the
   numbers above (and in `docs/milestones/M2.md` → "Real-model smoke test") are its record.
 - `agent-v2` (more anonymous structure in the model state) is proposed, not implemented. Measure
@@ -211,25 +257,37 @@ PYTHON=.venv/Scripts/python bash ops/verify.sh    # all quality gates
 
 For the real-model sequence (smoke test → full test → subset evaluation → full evaluation),
 see `docs/evaluation.md` → "Real-model protocol". Start the local server first, loopback
-only. It is not autostarted. Stop it with Ctrl+C when done; it holds about 2.3 GB VRAM and
-1.2 GB RAM while the model is loaded.
+only, with **runtime setup B** (prompt cache disabled). It is not autostarted. Stop it with
+Ctrl+C when done. While the model is loaded, it holds about 2.3 GB of VRAM, and `llama-server`
+holds about 4.6-4.8 GB of private memory (measured in setup B).
 
 ```bash
-OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 \
+OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 LLAMA_ARG_CACHE_RAM=0 \
   "$LOCALAPPDATA/Programs/ollama-standalone/v0.40.11/ollama.exe" serve
 ```
 
+After the first model call, check that the server log contains
+`prompt cache is disabled - use --cache-ram N to enable it`.
+
 ## Latest actual results
 
-- Real-model full opt-in test (2026-10-27, this session): **stopped for memory, not passed.**
-  12 valid choices, 0 invalid; 12/56 checks; all executed checks match the answer key. Details
-  are above.
+- Real-model full opt-in test (2026-10-27, this session, setup B): **passed**, both tests OK.
+  56 valid choices, 0 invalid; 56/56 checks; 23 reproduced FAILs; exact match with the answer
+  key; 92 HTTP requests; 294.12 s model time. Details are above.
+- Real-model full opt-in test, first attempt (2026-10-27, setup A): **stopped for memory, not
+  passed.** 12 valid choices; 12/56 checks; all matching the answer key.
 - Real-model smoke test (2026-10-27): **passed**, 3/3 valid `run_check`, 0 invalid replies,
   15 HTTP requests, 80.65 s model time. Details are above.
 
 ### Quality gates
 
-- Rerun 2026-10-27 after this session's documentation changes:
+- Rerun 2026-10-27 after the sixth session's documentation changes:
+  `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0. 280 tests run, 278 passed,
+  0 failed, 2 skipped (the real-model tests, since the variable was not set in `verify.sh`;
+  their real-model pass is the separate run above, not this gate). mypy reported no issues in
+  91 files, detect-secrets found 136 tracked files clean, the wheel had 40 files and
+  0 problems, the demo was an exact match, and pip-audit found no known vulnerabilities.
+- Rerun 2026-10-27 after the fifth session's documentation changes:
   `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0. 280 tests run, 278 passed,
   0 failed, 2 skipped (the real-model tests; the variable was not set). mypy reported no
   issues in 91 files, detect-secrets found 136 tracked files clean, the wheel had 40 files
@@ -268,25 +326,16 @@ Previous run (2026-10-27, after the retest reserve):
 
 ## Next step
 
-**Blocked by the owner's decision on the prompt-cache memory problem.** With the smoke-test
-settings the full test cannot finish on this machine:
+The prompt-cache blocker is resolved (setup B), and the full opt-in test has passed. **The
+comparative evaluation needs the owner's go-ahead; it was not started.**
 
-- it needs about 4.7 GB of commit for the model load plus up to 8 GB of prompt cache (an
-  estimate);
-- about 4.5 GB of commit is free with the owner's programs open.
-
-Options are in `docs/milestones/M2.md` → "What blocks the full test on this machine".
-
-1. **Preferred:** disable or limit the `llama-server` prompt cache. Ollama 0.40.11 does not
-   document a setting for it. Check against the llama.cpp documentation whether a
-   `LLAMA_ARG_*` environment variable reaches Ollama's `llama-server` child. Then verify with a
-   short smoke run that watches free commit; it should stay flat after the model load.
-2. Rerun the full opt-in test with the same watchdog (the scripts are in
-   `reports/real-model-full-test-2026-10-27/`). Record the changed server setting as a
-   deviation from the smoke test.
-3. Only then run the subset evaluation and the full evaluation (about 800 model calls), as in
-   `docs/evaluation.md`. Then conclude whether there is an advantage, no advantage or an
-   insufficient basis compared with the baselines.
+1. Run the subset evaluation and then the full evaluation (about 800 model calls), as in
+   `docs/evaluation.md`. Use setup B, keep a commit-memory watchdog running (the scripts are in
+   `reports/real-model-cram0-2026-10-27/`), and record the setup with the results. At the
+   measured 4-6 s per call, 800 calls take roughly 1-1.5 hours of model time (an estimate).
+2. Then conclude whether there is an advantage, no advantage or an insufficient basis
+   compared with the baselines. Include `distinct_selection_orders`, given the smoke-run
+   observation above.
 
 M3 (a separately authorised test application through configuration and an explicit policy)
 needs a separate go-ahead.
