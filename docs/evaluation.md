@@ -6,8 +6,9 @@ Method and rationale: [ADR 0008](adr/0008-selection-strategy-evaluation.md). Cod
 **Status: no real language model has been evaluated.** Every agent result below comes from
 scripted test adapters (deterministic heuristics, not AI). A real local model passed the
 bounded smoke test on 2026-10-27 (3 valid model choices; see
-[Real-model protocol](#real-model-protocol)), but the full opt-in model test and the
-comparative real-model evaluation have not been run. **There is no documented advantage of AI
+[Real-model protocol](#real-model-protocol)). The full opt-in model test was attempted the same
+day and stopped for memory after 12 valid choices, so it has not passed. The comparative
+real-model evaluation has not been run. **There is no documented advantage of AI
 prioritisation.**
 
 ## Commands
@@ -262,8 +263,8 @@ Progress:
 | Step | Status |
 | --- | --- |
 | 1. Smoke test | **Run 2026-10-27, passed**: `qwen3:4b-instruct-2507-q4_K_M` on Ollama 0.40.11, 3 valid model choices, 0 invalid, 15 HTTP requests, 80.65 s model time ([details](milestones/M2.md#real-model-smoke-test-2026-10-27)) |
-| 2. Full opt-in test | Not yet run |
-| 3. Subset and full evaluation | Not yet run |
+| 2. Full opt-in test | **Attempted 2026-10-27, stopped for memory, not passed.** 12 valid model choices, 0 invalid; 12 of 56 checks executed, all matching the answer key (3 FAIL, all reproduced; 9 PASS); 24 HTTP requests; 108.49 s model time; no context truncation. A watchdog stopped the server at 214 MB free commit, because the `llama-server` host prompt cache grew by about 0.43 GiB per call ([details and options](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory)) |
+| 3. Subset and full evaluation | Not yet run. They depend on step 2, and the same prompt-cache memory growth would apply to them |
 
 Prerequisites: an installed Ollama and model (installed on the development machine since
 2026-10-27; see
@@ -291,6 +292,11 @@ Record and check:
 - distinct selection orders across repetitions;
 - model seconds next to total seconds;
 - confirmed true positives.
+
+Monitor free commit memory during every real-model run on this machine. With Ollama 0.40.11
+on Windows, the `llama-server` child keeps a host prompt cache by default (up to 8192 MiB, about
+0.43 GiB per agent call) on top of about 4.7 GB for the model load. See the
+[full-test attempt](milestones/M2.md#full-opt-in-real-model-test-2026-10-27-stopped-for-memory).
 
 Compare `prompt_eval_count` (in the report's `run.agent.steps`) with `num_ctx`. Use the
 first step after the model was loaded, because later calls may reuse a cached prompt prefix
