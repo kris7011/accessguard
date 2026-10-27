@@ -610,3 +610,114 @@ What it shows:
 
 Kept locally (git-ignored): `reports/eval-list-first-2026-10-27/posthoc/` (results, summary,
 raw reports), `posthoc-comparison.txt` and the scratch script `compare_posthoc.py`.
+
+## Bounded evaluation on `helpdesk` and `clinic` (pre-registered 2026-10-27)
+
+Written and committed **before** any run on these two fixtures in this round: no list-first run
+and no model run on `helpdesk` or `clinic` has happened. The deterministic, seeded-random and
+`deny-first` values for these fixtures are already known from the earlier scripted evaluations
+above; the list-first and model values are not.
+
+### Questions
+
+1. On `helpdesk` (role bypass, 7 expected findings) and `clinic` (one cross-tenant record,
+   3 expected findings), at 25 % and 50 % of the full HTTP budget, does the real local model
+   (prompt `agent-v1`) confirm more expected findings than the best of four simple strategies:
+   the deterministic order, seeded random, `deny-first` and `list-first`?
+2. Is any gain consistent across three separate model-server sessions, and what does it cost in
+   waiting time?
+
+`list-first` is a pre-registered baseline here. Its choice was informed by `projects` (see the
+post-hoc control above), but it has not been run on these fixtures.
+
+### Design (`helpdesk` and `clinic`)
+
+| Item | Setting |
+| --- | --- |
+| Fixtures | `helpdesk` (49 checks, full budget 68 requests) and `clinic` (45 checks, full budget 61). The harness re-derives each full budget from a complete deterministic run and records it |
+| Budgets | `--fractions 0.25,0.5`, rounded up by the harness: `helpdesk` 17 and 34, `clinic` 16 and 31 requests |
+| Strategies | deterministic (1 run per cell); seeded random (seeds 1-5); `scripted:deny-first` (3 repetitions); `scripted:list-first` (3 repetitions); real model (3 repetitions, **one per server session**) |
+| Equal for every strategy | the same HTTP budget per cell, with probes, owner baselines and retests counted; the same retest reserve in the shared engine; the same deadline of 1800 s per run (`--max-run-seconds 1800`), which for the agent includes model time |
+| Model | `ollama:qwen3:4b-instruct-2507-q4_K_M`, digest `0edcdef34593…` (checked in `meta.agent_adapter.provenance` of every session), Ollama 0.40.11, **runtime setup B** (`LLAMA_ARG_CACHE_RAM=0`) |
+| Model settings | as the bounded evaluation: prompt `agent-v1`, tool contract `agent-tools-v1`, temperature 0, seed 0, `num_ctx` 8192, at most 64 output tokens, at most 200 model calls and 3 invalid replies per run, 300 s per model call |
+| Order | sequential, never in parallel: the `deny-first` evaluation, the `list-first` evaluation, then model sessions 1, 2 and 3 |
+
+Commands (Git Bash, repository root, `PYTHONPATH="src;lab;evaluations"`; `save_reports.py` is the
+unchanged scratch wrapper from the bounded evaluation, which only saves each raw report):
+
+```bash
+python save_reports.py <out>/raw run --model scripted:deny-first --fixtures helpdesk,clinic --fractions 0.25,0.5 --agent-repeats 3 --model-timeout 300 --max-run-seconds 1800 --out <out>
+python save_reports.py <out>/raw run --model scripted:list-first --fixtures helpdesk,clinic --fractions 0.25,0.5 --agent-repeats 3 --model-timeout 300 --max-run-seconds 1800 --out <out>
+# once per server session k = 1, 2, 3:
+python save_reports.py <out>/raw run --model ollama:qwen3:4b-instruct-2507-q4_K_M --fixtures helpdesk,clinic --fractions 0.25,0.5 --agent-repeats 1 --model-timeout 300 --max-run-seconds 1800 --out <out>
+```
+
+**Server sessions.** Each model session is a fresh `ollama serve` process with setup B, on
+loopback only:
+
+1. start the server and the memory watchdog (`reports/real-model-cram0-2026-10-27/watchdog.py`,
+   same rule: it stops only the model server if free commit drops below 300 MB);
+2. one warm-up load outside the measured runs (`POST /api/generate`, empty prompt, `num_ctx`
+   8192), timed and reported separately;
+3. the model evaluation above;
+4. stop the server and confirm that no Ollama process remains and port 11434 is free.
+
+Session k provides model repetition k. Nothing else changes between sessions. Each model
+evaluation also reruns the deterministic and seeded-random strategies; they must equal the
+scripted evaluations, which doubles as a reproducibility check.
+
+### Resources and safety (`helpdesk` and `clinic`)
+
+- Check free RAM, commit, VRAM and disk before each session; no program is closed.
+- Confirm `prompt cache is disabled` in each session's server log after the first model call.
+- The model never sees the answer key or the fixture flaw configuration; the harness loads the
+  key only after every run of a fixture and uses it only for scoring.
+- No prompt, fixture, strategy, budget or limit changes during the experiment, and no prompt
+  optimisation afterwards. Every run is kept, including failed, interrupted, deadline-stopped
+  or watchdog-stopped runs. Exit code 5 is reported, not retried. A session that the watchdog
+  stops is recorded as such and not replaced.
+
+### Metrics (`helpdesk` and `clinic`)
+
+- expected findings found and confirmed (FAIL with a reproducing retest); false positives;
+- coverage: executed checks and the conclusive ratio; actual HTTP requests used;
+- requests to the first true positive (**not reached** when a run found nothing);
+- wall-clock seconds and model seconds per run; warm-up time per session;
+- invalid replies, agent end status, and **distinct selection orders across the three server
+  sessions** (the variation between sessions).
+
+Per-run values are listed next to the median and the min-max range.
+
+### Decision rule for `helpdesk` and `clinic` (fixed before the run)
+
+Primary metric: **confirmed true positives** per cell (fixture × budget). The comparison value
+is the **best simple baseline** in that cell: the highest of the deterministic value, the
+seeded-random median over seeds 1-5, the `deny-first` value and the `list-first` value. The
+model value is its three session repetitions.
+
+- **Advantage** in a cell: each of the three model repetitions confirms more expected findings
+  than the best simple baseline, with 0 false positives.
+- **No demonstrated advantage** in a cell: the model's median is not higher than the best simple
+  baseline. If the median is lower, the cell is reported as **worse**.
+- **Insufficient basis** in a cell: a model repetition failed (`model_failed`,
+  `invalid_replies_exhausted`), was stopped by the watchdog or the deadline, or the median is
+  higher but not every repetition is.
+- Any model false positive in a cell where the best simple baseline has none counts against the
+  model and is reported.
+- Fewer requests to the first finding at equal confirmed counts is reported as a secondary
+  observation only.
+- **Overall answer to question 1:**
+  - "advantage on both fixtures" only if at least one cell of **each** fixture shows an
+    advantage and no cell is worse;
+  - "advantage limited to `<fixture>`" if the advantage cells are on one fixture only and no
+    cell is worse;
+  - otherwise "no demonstrated advantage" (or "insufficient basis" if an insufficient cell
+    decides it).
+- **Question 2:** a gain counts as consistent only if it holds in all three sessions (built into
+  the cell rule). The waiting-time cost is reported as model seconds per additional confirmed
+  finding over the best simple baseline. Whether that cost is justified is answered only if
+  there is an advantage under the rule, and then only for settings where requests rather than
+  time are the scarce resource.
+- The conclusion is limited to these two synthetic fixtures, these budgets, this model and these
+  settings. A result without an AI advantage is an acceptable outcome; no new optimisation
+  experiment follows from it in this round.
