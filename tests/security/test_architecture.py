@@ -22,6 +22,7 @@ FORBIDDEN = {
         "json",
         "accessguard_lab",
         "accessguard_eval",
+        "accessguard_sampleapp",
     },
     "application": {
         "accessguard.adapters",
@@ -32,9 +33,15 @@ FORBIDDEN = {
         "subprocess",
         "accessguard_lab",
         "accessguard_eval",
+        "accessguard_sampleapp",
     },
-    "adapters": {"accessguard.entrypoints", "accessguard_lab", "accessguard_eval"},
-    "entrypoints": {"accessguard_lab", "accessguard_eval"},
+    "adapters": {
+        "accessguard.entrypoints",
+        "accessguard_lab",
+        "accessguard_eval",
+        "accessguard_sampleapp",
+    },
+    "entrypoints": {"accessguard_lab", "accessguard_eval", "accessguard_sampleapp"},
 }
 
 
@@ -69,6 +76,20 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertNotIn("answer_key", text)
                 self.assertNotIn("Flaw.", text)
                 self.assertNotIn("demo-a", text)
+
+    def test_engine_has_no_rules_for_the_sample_app(self) -> None:
+        """The integration is verified without special cases: no sample-app names or markers."""
+        for path in PRODUCT.rglob("*.py"):
+            text = path.read_text("utf-8")
+            with self.subTest(file=path.name):
+                for marker in ("sampleapp", "X-Api-Key", "SAMPLE-", "whoami", "orbit", "quasar"):
+                    self.assertNotIn(marker, text)
+
+    def test_sample_app_is_independent_of_accessguard(self) -> None:
+        for path in (REPO_ROOT / "sampleapp" / "accessguard_sampleapp").rglob("*.py"):
+            for module in imported_modules(path):
+                with self.subTest(file=path.name, module=module):
+                    self.assertFalse(module.startswith("accessguard."), module)
 
     def test_model_adapters_cannot_send_target_requests(self) -> None:
         for name in ("ollama_planner.py", "ollama_client.py", "scripted_model.py"):

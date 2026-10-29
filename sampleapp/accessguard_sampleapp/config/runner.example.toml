@@ -1,0 +1,19 @@
+# AccessGuard runner configuration for the local sample API.
+# This file stays in your environment. Test credentials are read from the credentials file
+# (or environment variables) here and are never sent to the AccessGuard control plane.
+
+[control_plane]
+# Omit this table for offline scans (`accessguard scan`).
+url = "http://127.0.0.1:8000"
+token_env = "ACCESSGUARD_RUNNER_TOKEN"
+
+# Only origins listed here can be scanned, whatever a job asks for.
+[[targets]]
+origin = "http://127.0.0.1:8800"
+zone = "loopback"
+credentials_file = "sampleapp-credentials.json"
+
+[[targets]]
+origin = "http://127.0.0.1:8801"
+zone = "loopback"
+credentials_file = "sampleapp-credentials.json"

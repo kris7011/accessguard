@@ -1,0 +1,19 @@
+{
+  "description": "Hand-written expected FAIL checks per variant, derived from FLAWS in app.py. Every other check must PASS.",
+  "flawed": {
+    "project-idor": [
+      "orbit-apollo@cleo",
+      "orbit-apollo@dev",
+      "quasar-nova@ana",
+      "quasar-nova@ben"
+    ],
+    "billing-role-bypass": ["orbit-billing@ben", "quasar-billing@dev"],
+    "project-list-leak": [
+      "list:projects@ana",
+      "list:projects@ben",
+      "list:projects@cleo",
+      "list:projects@dev"
+    ]
+  },
+  "fixed": {}
+}

@@ -18,7 +18,7 @@ mkdir -p "$LOG_DIR" || exit 2
 
 # Relative paths work for both POSIX and Windows interpreters; the separator comes from Python.
 SEP="$("$PYTHON" -c 'import os; print(os.pathsep)')" || exit 2
-export PYTHONPATH="src${SEP}lab${SEP}evaluations"
+export PYTHONPATH="src${SEP}lab${SEP}evaluations${SEP}sampleapp"
 
 step_args() {
   case "$1" in

@@ -9,8 +9,20 @@ import sys
 import zipfile
 from pathlib import Path
 
-FORBIDDEN_PREFIXES = ("accessguard_lab/", "accessguard_eval/", "tests/", "lab/", "evaluations/")
-FORBIDDEN_TEXT = (b"SYNTHETIC-CANARY", b"EVAL-CANARY")
+FORBIDDEN_PREFIXES = (
+    "accessguard_lab/",
+    "accessguard_eval/",
+    "accessguard_sampleapp/",
+    "accessguard_web/",
+    "accessguard_ml/",
+    "tests/",
+    "lab/",
+    "evaluations/",
+    "sampleapp/",
+    "web/",
+    "ml/",
+)
+FORBIDDEN_TEXT = (b"SYNTHETIC-CANARY", b"EVAL-CANARY", b"SAMPLE-BUDGET", b"SAMPLE-ACCT")
 
 
 def main(dist: Path) -> int:

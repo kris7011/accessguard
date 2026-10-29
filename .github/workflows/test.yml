@@ -34,7 +34,7 @@ jobs:
       - name: Install locked tooling
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
-          python -m pip install --no-deps --no-build-isolation -e . -e ./lab -e ./evaluations
+          python -m pip install --no-deps --no-build-isolation -e . -e ./lab -e ./evaluations -e ./sampleapp
       - name: Lint, format, types, dependency audit, secret scan, build
         run: bash ops/verify.sh lint format types audit secrets build
 
