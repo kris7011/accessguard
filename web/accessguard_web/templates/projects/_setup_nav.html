@@ -1,0 +1,9 @@
+<p><a href="{% url 'projects:detail' project.pk %}">← {{ project.name }}</a></p>
+<nav class="setup-nav" aria-label="Setup steps">
+  <a href="{% url 'projects:setup_target' project.pk %}" {% if step == 'target' %}aria-current="page"{% endif %}>1 · Target</a>
+  <a href="{% url 'projects:setup_users' project.pk %}" {% if step == 'users' %}aria-current="page"{% endif %}>2 · Test users</a>
+  <a href="{% url 'projects:setup_rules' project.pk %}" {% if step == 'rules' %}aria-current="page"{% endif %}>3 · Endpoints &amp; rules</a>
+  <a href="{% url 'projects:setup_limits' project.pk %}" {% if step == 'limits' %}aria-current="page"{% endif %}>4 · Limits</a>
+</nav>
+{% if project.is_demo %}<div class="banner banner-info"><p>This is the demo configuration. You can look at it, but it cannot be changed.</p></div>{% endif %}
+{% if status.error and status.steps.0.done and status.steps.1.done and status.steps.2.done %}<div class="banner banner-warn"><p><strong>Not valid yet:</strong> {{ status.error }}</p></div>{% endif %}

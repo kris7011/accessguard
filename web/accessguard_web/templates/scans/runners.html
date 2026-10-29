@@ -1,0 +1,53 @@
+{% extends "app.html" %}{% block title %}Runners{% endblock %}
+{% block content %}
+<h1>Runners</h1>
+<p class="muted">A runner is a small program in your own environment. It claims approved scans, reads test credentials locally, scans only the targets you list in its configuration, and sends back a report without credentials or response content. AccessGuard's servers never contact your test environment.</p>
+
+{% if new_token %}
+<div class="banner banner-info" role="alert">
+  <h2>Runner token: copy it now</h2>
+  <p>It is shown only once. Store it as an environment variable on the machine that runs the runner.</p>
+  <pre id="runner-token">{{ new_token }}</pre>
+  <button class="btn small" type="button" data-copy-target="runner-token">Copy token</button>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Set up a runner</h2>
+  <ol>
+    <li>Install it (Python 3.11 or newer, no other dependencies): <pre>pip install accessguard</pre><span class="small muted">Until the package is published, install it from the repository: <span class="mono">pip install ./</span>.</span></li>
+    <li>Create a token below and set it: <pre>export ACCESSGUARD_RUNNER_TOKEN=agr_…   # PowerShell: $env:ACCESSGUARD_RUNNER_TOKEN = "agr_…"</pre></li>
+    <li>Write <span class="mono">runner.toml</span> next to a credentials file (JSON, test user id → credential; keep it out of git):
+<pre id="runner-config">[control_plane]
+url = "{{ public_url }}"
+token_env = "ACCESSGUARD_RUNNER_TOKEN"
+
+# Only these origins can be scanned, whatever a job asks for.
+[[targets]]
+origin = "{% if projects %}{{ projects.0.config.target.origin|default:'https://staging.example.com' }}{% else %}https://staging.example.com{% endif %}"
+zone = "public"            # loopback | private | public
+credentials_file = "accessguard-credentials.json"
+# max_requests = 2000      # optional local cap</pre>
+      <button class="btn small" type="button" data-copy-target="runner-config">Copy configuration</button></li>
+    <li>Start it: <pre>accessguard runner --config runner.toml</pre></li>
+  </ol>
+  <p class="small"><a href="{% url 'pages:help_page' 'runner' %}">Full runner guide</a></p>
+  <form method="post" action="{% url 'scans:runner_create' %}" class="row">{% csrf_token %}
+    <div><label for="name">Runner name</label><input id="name" name="name" type="text" placeholder="staging-runner" maxlength="80"></div>
+    <button class="btn btn-primary" type="submit">Create runner token</button>
+  </form>
+</div>
+
+<h2>Your runners</h2>
+{% if runners %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Name</th><th scope="col">Token</th><th scope="col">Status</th><th scope="col">Last seen (UTC)</th><th scope="col"></th></tr></thead>
+  <tbody>{% for r in runners %}<tr>
+    <td>{{ r.name }}</td><td class="mono">{{ r.token_hint }}…</td>
+    <td>{% if not r.is_active %}<span class="chip">revoked</span>{% elif r.online %}<span class="chip chip-pass">online</span>{% else %}<span class="chip">offline</span>{% endif %}</td>
+    <td class="small">{{ r.last_seen_at|date:"Y-m-d H:i"|default:"never" }}</td>
+    <td>{% if r.is_active %}<form method="post" action="{% url 'scans:runner_revoke' r.pk %}">{% csrf_token %}<button class="btn btn-danger small" type="submit">Revoke</button></form>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No runners yet. The demo project uses AccessGuard's own demo runner.</p>{% endif %}
+{% endblock %}

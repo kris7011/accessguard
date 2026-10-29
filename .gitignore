@@ -8,3 +8,8 @@ dist/
 *.egg-info/
 reports/
 .env
+.local/
+web/db.sqlite3
+web/staticfiles/
+.env.*
+!.env.example

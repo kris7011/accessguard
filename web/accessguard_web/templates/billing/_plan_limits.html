@@ -1,0 +1,8 @@
+<ul class="plan-list">
+  <li>{{ plan.projects }} project{{ plan.projects|pluralize }}</li>
+  <li>{{ plan.scans_per_month }} scans per month</li>
+  <li>Up to {{ plan.checks_per_scan }} checks per scan</li>
+  <li>{{ plan.runners }} runner{{ plan.runners|pluralize }}, {{ plan.members }} members</li>
+  <li>{{ plan.assistant_requests_per_month }} AI assistant requests per month</li>
+  <li>{{ plan.history_days }} days of history</li>
+</ul>

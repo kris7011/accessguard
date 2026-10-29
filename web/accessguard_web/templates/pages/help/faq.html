@@ -1,0 +1,9 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<p><strong>Is it safe to point at production?</strong> AccessGuard is designed for test environments with dedicated test users. It only reads, paces its requests and stops at a budget, but testing production is your decision and responsibility.</p>
+<p><strong>Why a runner instead of scanning from the cloud?</strong> So that credentials and response content stay with you, and so internal staging systems can be tested without opening them to the internet.</p>
+<p><strong>Does the AI decide what is a vulnerability?</strong> No. A deterministic engine judges every check from the evidence. The AI only drafts configuration and explanations.</p>
+<p><strong>Does AccessGuard use AI to choose which checks to run first?</strong> No. We compared a local model with simple rules for ordering checks and found no reliable advantage, so scans run every check in a fixed order with a budget that covers them all.</p>
+<p><strong>What about GraphQL or gRPC?</strong> Not yet: the engine tests JSON over HTTP GET.</p>
+<p><strong>Can I export results?</strong> Yes. Every scan report can be downloaded as JSON, and the offline CLI writes JSON and HTML.</p>
+{% endblock %}

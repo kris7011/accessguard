@@ -1,0 +1,10 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<p>The same engine runs offline from a scan spec, so you can scan a preview environment on every change.</p>
+<ol>
+<li>Download the scan spec from your project page (<span class="mono">accessguard-spec-N.json</span>). It contains the policy, target and limits, never credentials.</li>
+<li>In CI, write the runner configuration and the credentials file from your CI secrets, then run:</li>
+</ol>
+<pre>accessguard scan --spec accessguard-spec.json --config runner.toml --out reports/accessguard</pre>
+<p>Exit codes: <span class="mono">0</span> all checks passed · <span class="mono">1</span> violations · <span class="mono">3</span> incomplete or needs review · <span class="mono">4</span> configuration refused · <span class="mono">130</span> cancelled. Only a complete pass returns 0. The report is written as JSON and HTML.</p>
+{% endblock %}

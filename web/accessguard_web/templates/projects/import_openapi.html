@@ -1,0 +1,33 @@
+{% extends "app.html" %}{% block title %}Import from OpenAPI · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'projects:detail' project.pk %}">← {{ project.name }}</a></p>
+<div class="card">
+  <h1>Import endpoints from OpenAPI</h1>
+  <p class="muted">AccessGuard reads the GET endpoints of your OpenAPI 3 document (JSON) and drafts a session check, lists and record templates. Nothing changes until you apply the draft.</p>
+  <form method="post" enctype="multipart/form-data">{% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="field">{{ form.document.label_tag }}{{ form.document }}</div>
+    <div class="field">{{ form.pasted.label_tag }}{{ form.pasted }}</div>
+    <div class="checkbox-row">{{ form.use_assistant }} <div>{{ form.use_assistant.label_tag }}<span class="helptext">{{ form.use_assistant.help_text }}</span></div></div>
+    <button class="btn" type="submit">Create draft</button>
+  </form>
+</div>
+
+{% if draft %}
+<div class="card">
+  <h2>Draft: review before applying</h2>
+  {% if assistant_note %}<div class="banner banner-info"><p>{{ assistant_note }}</p></div>{% endif %}
+  {% for note in draft.notes %}<p class="chip chip-warn">{{ note }}</p>{% endfor %}
+  <form method="post" action="{% url 'projects:apply_openapi' project.pk %}">{% csrf_token %}
+    <div class="checkbox-row"><input type="checkbox" id="apply_prefix" name="apply_prefix" value="1" checked> <label for="apply_prefix">Allowed endpoints: <span class="mono">{{ draft.path_prefix }}</span></label></div>
+    {% if draft.session_probe_path %}<div class="checkbox-row"><input type="checkbox" id="apply_session" name="apply_session" value="1" checked> <label for="apply_session">Session check: <span class="mono">{{ draft.session_probe_path }}</span>, user field <span class="mono">{{ draft.subject_field|default:"(choose one)" }}</span></label></div>{% endif %}
+    {% if draft.collections %}<h3>Lists</h3>{% for c in draft.collections %}<div class="checkbox-row"><input type="checkbox" id="c{{ forloop.counter }}" name="collections" value="{{ c.path }}" checked> <label for="c{{ forloop.counter }}"><span class="mono">{{ c.path }}</span> {{ c.summary }}</label></div>{% endfor %}{% endif %}
+    {% if draft.templates %}<h3>Record templates</h3>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Use</th><th scope="col">Endpoint</th><th scope="col">Category</th><th scope="col">Protected fields</th><th scope="col">Note</th></tr></thead><tbody>
+    {% for t in draft.templates %}<tr><td><input type="checkbox" name="templates" value="{{ t.path }}" checked aria-label="Use {{ t.path }}"></td><td class="mono">{{ t.path }}</td><td>{{ t.category }}</td><td class="mono small">{{ t.protected_fields|join:", " }}</td><td class="small">{% if t.suggested_by_ai %}<span class="chip chip-info">AI</span> {{ t.reason }}{% else %}rule-based{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>{% endif %}
+    <button class="btn btn-primary" type="submit">Apply selected</button>
+  </form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Create an organisation{% endblock %}
+{% block content %}
+<div class="narrow card">
+  <h1>Create an organisation</h1>
+  <p class="muted">Projects, scans and findings belong to an organisation. You can invite colleagues later.</p>
+  <form method="post">{% csrf_token %}{{ form.as_div }}<button class="btn btn-primary" type="submit">Create</button></form>
+</div>
+{% endblock %}

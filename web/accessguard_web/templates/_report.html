@@ -1,0 +1,49 @@
+{# Renders a ReportView (scans/presenters.py). Every value is escaped by Django. #}
+{% include "_banner.html" with banner=report.banner %}
+{% if report.selection_note %}<p><span class="chip chip-info">{{ report.selection_note }}</span></p>{% endif %}
+{% for note in report.attention %}<div class="banner banner-warn"><p>{{ note }}</p></div>{% endfor %}
+<div class="grid">
+  <div class="card"><div class="muted small">Checks planned</div><div class="stat">{{ report.planned }}</div></div>
+  <div class="card"><div class="muted small">Conclusive results</div><div class="stat">{{ report.conclusive }} <span class="small muted">({{ report.conclusive_percent }} %)</span></div></div>
+  <div class="card"><div class="muted small">Violations</div><div class="stat">{{ report.summary.FAIL|default:0 }}</div><div class="small muted">{{ report.summary.SUSPECTED|default:0 }} suspected</div></div>
+  <div class="card"><div class="muted small">Requests used</div><div class="stat">{{ report.requests_used }}</div><div class="small muted">of a budget of {{ report.max_requests }}</div></div>
+</div>
+{% if report.interrupted %}<div class="banner banner-warn"><p><strong>The scan was interrupted:</strong> {{ report.interrupted }}. Unfinished checks are marked “Not run”.</p></div>{% endif %}
+
+{% if report.findings %}
+<h2 id="findings">Findings</h2>
+{% for f in report.findings %}
+<details class="card" {% if forloop.first %}open{% endif %}>
+  <summary><span class="chip {% if f.outcome == 'FAIL' %}chip-fail{% else %}chip-warn{% endif %}">{{ f.outcome }}</span> {{ f.title }} · <span class="mono">{{ f.check_id }}</span></summary>
+  <p><strong>Who:</strong> {{ f.actor }} · <strong>What:</strong> {{ f.subject }}</p>
+  <p><strong>Observed:</strong> {{ f.actual }}</p>
+  {% if f.verification %}<p class="small muted">Separate retest during the scan: {{ f.verification }}</p>{% endif %}
+  <p><strong>Why it matters:</strong> {{ f.guidance.why_it_matters }}</p>
+</details>
+{% endfor %}
+{% endif %}
+
+{% if report.invalid_sessions %}
+<h2>Test users whose session could not be verified</h2>
+<ul>{% for identity, reason in report.invalid_sessions %}<li><span class="mono">{{ identity }}</span>: {{ reason }}</li>{% endfor %}</ul>
+<p class="small muted">Check these users' credentials in the runner configuration. Their checks are inconclusive and never counted as passed.</p>
+{% endif %}
+
+<h2>Coverage by relationship</h2>
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Who tried to read</th><th scope="col">Passed</th><th scope="col">Violations</th><th scope="col">Other results</th></tr></thead>
+  <tbody>{% for label, counts in report.coverage_rows %}<tr><td>{{ label }}</td><td>{{ counts.PASS|default:0 }}</td><td>{{ counts.FAIL|default:0 }}</td><td class="small">{% if counts.SUSPECTED %}{{ counts.SUSPECTED }} suspected · {% endif %}{% if counts.INCONCLUSIVE %}{{ counts.INCONCLUSIVE }} inconclusive · {% endif %}{% if counts.SKIPPED %}{{ counts.SKIPPED }} not run · {% endif %}{% if counts.ERROR %}{{ counts.ERROR }} errors{% endif %}</td></tr>{% endfor %}</tbody>
+</table></div>
+
+<details>
+  <summary>All {{ report.results|length }} checks</summary>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Check</th><th scope="col">Expected</th><th scope="col">Result</th><th scope="col">Reason</th></tr></thead>
+    <tbody>{% for r in report.results %}<tr><td class="mono">{{ r.check_id }}</td><td>{{ r.expectation }}</td><td><span class="chip {% if r.outcome == 'PASS' %}chip-pass{% elif r.outcome == 'FAIL' %}chip-fail{% else %}chip-warn{% endif %}">{{ r.outcome_label }}</span></td><td class="small">{{ r.reason }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</details>
+<details>
+  <summary>Not covered by this scan</summary>
+  <ul>{% for item in report.not_tested %}<li>{{ item }}</li>{% endfor %}</ul>
+</details>
+<p class="small muted">{{ report.disclaimer }}</p>

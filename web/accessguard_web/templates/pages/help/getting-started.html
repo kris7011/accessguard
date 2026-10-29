@@ -1,0 +1,13 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<p>AccessGuard checks whether your API enforces the read-access rules you declare. A first scan of your own test environment takes about 15 minutes to set up.</p>
+<ol class="steps">
+<li><strong>Run the demo.</strong> Open the demo project on your overview page and start its scan. It shows a full report with findings, evidence and fix guidance, then lets you “deploy” a fix and retest.</li>
+<li><strong>Prepare test data.</strong> In your test environment, create at least two tenants (customer organisations) with one user per role, and a few records per tenant. Give protected fields distinctive values (for example <span class="mono">TEST-ACME-INVOICE-0001</span>) so their presence in a response is unambiguous.</li>
+<li><strong>Create a project.</strong> Enter the base URL, the allowed path prefixes, how users authenticate and an endpoint that returns the signed-in user. Optionally import endpoints from your OpenAPI document.</li>
+<li><strong>Declare users and rules.</strong> Add the test users, the records with their owners and who may read each record.</li>
+<li><strong>Install a runner</strong> next to your test environment and give it the test users' credentials locally (<a href="{% url 'pages:help_page' 'runner' %}">runner guide</a>).</li>
+<li><strong>Review and start the scan.</strong> Approve the scope, follow the progress and read the report.</li>
+<li><strong>Fix and retest.</strong> Each finding has fix guidance and a retest button. A finding is resolved as verified only when its retest passes.</li>
+</ol>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<h2>What stays in your environment</h2>
+<ul><li>Test user credentials: read by the runner from a local file or environment variables; never sent to AccessGuard.</li><li>Response content: compared on the runner; only field names, status codes, sizes and SHA-256 hashes are reported.</li></ul>
+<h2>What AccessGuard stores</h2>
+<ul><li>Your account, organisation and members, and an audit log of actions.</li><li>Project configuration: target URL, path prefixes, test user ids, tenants and roles, record ids and paths, protected field names.</li><li>Scan reports and findings as described above.</li><li>Runner tokens as SHA-256 hashes only.</li></ul>
+<h2>AI assistance (optional)</h2>
+<p>Off by default. When an owner enables it and someone asks for help, AccessGuard sends the facts of a finding (rule text, roles, endpoint path, status codes, field names) or the endpoint names of an OpenAPI document to the configured AI provider, plus any code you paste yourself. Never credentials or response content. Answers are drafts and are labelled as such.</p>
+<h2>Learning from triage (optional)</h2>
+<p>Off by default. With consent, de-identified labels (engine categories and counts only, no names, paths or ids) may be used to evaluate a better check ranking. Data is never shared between customers.</p>
+<h2>Retention and deletion</h2>
+<p>Scan reports are kept for your plan's history period and then deleted. Deleting a project or the organisation deletes its data immediately; backups expire on their own schedule.</p>
+<h2>Security of the service</h2>
+<p>Every request is checked against your organisation and role; other organisations' records answer “not found”. Sign-in is rate-limited. Payments are handled by Stripe; card data never reaches AccessGuard.</p>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "app.html" %}{% block title %}Target · {{ project.name }}{% endblock %}
+{% block content %}
+{% include "projects/_setup_nav.html" with step="target" %}
+<div class="card">
+  <h1>Target and authentication</h1>
+  <p class="muted">Where your test environment runs and how test users sign in. Credentials are <strong>not</strong> entered here: they stay in the runner's configuration on your side.</p>
+  <form method="post" novalidate>{% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for field in form %}<div class="field">{{ field.label_tag }}{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{{ field.errors }}</div>{% endfor %}
+    {% if not project.is_demo %}<button class="btn btn-primary" type="submit">Save and continue</button>{% endif %}
+  </form>
+</div>
+{% endblock %}

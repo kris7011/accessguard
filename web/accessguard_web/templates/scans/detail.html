@@ -1,0 +1,31 @@
+{% extends "app.html" %}{% block title %}Scan #{{ scan.pk }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'projects:detail' scan.project.pk %}">← {{ scan.project.name }}</a></p>
+<div class="row spread">
+  <h1>Scan #{{ scan.pk }} <span class="small muted">{{ scan.get_kind_display }}</span></h1>
+  <div class="row">
+    {% if scan.report %}<a class="btn" href="{% url 'scans:report_json' scan.pk %}">Download JSON report</a>{% endif %}
+    {% if scan.is_active and membership.role != "viewer" %}<form method="post" action="{% url 'scans:cancel' scan.pk %}">{% csrf_token %}<button class="btn btn-danger" type="submit">Stop scan</button></form>{% endif %}
+  </div>
+</div>
+<p class="small muted">Approved by {{ scan.approved_by.email|default:"—" }} at {{ scan.approved_at|date:"Y-m-d H:i" }} UTC · spec <span class="mono">{{ scan.spec_sha256|slice:":12" }}</span>{% if scan.runner %} · runner {{ scan.runner.name }}{% endif %}</p>
+
+{% if progress.active %}
+<div class="card" data-scan-status-url="{% url 'scans:status' scan.pk %}">
+  <h2 data-status-label>{{ progress.status_label }}</h2>
+  <progress max="100" value="{{ progress.percent }}" data-progress-bar aria-label="Scan progress"></progress>
+  <p data-progress-text>{{ progress.text }} · {{ progress.requests_used }} requests</p>
+  {% if waiting_long %}<div class="banner banner-warn"><p>No runner has claimed this scan yet. Check that a runner is running (<span class="mono">accessguard runner --config runner.toml</span>) and that it may scan this project. <a href="{% url 'scans:runners' %}">Runner setup</a></p></div>{% endif %}
+  <p class="small muted">This page updates by itself. Without JavaScript, reload it.</p>
+</div>
+{% endif %}
+
+{% if report %}
+  {% include "_report.html" %}
+  {% if report.findings %}<p><a class="btn btn-primary" href="{% url 'scans:findings' %}?project={{ scan.project.pk }}">Triage and retest findings</a></p>{% endif %}
+{% elif not progress.active %}
+  {% include "_banner.html" with banner=banner %}
+  {% if scan.failure_category %}<p class="small muted">Reason code: <span class="mono">{{ scan.failure_category }}</span></p>{% endif %}
+  {% if scan.failure_category == "scope_rejected" %}<p>Your runner refused this job because the target or a path is not in its local allowlist. Add <span class="mono">{{ scan.spec.target.origin }}</span> to <span class="mono">[[targets]]</span> in its configuration if you are authorised to test it.</p>{% endif %}
+{% endif %}
+{% endblock %}

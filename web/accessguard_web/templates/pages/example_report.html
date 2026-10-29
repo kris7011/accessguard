@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Example report{% endblock %}
+{% block description %}A real AccessGuard report of a synthetic multi-tenant API with three seeded access-control bugs.{% endblock %}
+{% block content %}
+<h1>Example report</h1>
+<div class="banner banner-info"><p>This is real output of the AccessGuard engine scanning a <strong>synthetic</strong> projects API (organisations “orbit” and “quasar”, owners and viewers, one shared roadmap, owner-only billing) with three deliberate bugs. No real company or data is involved. <a href="{% url 'accounts:signup' %}">Create a free account</a> to run this scan yourself and retest the fix.</p></div>
+<p class="small muted">Target {{ raw.run.scope.origin }} · policy <span class="mono">{{ raw.run.policy.id }}</span> · engine {{ raw.tool.version }} · {{ raw.run.started_at|slice:":19" }} UTC</p>
+{% include "_report.html" %}
+{% endblock %}

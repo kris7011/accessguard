@@ -1,0 +1,30 @@
+{% extends "base.html" %}{% block title %}Pricing{% endblock %}
+{% block content %}
+<h1>Pricing</h1>
+<p class="muted">Start free. Upgrade when you test more than one environment or want to scan on every change. Cancel any time; you keep the plan until the end of the paid month.</p>
+<div class="grid">
+{% for p in plans %}
+  <div class="card">
+    <h2>{{ p.name }}</h2>
+    <div class="price">€{{ p.monthly_price_eur }}<span class="small muted"> / month</span></div>
+    <p class="muted">{{ p.summary }}</p>
+    {% include "billing/_plan_limits.html" with plan=p %}
+    <a class="btn {% if p.id == 'team' %}btn-primary{% endif %}" href="{% url 'accounts:signup' %}">{% if p.is_paid %}Start free, upgrade in the app{% else %}Start free{% endif %}</a>
+  </div>
+{% endfor %}
+</div>
+<div class="card">
+  <h2>Included in every plan</h2>
+  <ul>
+    <li>The demo project with a live synthetic API (demo scans do not count towards limits).</li>
+    <li>Runner for your own environment: GET-only, local credentials, local allowlist, budgets and deadlines.</li>
+    <li>Evidence, coverage and limitations in every report; JSON export and scan specs for CI.</li>
+    <li>Finding history, triage, retests and rule-based fix guidance.</li>
+  </ul>
+  <h2>Questions</h2>
+  <p><strong>What is a check?</strong> One test user (or an anonymous request) reading one record or list. Three tenants with two roles and ten records give about 70 checks.</p>
+  <p><strong>What happens when I hit a limit?</strong> New scans are refused with a clear message; existing results stay available.</p>
+  <p><strong>Is this a security certification?</strong> No. AccessGuard verifies the access rules you declare for the endpoints you list. See <a href="{% url 'pages:help_page' 'limitations' %}">limitations</a>.</p>
+  <p class="small muted">Prices exclude VAT and apply to the beta. Payments are handled by Stripe.</p>
+</div>
+{% endblock %}
