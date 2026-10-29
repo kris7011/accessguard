@@ -1,7 +1,9 @@
 """URL routes. Product pages live under /app/, the runner API under /api/runner/v1/."""
 
 from django.contrib import admin
+from django.templatetags.static import static
 from django.urls import include, path
+from django.views.generic import RedirectView
 
 from accessguard_web import conf
 from accessguard_web.billing import views as billing_views
@@ -17,6 +19,9 @@ runner_patterns = [
 
 urlpatterns = [
     path("", include("accessguard_web.pages.urls")),
+    path(
+        "favicon.ico", RedirectView.as_view(url=static("accessguard/favicon.svg"), permanent=True)
+    ),
     path("accounts/", include("accessguard_web.accounts.urls")),
     path("app/", project_views.dashboard, name="dashboard"),
     path("app/projects/", include("accessguard_web.projects.urls")),

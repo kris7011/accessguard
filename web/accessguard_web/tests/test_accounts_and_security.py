@@ -149,6 +149,16 @@ class HeaderTests(TestCase):
                 self.assertNotIn("<script>", text)
                 self.assertNotIn(" onclick=", text)
 
+    def test_stylesheet_and_script_are_found_and_linked(self) -> None:
+        from django.contrib.staticfiles import finders
+
+        for asset in ("accessguard/app.css", "accessguard/app.js"):
+            with self.subTest(asset=asset):
+                self.assertIsNotNone(finders.find(asset))
+        page = self.client.get(reverse("pages:landing")).content.decode()
+        self.assertIn("accessguard/app.css", page)
+        self.assertIn("accessguard/app.js", page)
+
     def test_health_endpoints(self) -> None:
         self.assertEqual(self.client.get("/healthz").json(), {"status": "ok"})
         self.assertEqual(self.client.get("/readyz").json()["database"], "ok")
