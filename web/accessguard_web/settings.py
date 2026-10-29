@@ -44,7 +44,7 @@ SECRET_KEY = env("ACCESSGUARD_SECRET_KEY")
 if not SECRET_KEY:
     if not (DEBUG or TESTING):
         raise ImproperlyConfigured("ACCESSGUARD_SECRET_KEY is required when DEBUG is off")
-    SECRET_KEY = "insecure-development-key-never-use-in-production"  # noqa: S105
+    SECRET_KEY = "insecure-development-key-never-use-in-production"  # noqa: S105  # pragma: allowlist secret
 
 ALLOWED_HOSTS = env_list("ACCESSGUARD_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
 CSRF_TRUSTED_ORIGINS = env_list("ACCESSGUARD_CSRF_TRUSTED_ORIGINS")
@@ -100,7 +100,8 @@ TEMPLATES = [
 
 
 def database_from_url(url: str) -> dict[str, object]:
-    """Parse ``sqlite:///path`` or ``postgres://user:pass@host:port/name`` into Django settings."""
+    # pragma: allowlist nextline secret
+    """Parse ``sqlite:///path`` or ``postgres://user:pass@host:port/name`` into settings."""
     parts = urlsplit(url)
     if parts.scheme == "sqlite":
         # sqlite:///relative.db, sqlite:////absolute.db, sqlite:///C:/windows.db
