@@ -192,13 +192,17 @@ SECURE_CSP = {
     "base-uri": [CSP.NONE],
     "object-src": [CSP.NONE],
 }
-if not DEBUG:
+PRODUCTION = not (DEBUG or TESTING)
+if PRODUCTION:
     SESSION_COOKIE_SECURE = env_bool("ACCESSGUARD_SECURE_COOKIES", True)
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
     SECURE_SSL_REDIRECT = env_bool("ACCESSGUARD_SSL_REDIRECT", True)
     SECURE_HSTS_SECONDS = int(env("ACCESSGUARD_HSTS_SECONDS", "31536000"))
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-    SECURE_HSTS_PRELOAD = False
+    # Preloading is hard to undo; enable it only once the production domain is final.
+    SECURE_HSTS_PRELOAD = env_bool("ACCESSGUARD_HSTS_PRELOAD", False)
+    if not SECURE_HSTS_PRELOAD:
+        SILENCED_SYSTEM_CHECKS = ["security.W021"]
     SECURE_REDIRECT_EXEMPT = [r"^healthz$", r"^readyz$"]
     if env_bool("ACCESSGUARD_BEHIND_PROXY"):
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

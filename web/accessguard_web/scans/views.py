@@ -52,12 +52,12 @@ def review(request: HttpRequest, project_id: int) -> HttpResponse:
         if i.isdigit()
     ]
     findings = list(Finding.objects.filter(project=project, pk__in=finding_ids))
-    checks = (
-        services.with_positive_controls(project, [f.check_id for f in findings])
-        if findings
-        else None
-    )
     try:
+        checks = (
+            services.with_positive_controls(project, [f.check_id for f in findings])
+            if findings
+            else None
+        )
         summary = services.scope_summary(project, checks)
     except services.ScanError as error:
         messages.error(request, str(error))

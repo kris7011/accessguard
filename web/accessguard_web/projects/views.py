@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import re
 from typing import Any
 
 from django.contrib import messages
@@ -251,7 +253,7 @@ def setup_rules(request: HttpRequest, project_id: int) -> HttpResponse:
         request.POST or None,
         initial=resources_initial,
         prefix="records",
-        form_kwargs={"config": project.config},
+        form_kwargs={"config": _with_submitted_lists(project.config, request)},
     )
     if request.method == "POST":
         if (blocked := _guard_editable(request, project)) is not None:
@@ -284,6 +286,17 @@ def setup_rules(request: HttpRequest, project_id: int) -> HttpResponse:
         _setup_context(project, collections=collections, resources=resources,
                        templates=list(enumerate(project.endpoint_templates))),
     )  # fmt: skip
+
+
+def _with_submitted_lists(config: dict[str, Any], request: HttpRequest) -> dict[str, Any]:
+    """Let records refer to lists that are being added in the same submission."""
+    preview = copy.deepcopy(config)
+    known = {c["id"] for c in preview["policy"]["collections"]}
+    for key, value in request.POST.items():
+        if re.fullmatch(r"lists-\d+-id", key) and value and value not in known:
+            preview["policy"]["collections"].append({"id": value, "path": ""})
+            known.add(value)
+    return preview
 
 
 @membership_required()

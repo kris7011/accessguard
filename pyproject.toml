@@ -43,7 +43,8 @@ ignore = [
 "evaluations/**" = ["S104"]
 "sampleapp/**" = ["S104"]
 "web/accessguard_web/*/migrations/**" = ["E501", "RUF012"]
-"web/accessguard_web/tests/**" = ["S101", "S105", "S106", "PLR0915"]
+# Tests keep data tables on one line for readability.
+"web/accessguard_web/tests/**" = ["S101", "S105", "S106", "PLR0915", "E501", "PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

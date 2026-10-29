@@ -8,7 +8,8 @@
   `| Select-Object -Last 3`). All requested steps run, and the script exits with the original
   exit code of the first failing step.
 
-  Steps: lint format types tests audit secrets build demo (default: all of them)
+  Steps: lint format types tests web-tests migrations deploy-check audit secrets build demo
+  (default: all of them)
   Negative-control steps (never run by default): selftest-pass selftest-fail
 
 .EXAMPLE
@@ -16,7 +17,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string[]]$Steps = @('lint', 'format', 'types', 'tests', 'audit', 'secrets', 'build', 'demo'),
+    [string[]]$Steps = @('lint', 'format', 'types', 'tests', 'web-tests', 'migrations', 'deploy-check', 'audit', 'secrets', 'build', 'demo'),
     [string]$Python = 'python',
     [string]$LogDir = 'reports\verify'
 )
@@ -29,13 +30,18 @@ if (-not (Get-Command $Python -ErrorAction SilentlyContinue)) {
     exit 2
 }
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
-$env:PYTHONPATH = @('src', 'lab', 'evaluations', 'sampleapp') -join [IO.Path]::PathSeparator
+$env:PYTHONPATH = @('src', 'lab', 'evaluations', 'sampleapp', 'web', 'ml') -join [IO.Path]::PathSeparator
+# The web settings refuse to start without a secret key unless in test or debug mode.
+$env:ACCESSGUARD_TESTING = '1'
 
 $definitions = @{
     'lint'          = @('-m', 'ruff', 'check', '.')
     'format'        = @('-m', 'ruff', 'format', '--check', '.')
     'types'         = @('-m', 'mypy')
     'tests'         = @('-m', 'unittest', 'discover', '-s', 'tests', '-t', '.')
+    'web-tests'     = @('web/manage.py', 'test', 'accessguard_web.tests')
+    'migrations'    = @('web/manage.py', 'makemigrations', '--check', '--dry-run')
+    'deploy-check'  = @('ops/ci/deploy_check.py')
     'audit'         = @('-m', 'pip_audit', '--strict', '--require-hashes', '-r', 'requirements-dev.txt')
     'secrets'       = @('ops/ci/secret_scan.py')
     'build'         = @('ops/ci/build_check.py')

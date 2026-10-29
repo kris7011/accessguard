@@ -5,7 +5,8 @@
 # captured from the command itself (never from a pipe such as `cmd | tail`). All requested
 # steps run, and the script exits with the original exit code of the first failing step.
 #
-# Steps: lint format types tests audit secrets build demo (default: all of them)
+# Steps: lint format types tests web-tests migrations deploy-check audit secrets build demo
+#        (default: all of them)
 # Negative-control steps (never run by default): selftest-pass selftest-fail
 # Environment: PYTHON (default: python), VERIFY_LOG_DIR (default: reports/verify)
 
@@ -18,7 +19,9 @@ mkdir -p "$LOG_DIR" || exit 2
 
 # Relative paths work for both POSIX and Windows interpreters; the separator comes from Python.
 SEP="$("$PYTHON" -c 'import os; print(os.pathsep)')" || exit 2
-export PYTHONPATH="src${SEP}lab${SEP}evaluations${SEP}sampleapp"
+export PYTHONPATH="src${SEP}lab${SEP}evaluations${SEP}sampleapp${SEP}web${SEP}ml"
+# The web settings refuse to start without a secret key unless in test or debug mode.
+export ACCESSGUARD_TESTING=1
 
 step_args() {
   case "$1" in
@@ -26,6 +29,9 @@ step_args() {
     format) ARGS=(-m ruff format --check .) ;;
     types) ARGS=(-m mypy) ;;
     tests) ARGS=(-m unittest discover -s tests -t .) ;;
+    web-tests) ARGS=(web/manage.py test accessguard_web.tests) ;;
+    migrations) ARGS=(web/manage.py makemigrations --check --dry-run) ;;
+    deploy-check) ARGS=(ops/ci/deploy_check.py) ;;
     audit) ARGS=(-m pip_audit --strict --require-hashes -r requirements-dev.txt) ;;
     secrets) ARGS=(ops/ci/secret_scan.py) ;;
     build) ARGS=(ops/ci/build_check.py) ;;
@@ -37,7 +43,7 @@ step_args() {
 }
 
 if [ "$#" -eq 0 ]; then
-  set -- lint format types tests audit secrets build demo
+  set -- lint format types tests web-tests migrations deploy-check audit secrets build demo
 fi
 for step in "$@"; do
   step_args "$step" || { echo "Unknown step: $step" >&2; exit 2; }

@@ -88,7 +88,10 @@ def with_positive_controls(project: Project, check_ids: Iterable[str]) -> list[s
     legitimate access to the same resource at the same time exposes such an over-broad fix
     as a new ``expected_access_denied`` finding.
     """
-    spec = parse_scan_spec(spec_document(project.config))
+    try:
+        spec = parse_scan_spec(spec_document(project.config))
+    except PolicyError as error:
+        raise ScanError(f"The configuration is not complete yet: {error}") from error
     checks = generate_checks(spec.policy.policy)
     wanted = set(check_ids)
     resources = {c.resource for c in checks if isinstance(c, ItemCheck) and c.id in wanted}
@@ -178,7 +181,10 @@ def approve_scan(
 def create_retest(project: Project, user: User, findings: Sequence[Finding]) -> Scan:
     if not findings:
         raise ScanError("Select at least one finding to retest.")
-    spec = parse_scan_spec(spec_document(project.config))
+    try:
+        spec = parse_scan_spec(spec_document(project.config))
+    except PolicyError as error:
+        raise ScanError(f"The configuration is not complete yet: {error}") from error
     known = {c.id for c in generate_checks(spec.policy.policy)}
     missing = [f.check_id for f in findings if f.check_id not in known]
     if missing:
@@ -261,11 +267,16 @@ def heartbeat(scan: Scan, payload: dict[str, Any]) -> bool:
     """Record progress; returns True when the runner must stop."""
     if scan.status not in (ScanStatus.RUNNING, ScanStatus.CANCEL_REQUESTED):
         return True
-    progress = {
-        key: value
-        for key in ("completed", "planned", "requests_used")
-        if isinstance(value := payload.get(key), int) and 0 <= value <= 1_000_000
-    }
+    # Merge: a heartbeat that carries no counters (for example while starting) keeps the
+    # last known progress instead of erasing it.
+    progress = dict(scan.progress or {})
+    progress.update(
+        {
+            key: value
+            for key in ("completed", "planned", "requests_used")
+            if isinstance(value := payload.get(key), int) and 0 <= value <= 1_000_000
+        }
+    )
     phase = payload.get("phase")
     if phase in ("starting", "checks", "retests", "done"):
         progress["phase"] = phase
