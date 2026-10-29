@@ -1,0 +1,21 @@
+{
+  "active": null,
+  "history": [],
+  "models": {
+    "ranker-b82628ce-s0": {
+      "created_at": "2026-10-29T14:47:21.239688+00:00",
+      "dataset": "ds-b82628ce4c20c8e3",
+      "gate": {
+        "passed": false,
+        "reasons": [
+          "only 0 consented customer applications (need 5); synthetic fixtures are not evidence of real-world performance",
+          "mean recall@25% 0.262 is not at least 0.05 above the best baseline (list_first: 0.275)",
+          "eval:clinic: recall@25% 0.000 is more than 0.2 below the best baseline (0.333)",
+          "eval:helpdesk: recall@25% 0.000 is more than 0.2 below the best baseline (0.429)",
+          "eval:projects: recall@25% 0.143 is more than 0.2 below the best baseline (0.714)"
+        ]
+      },
+      "status": "candidate"
+    }
+  }
+}

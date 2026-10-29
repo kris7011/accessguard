@@ -1,0 +1,253 @@
+{
+  "created_at": "2026-10-29T14:47:21.239688+00:00",
+  "dataset": {
+    "manifest": {
+      "applications": {
+        "eval:clinic": {
+          "examples": 45,
+          "positives": 3
+        },
+        "eval:helpdesk": {
+          "examples": 49,
+          "positives": 7
+        },
+        "eval:library": {
+          "examples": 30,
+          "positives": 0
+        },
+        "eval:projects": {
+          "examples": 30,
+          "positives": 7
+        },
+        "lab:vulnerable": {
+          "examples": 56,
+          "positives": 23
+        },
+        "sampleapp:flawed": {
+          "examples": 30,
+          "positives": 10
+        }
+      },
+      "customer_applications": 0,
+      "examples": 240,
+      "feature_version": "features-v1",
+      "features": [
+        "bias",
+        "kind_list",
+        "expect_deny",
+        "rel_same_tenant",
+        "rel_shared_grant",
+        "rel_cross_tenant",
+        "rel_anonymous",
+        "resource_shared_across_tenants",
+        "resource_in_collection",
+        "log_protected_fields",
+        "log_grants",
+        "path_depth",
+        "list_log_hidden",
+        "list_log_visible"
+      ],
+      "positives": 50,
+      "schema": "accessguard-ml-dataset-v1",
+      "sources": [
+        "synthetic-answer-key"
+      ],
+      "version": "ds-b82628ce4c20c8e3"
+    },
+    "version": "ds-b82628ce4c20c8e3"
+  },
+  "evaluation": {
+    "mean": {
+      "deny_first": {
+        "recall@25%": 0.1518,
+        "recall@50%": 0.3759
+      },
+      "list_first": {
+        "recall@25%": 0.275,
+        "recall@50%": 0.3868
+      },
+      "model": {
+        "recall@25%": 0.2616,
+        "recall@50%": 0.7029
+      },
+      "policy_order": {
+        "recall@25%": 0.0944,
+        "recall@50%": 0.1518
+      },
+      "random_median": {
+        "recall@25%": 0.2701,
+        "recall@50%": 0.529
+      }
+    },
+    "method": "leave-one-application-out",
+    "per_application": {
+      "eval:clinic": {
+        "deny_first": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.0
+        },
+        "list_first": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.0
+        },
+        "model": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.0
+        },
+        "policy_order": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.0
+        },
+        "random_median": {
+          "recall@25%": 0.3333333333333333,
+          "recall@50%": 0.6666666666666666
+        }
+      },
+      "eval:helpdesk": {
+        "deny_first": {
+          "recall@25%": 0.42857142857142855,
+          "recall@50%": 0.42857142857142855
+        },
+        "list_first": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.42857142857142855
+        },
+        "model": {
+          "recall@25%": 0.0,
+          "recall@50%": 1.0
+        },
+        "policy_order": {
+          "recall@25%": 0.42857142857142855,
+          "recall@50%": 0.42857142857142855
+        },
+        "random_median": {
+          "recall@25%": 0.2857142857142857,
+          "recall@50%": 0.5714285714285714
+        }
+      },
+      "eval:library": {
+        "deny_first": {
+          "recall@25%": null,
+          "recall@50%": null
+        },
+        "list_first": {
+          "recall@25%": null,
+          "recall@50%": null
+        },
+        "model": {
+          "recall@25%": null,
+          "recall@50%": null
+        },
+        "policy_order": {
+          "recall@25%": null,
+          "recall@50%": null
+        },
+        "random_median": {
+          "recall@25%": null,
+          "recall@50%": null
+        }
+      },
+      "eval:projects": {
+        "deny_first": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.2857142857142857
+        },
+        "list_first": {
+          "recall@25%": 0.7142857142857143,
+          "recall@50%": 0.7142857142857143
+        },
+        "model": {
+          "recall@25%": 0.14285714285714285,
+          "recall@50%": 0.7142857142857143
+        },
+        "policy_order": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.0
+        },
+        "random_median": {
+          "recall@25%": 0.21428571428571427,
+          "recall@50%": 0.42857142857142855
+        }
+      },
+      "lab:vulnerable": {
+        "deny_first": {
+          "recall@25%": 0.13043478260869565,
+          "recall@50%": 0.5652173913043478
+        },
+        "list_first": {
+          "recall@25%": 0.2608695652173913,
+          "recall@50%": 0.391304347826087
+        },
+        "model": {
+          "recall@25%": 0.5652173913043478,
+          "recall@50%": 1.0
+        },
+        "policy_order": {
+          "recall@25%": 0.043478260869565216,
+          "recall@50%": 0.13043478260869565
+        },
+        "random_median": {
+          "recall@25%": 0.21739130434782608,
+          "recall@50%": 0.4782608695652174
+        }
+      },
+      "sampleapp:flawed": {
+        "deny_first": {
+          "recall@25%": 0.2,
+          "recall@50%": 0.6
+        },
+        "list_first": {
+          "recall@25%": 0.4,
+          "recall@50%": 0.4
+        },
+        "model": {
+          "recall@25%": 0.6,
+          "recall@50%": 0.8
+        },
+        "policy_order": {
+          "recall@25%": 0.0,
+          "recall@50%": 0.2
+        },
+        "random_median": {
+          "recall@25%": 0.3,
+          "recall@50%": 0.5
+        }
+      }
+    }
+  },
+  "feature_version": "features-v1",
+  "gate": {
+    "passed": false,
+    "reasons": [
+      "only 0 consented customer applications (need 5); synthetic fixtures are not evidence of real-world performance",
+      "mean recall@25% 0.262 is not at least 0.05 above the best baseline (list_first: 0.275)",
+      "eval:clinic: recall@25% 0.000 is more than 0.2 below the best baseline (0.333)",
+      "eval:helpdesk: recall@25% 0.000 is more than 0.2 below the best baseline (0.429)",
+      "eval:projects: recall@25% 0.143 is more than 0.2 below the best baseline (0.714)"
+    ]
+  },
+  "training": {
+    "code": "train-v1",
+    "epochs": 400,
+    "l2": 0.01,
+    "learning_rate": 0.3,
+    "seed": 0
+  },
+  "version": "ranker-b82628ce-s0",
+  "weights": {
+    "bias": -0.009843047882539356,
+    "expect_deny": 1.4518178909134536,
+    "kind_list": 0.6115356398690917,
+    "list_log_hidden": 0.15921864349515633,
+    "list_log_visible": 1.2559710927196366,
+    "log_grants": -0.314381341499155,
+    "log_protected_fields": -0.7524884316243532,
+    "path_depth": -0.34806715539497185,
+    "rel_anonymous": -0.9423273398609412,
+    "rel_cross_tenant": 0.25250321932223857,
+    "rel_same_tenant": 0.8535108309605052,
+    "rel_shared_grant": -0.26980582299340505,
+    "resource_in_collection": 0.9847714411520443,
+    "resource_shared_across_tenants": 0.07036157670383968
+  }
+}

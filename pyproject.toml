@@ -24,7 +24,7 @@ include = ["accessguard", "accessguard.*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "lab", "evaluations", "sampleapp", "web", "tests"]
+src = ["src", "lab", "evaluations", "sampleapp", "web", "ml", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -53,8 +53,8 @@ quote-style = "double"
 python_version = "3.11"
 strict = true
 warn_unreachable = true
-mypy_path = ["src", "lab", "evaluations", "sampleapp", "web"]
-files = ["src", "lab", "evaluations", "sampleapp", "web", "tests", "ops"]
+mypy_path = ["src", "lab", "evaluations", "sampleapp", "web", "ml"]
+files = ["src", "lab", "evaluations", "sampleapp", "web", "ml", "tests", "ops"]
 plugins = ["mypy_django_plugin.main"]
 
 [tool.django-stubs]
