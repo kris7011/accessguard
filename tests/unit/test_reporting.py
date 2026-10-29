@@ -58,7 +58,7 @@ def scan(routes: dict[Any, Any]) -> dict[str, Any]:
 class ReportTests(unittest.TestCase):
     def test_passing_report(self) -> None:
         report = scan(correct_routes())
-        self.assertEqual(report["schema_version"], "1.2")
+        self.assertEqual(report["schema_version"], "1.3")
         self.assertEqual(report["status"]["overall"], "checks_passed")
         self.assertIn("not a security certification", report["status"]["meaning"])
         self.assertEqual(report["coverage"]["conclusive_ratio"], 1.0)

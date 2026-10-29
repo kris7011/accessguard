@@ -214,6 +214,7 @@ class AgentLoop:
             except ModelError as error:
                 # Missing provenance is recorded, not hidden; a broken model fails below.
                 metadata_error = str(error)
+            self._runner.begin(len(self._checks))
             interrupted = self._runner.preflight()
             if interrupted is None:
                 self._select_and_execute()

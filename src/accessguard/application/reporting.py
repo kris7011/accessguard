@@ -24,7 +24,7 @@ from accessguard.domain.results import (
 )
 from accessguard.domain.scope import TargetScope
 
-REPORT_SCHEMA_VERSION = "1.2"
+REPORT_SCHEMA_VERSION = "1.3"
 
 NOT_TESTED = (
     "Write operations (POST, PUT, PATCH, DELETE): only GET requests are sent.",
@@ -60,6 +60,8 @@ class ReportContext:
     started_at: datetime
     finished_at: datetime
     agent: AgentTrace | None = None
+    full_matrix_checks: int | None = None
+    """Size of the full check matrix when only a selection ran (a retest), else ``None``."""
 
 
 def build_report(
@@ -83,8 +85,11 @@ def build_report(
             "target": context.target_label,
             "scope": {
                 "origin": context.scope.origin,
-                "constraints": ["loopback destinations only", "GET requests only"],
+                "zone": context.scope.zone.value,
+                "path_prefixes": list(context.scope.path_prefixes),
+                "constraints": context.scope.constraints(),
             },
+            "selection": _selection(context, len(results)),
             "policy": {"id": policy.id, "sha256": context.policy_sha256},
             "planner": {
                 "kind": context.planner.kind,
@@ -110,7 +115,9 @@ def build_report(
         "status": {
             "overall": status.value,
             "complete": outcome.interrupted is None,
-            "meaning": OVERALL_STATUS_MEANING[status] + _interruption_note(outcome),
+            "meaning": OVERALL_STATUS_MEANING[status]
+            + _interruption_note(outcome)
+            + _selection_note(context, len(results)),
         },
         "summary": coverage.by_outcome,
         "coverage": {
@@ -137,6 +144,25 @@ def build_report(
         "not_tested": [*NOT_TESTED, *invalid_sessions],
         "disclaimer": DISCLAIMER,
     }
+
+
+def _selection(context: ReportContext, selected: int) -> dict[str, Any]:
+    if context.full_matrix_checks is None:
+        return {"mode": "all", "selected_checks": selected, "full_matrix_checks": selected}
+    return {
+        "mode": "subset",
+        "selected_checks": selected,
+        "full_matrix_checks": context.full_matrix_checks,
+    }
+
+
+def _selection_note(context: ReportContext, selected: int) -> str:
+    if context.full_matrix_checks is None:
+        return ""
+    return (
+        f" Only {selected} of {context.full_matrix_checks} policy checks were selected "
+        "for this run (a retest); it says nothing about the checks that were not selected."
+    )
 
 
 def _interruption_note(outcome: RunOutcome) -> str:

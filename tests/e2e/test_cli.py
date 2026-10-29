@@ -39,7 +39,7 @@ class LabCliTests(unittest.TestCase):
             self.assertTrue(summary["demo_succeeded"])
             for name in ("vulnerable", "fixed"):
                 report = json.loads((Path(tmp) / name / "report.json").read_text("utf-8"))
-                self.assertEqual(report["schema_version"], "1.2")
+                self.assertEqual(report["schema_version"], "1.3")
                 self.assertTrue((Path(tmp) / name / "report.html").is_file())
 
     def test_scan_exit_codes_reflect_status(self) -> None:

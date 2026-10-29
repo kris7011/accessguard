@@ -20,7 +20,10 @@ ANONYMOUS = "anonymous"
 """Reserved actor id for requests sent without any credential."""
 
 _IDENTIFIER = re.compile(r"[a-z0-9][a-z0-9._-]{0,63}")
-_FIELD_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")
+_FIELD_SEGMENT = r"[A-Za-z_][A-Za-z0-9_-]{0,63}"
+# A JSON object key, or a dotted path of up to eight keys into nested objects ("data.email").
+_FIELD_PATH = re.compile(rf"{_FIELD_SEGMENT}(?:\.{_FIELD_SEGMENT}){{0,7}}")
+MAX_SUBJECT_LENGTH = 256
 
 
 def _require_identifier(value: str, what: str) -> None:
@@ -38,6 +41,21 @@ def _require_path(value: str, what: str) -> None:
         )
 
 
+def is_field_path(value: str) -> bool:
+    """True for a JSON key or a dotted path of keys (see :func:`lookup_field`)."""
+    return bool(_FIELD_PATH.fullmatch(value))
+
+
+def lookup_field(document: object, path: str) -> object:
+    """Follow a dotted field path through nested JSON objects; ``None`` when absent."""
+    value = document
+    for key in path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
 def _require_unique(ids: Iterable[str], what: str) -> None:
     seen: set[str] = set()
     for item in ids:
@@ -48,11 +66,16 @@ def _require_unique(ids: Iterable[str], what: str) -> None:
 
 @dataclass(frozen=True)
 class Identity:
-    """A test identity supplied by the customer. Credentials are kept outside the policy."""
+    """A test identity supplied by the customer. Credentials are kept outside the policy.
+
+    ``subject`` is the value the session probe must return for this identity (for example
+    an e-mail address or user id); it defaults to the identity id.
+    """
 
     id: str
     tenant: str
     role: str
+    subject: str | None = None
 
     def __post_init__(self) -> None:
         _require_identifier(self.id, "Identity id")
@@ -60,6 +83,17 @@ class Identity:
             raise PolicyError(f"Identity id {ANONYMOUS!r} is reserved")
         _require_identifier(self.tenant, "Tenant")
         _require_identifier(self.role, "Role")
+        if self.subject is not None and not (
+            0 < len(self.subject) <= MAX_SUBJECT_LENGTH and self.subject.isprintable()
+        ):
+            raise PolicyError(
+                f"Subject of identity {self.id!r} must be 1-{MAX_SUBJECT_LENGTH} printable "
+                "characters"
+            )
+
+    @property
+    def expected_subject(self) -> str:
+        return self.id if self.subject is None else self.subject
 
 
 @dataclass(frozen=True)
@@ -105,7 +139,7 @@ class Resource:
             raise PolicyError(f"Resource {self.id!r} must declare at least one protected field")
         _require_unique(self.protected_fields, f"protected field in resource {self.id!r}")
         for field in self.protected_fields:
-            if not _FIELD_NAME.fullmatch(field):
+            if not is_field_path(field):
                 raise PolicyError(f"Protected field {field!r} of resource {self.id!r} is invalid")
         if not self.grants:
             raise PolicyError(f"Resource {self.id!r} must declare at least one grant")
@@ -134,7 +168,7 @@ class SessionProbe:
 
     def __post_init__(self) -> None:
         _require_path(self.path, "Session probe path")
-        if not _FIELD_NAME.fullmatch(self.subject_field):
+        if not is_field_path(self.subject_field):
             raise PolicyError(f"Session probe subject field {self.subject_field!r} is invalid")
 
 

@@ -21,7 +21,7 @@ from enum import StrEnum
 
 from accessguard.domain.checks import Expectation, ListCheck
 from accessguard.domain.observation import BodyFormat, HttpObservation
-from accessguard.domain.policy import Resource
+from accessguard.domain.policy import Resource, lookup_field
 
 MIN_PROTECTED_VALUE_LENGTH = 4
 """Shorter values would match unrelated content too easily to serve as evidence."""
@@ -112,7 +112,7 @@ def establish_baseline(resource: Resource, observation: HttpObservation) -> Base
         return BaselineUnavailable(resource.id, "owner response is not a JSON object")
     protected: dict[str, str] = {}
     for name in resource.protected_fields:
-        value = body.get(name)
+        value = lookup_field(body, name)
         if not isinstance(value, str) or len(value) < MIN_PROTECTED_VALUE_LENGTH:
             return BaselineUnavailable(
                 resource.id,

@@ -22,7 +22,7 @@ from accessguard.domain.evaluation import (
     evaluate_list,
 )
 from accessguard.domain.observation import HttpObservation
-from accessguard.domain.policy import ANONYMOUS, AccessPolicy, Resource
+from accessguard.domain.policy import ANONYMOUS, AccessPolicy, Resource, lookup_field
 from accessguard.domain.results import CheckResult, Evidence, VerificationStatus
 
 
@@ -42,6 +42,23 @@ class RunOutcome:
     """Target requests the run had used when each executed check got its first verdict."""
 
 
+@dataclass(frozen=True)
+class Progress:
+    """A snapshot of how far a run has come, for live status displays.
+
+    ``phase`` is ``checks`` (first verdicts), ``retests`` (separate retests of failures;
+    ``completed`` and ``planned`` then count retests) or ``done``.
+    """
+
+    phase: str
+    completed: int
+    planned: int
+    requests_used: int
+
+
+ProgressListener = Callable[[Progress], None]
+"""Receives progress snapshots in the scanning thread. It must be fast and must not raise."""
+
 _NO_SESSION = SessionStatus(SessionState.NOT_APPLICABLE, "anonymous actor")
 
 
@@ -60,6 +77,7 @@ class CheckRunner:
         gate: RequestGate,
         now: Callable[[], datetime],
         retest_findings: bool = True,
+        on_progress: ProgressListener | None = None,
     ) -> None:
         self._policy = policy
         self._client = client
@@ -70,9 +88,13 @@ class CheckRunner:
         self._sessions: dict[str, SessionStatus] = {}
         self._baselines: dict[str, BaselineResult] = {}
         self._progress: dict[str, int] = {}
+        self._on_progress = on_progress
+        self._planned = 0
+        self._completed = 0
 
     def run(self, checks: Sequence[Check]) -> RunOutcome:
         """Execute ``checks`` in the given order, then retest failures."""
+        self.begin(len(checks))
         interrupted = self.preflight()
         results: list[CheckResult] = []
         for check in checks:
@@ -86,6 +108,15 @@ class CheckRunner:
                     continue
             results.append(skipped(check, interrupted))
         return self.finish(results, interrupted)
+
+    def begin(self, planned: int) -> None:
+        """Announce how many checks the run plans; emits the first progress snapshot."""
+        self._planned = planned
+        self._emit("checks", 0, planned)
+
+    def _emit(self, phase: str, completed: int, planned: int) -> None:
+        if self._on_progress is not None:
+            self._on_progress(Progress(phase, completed, planned, self._gate.used))
 
     def preflight(self) -> InterruptReason | None:
         """Probe every identity's session. Returns the interruption reason, if any."""
@@ -107,6 +138,8 @@ class CheckRunner:
         if result.outcome is Outcome.FAIL and self._retest_findings:
             # Hold back one request so this finding can be retested within the same budget.
             self._gate.reserve_for_retest()
+        self._completed += 1
+        self._emit("checks", self._completed, self._planned)
         return result
 
     def finish(
@@ -115,6 +148,7 @@ class CheckRunner:
         """Retest failures (unless the run was stopped) and assemble the outcome."""
         self._gate.release_reserve()
         verified, interrupted = self._verify_failures(list(results), interrupted)
+        self._emit("done", len(verified), len(verified))
         return RunOutcome(
             tuple(verified),
             dict(self._sessions),
@@ -140,10 +174,15 @@ class CheckRunner:
         """
         retests_allowed = interrupted in (None, InterruptReason.BUDGET_EXHAUSTED)
         verified: list[CheckResult] = []
+        planned_retests = sum(result.outcome is Outcome.FAIL for result in results)
+        retested = 0
         for result in results:
             if result.outcome is not Outcome.FAIL:
                 verified.append(result)
                 continue
+            if retests_allowed and self._retest_findings:
+                self._emit("retests", retested, planned_retests)
+                retested += 1
             if not retests_allowed or not self._retest_findings:
                 verified.append(replace(result, verification=VerificationStatus.NOT_RETESTED))
                 continue
@@ -269,11 +308,11 @@ class CheckRunner:
             observation = self._send(probe.path, identity_id)
         except (TransportError, ScopeViolationError) as error:
             return SessionStatus(SessionState.INVALID, f"session probe failed: {error}")
-        body = observation.json_body
+        expected = self._policy.identity(identity_id).expected_subject
         if (
             observation.status == 200
-            and isinstance(body, dict)
-            and body.get(probe.subject_field) == identity_id
+            and observation.is_json
+            and lookup_field(observation.json_body, probe.subject_field) == expected
         ):
             return SessionStatus(SessionState.VALID, "session probe confirmed the subject")
         return SessionStatus(

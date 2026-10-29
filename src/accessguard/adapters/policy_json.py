@@ -101,11 +101,13 @@ def _session_probe(value: object) -> SessionProbe:
 
 
 def _identity(value: object, where: str) -> Identity:
-    data = _object(value, where, required={"id", "tenant", "role"})
+    data = _object(value, where, required={"id", "tenant", "role"}, optional={"subject"})
+    subject = data.get("subject")
     return Identity(
         id=_string(data["id"], f"{where}.id"),
         tenant=_string(data["tenant"], f"{where}.tenant"),
         role=_string(data["role"], f"{where}.role"),
+        subject=None if subject is None else _string(subject, f"{where}.subject"),
     )
 
 

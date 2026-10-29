@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -15,15 +15,38 @@ from accessguard.application.agent_contract import PROMPT_VERSION
 from accessguard.application.gate import RequestGate, RunLimits
 from accessguard.application.ports import ModelClient, Planner, PlannerInfo, TargetClient
 from accessguard.application.reporting import ReportContext, build_report
-from accessguard.application.runner import CheckRunner
-from accessguard.domain.checks import generate_checks
+from accessguard.application.runner import CheckRunner, ProgressListener
+from accessguard.domain.checks import Check, generate_checks
 from accessguard.domain.credentials import Secret
+from accessguard.domain.errors import PolicyError
 from accessguard.domain.policy import AccessPolicy
 from accessguard.domain.scope import TargetScope
 
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def select_checks(
+    policy: AccessPolicy, only_checks: Collection[str] | None
+) -> tuple[tuple[Check, ...], int | None]:
+    """Return the policy's checks, or the requested subset in policy order.
+
+    The subset can only name checks the policy itself derives: an unknown id is a
+    configuration error, never a new check. The second value is the number of checks
+    in the full matrix when a subset was selected, else ``None``.
+    """
+    checks = generate_checks(policy)
+    if only_checks is None:
+        return checks, None
+    known = {check.id for check in checks}
+    unknown = sorted(set(only_checks) - known)
+    if unknown:
+        raise PolicyError(f"Unknown check ids requested: {', '.join(unknown[:5])}")
+    if not only_checks:
+        raise PolicyError("A check selection must name at least one check")
+    wanted = set(only_checks)
+    return tuple(check for check in checks if check.id in wanted), len(checks)
 
 
 def run_scan(
@@ -38,13 +61,17 @@ def run_scan(
     limits: RunLimits,
     stop: threading.Event | None = None,
     now: Callable[[], datetime] = utc_now,
+    only_checks: Collection[str] | None = None,
+    on_progress: ProgressListener | None = None,
 ) -> dict[str, Any]:
     """Run every policy-derived check once (plus retests of failures) and return the report.
 
+    ``only_checks`` restricts the run to named checks (used for retests); the report then
+    records the selection, so a partial matrix is never presented as full coverage.
     Planner failures propagate as ``PlannerError``: there is no silent fallback to
     another planner, so a report never misstates how its check order was produced.
     """
-    checks = generate_checks(policy)
+    checks, full_matrix = select_checks(policy, only_checks)
     plan = planner.plan(checks)
     started_at = now()
     runner = CheckRunner(
@@ -54,6 +81,7 @@ def run_scan(
         gate=RequestGate(limits, stop),
         now=now,
         retest_findings=limits.retest_findings,
+        on_progress=on_progress,
     )
     outcome = runner.run(plan.checks)
     context = ReportContext(
@@ -66,6 +94,7 @@ def run_scan(
         limits=limits,
         started_at=started_at,
         finished_at=now(),
+        full_matrix_checks=full_matrix,
     )
     return build_report(policy, outcome, context)
 

@@ -11,6 +11,7 @@ import hashlib
 import http.client
 import json
 import socket
+import ssl
 import threading
 import time
 from collections.abc import Mapping
@@ -76,23 +77,101 @@ class _GuardedSocket(socket.socket):
             self.settimeout(_SLICE_SECONDS)
 
 
+class _GuardedSSLSocket(ssl.SSLSocket):
+    """The TLS counterpart of :class:`_GuardedSocket`: the same deadline and cancel checks.
+
+    Retrying a read after a timeout slice is safe: OpenSSL keeps partial record state, as
+    for a non-blocking socket that reported "want read".
+    """
+
+    deadline: float
+    cancel: threading.Event | None
+    abort_reason: str | None
+
+    def _check_limits(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            self.abort_reason = "Request cancelled"
+        elif time.monotonic() >= self.deadline:
+            self.abort_reason = "Request exceeded its time limit"
+        else:
+            return
+        raise TimeoutError(self.abort_reason)
+
+    def recv_into(self, buffer: WriteableBuffer, nbytes: int | None = None, flags: int = 0) -> int:
+        while True:
+            self._check_limits()
+            try:
+                return super().recv_into(buffer, nbytes, flags)
+            except TimeoutError:
+                continue
+
+    def sendall(self, data: ReadableBuffer, flags: int = 0) -> None:
+        self._check_limits()
+        self.settimeout(max(self.deadline - time.monotonic(), 0.001))
+        try:
+            super().sendall(data, flags)
+        finally:
+            self.settimeout(_SLICE_SECONDS)
+
+
+@dataclass(frozen=True)
+class TlsSettings:
+    """Verify the server certificate for ``server_hostname`` (also sent as SNI).
+
+    The connection itself goes to the already validated IP address, so certificate
+    validation and IP pinning apply together.
+    """
+
+    server_hostname: str
+    context: ssl.SSLContext
+
+
+def guarded_tls_context(context: ssl.SSLContext | None = None) -> ssl.SSLContext:
+    """Return a verifying TLS context whose sockets honour deadlines and cancellation."""
+    context = context or ssl.create_default_context()
+    if context.verify_mode is not ssl.CERT_REQUIRED or not context.check_hostname:
+        raise ValueError("TLS contexts must verify certificates and host names")
+    context.minimum_version = max(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+    context.sslsocket_class = _GuardedSSLSocket
+    return context
+
+
 class _GuardedConnection(http.client.HTTPConnection):
     def __init__(
-        self, address: str, port: int, deadline: float, cancel: threading.Event | None
+        self,
+        address: str,
+        port: int,
+        deadline: float,
+        cancel: threading.Event | None,
+        tls: TlsSettings | None = None,
     ) -> None:
         super().__init__(address, port, timeout=max(deadline - time.monotonic(), 0.001))
         self._deadline = deadline
         self._cancel = cancel
-        self.guarded: _GuardedSocket | None = None
+        self._tls = tls
+        self.guarded: _GuardedSocket | _GuardedSSLSocket | None = None
 
     def connect(self) -> None:
         raw = socket.create_connection((self.host, self.port), self.timeout)
-        guarded = _GuardedSocket(raw.family, raw.type, raw.proto, fileno=raw.detach())
+        guarded: _GuardedSocket | _GuardedSSLSocket
+        if self._tls is None:
+            guarded = _GuardedSocket(raw.family, raw.type, raw.proto, fileno=raw.detach())
+        else:
+            wrapped = self._tls.context.wrap_socket(
+                raw, server_hostname=self._tls.server_hostname, do_handshake_on_connect=False
+            )
+            if not isinstance(wrapped, _GuardedSSLSocket):
+                wrapped.close()
+                raise TransportError("TLS context is not a guarded AccessGuard context")
+            guarded = wrapped
         guarded.deadline = self._deadline
         guarded.cancel = self._cancel
         guarded.abort_reason = None
-        guarded.settimeout(_SLICE_SECONDS)
         self.sock = self.guarded = guarded
+        if isinstance(guarded, _GuardedSSLSocket):
+            guarded.settimeout(max(self._deadline - time.monotonic(), 0.001))
+            guarded.do_handshake()
+        guarded.settimeout(_SLICE_SECONDS)
 
     def abort_reason(self) -> str | None:
         return self.guarded.abort_reason if self.guarded is not None else None
@@ -110,6 +189,7 @@ def send(
     timeout_seconds: float,
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
     cancel: threading.Event | None = None,
+    tls: TlsSettings | None = None,
 ) -> RawResponse:
     """Send one request within ``timeout_seconds`` of total wall-clock time.
 
@@ -118,7 +198,7 @@ def send(
     """
     if timeout_seconds <= 0:
         raise TransportError("Request exceeded its time limit")
-    connection = _GuardedConnection(address, port, time.monotonic() + timeout_seconds, cancel)
+    connection = _GuardedConnection(address, port, time.monotonic() + timeout_seconds, cancel, tls)
     response: http.client.HTTPResponse | None = None
     try:
         connection.request(method, path, body=body, headers={"Host": host_header, **headers})
@@ -128,7 +208,11 @@ def send(
         raise TransportError(
             connection.abort_reason() or f"Request timed out after {timeout_seconds:.2f} s"
         ) from error
-    except (OSError, http.client.HTTPException) as error:
+    except ssl.SSLCertVerificationError as error:
+        raise TransportError(
+            f"TLS certificate verification failed: {error.verify_message}"
+        ) from error
+    except (OSError, http.client.HTTPException, ValueError) as error:
         raise TransportError(
             connection.abort_reason() or f"{type(error).__name__}: {error}"
         ) from error
