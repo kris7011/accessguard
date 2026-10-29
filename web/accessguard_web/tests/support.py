@@ -27,7 +27,7 @@ from accessguard_web.projects.models import Project
 from accessguard_web.scans import services
 from accessguard_web.scans.models import Finding, Runner, Scan
 
-PASSWORD = "correct horse battery 42"
+PASSWORD = "correct horse battery 42"  # pragma: allowlist secret
 SAMPLE_DIR = Path(__file__).resolve().parents[3] / "sampleapp" / "accessguard_sampleapp" / "config"
 
 

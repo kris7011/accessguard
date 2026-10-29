@@ -44,7 +44,11 @@ class SignupTests(TestCase):
     def test_weak_passwords_and_missing_authorisation_are_refused(self) -> None:
         response = self.client.post(
             reverse("accounts:signup"),
-            {"email": "a@b.test", "password": "password", "organization": "X"},
+            {
+                "email": "a@b.test",
+                "password": "password",  # pragma: allowlist secret
+                "organization": "X",
+            },
         )
         self.assertEqual(response.status_code, 200)
         self.assertFalse(User.objects.exists())
@@ -58,7 +62,8 @@ class LoginThrottleTests(TestCase):
     def test_repeated_failures_lock_out_even_the_right_password(self) -> None:
         for _ in range(10):
             self.client.post(
-                reverse("accounts:login"), {"username": "user@example.test", "password": "wrong"}
+                reverse("accounts:login"),
+                {"username": "user@example.test", "password": "wrong"},  # pragma: allowlist secret
             )
         response = self.client.post(
             reverse("accounts:login"), {"username": "user@example.test", "password": PASSWORD}
@@ -152,7 +157,7 @@ class HeaderTests(TestCase):
 class LoggingTests(TestCase):
     def test_credentials_are_redacted_from_log_lines(self) -> None:
         record = logging.LogRecord("x", logging.INFO, __file__, 1, "token %s and %s",
-                                   ("agr_abcdefghijklmnopqrstuvwxyz", "Bearer eyJhbGciOiJIUzI1NiJ9.payload"), None)  # fmt: skip
+                                   ("agr_abcdefghijklmnopqrstuvwxyz", "Bearer eyJhbGciOiJIUzI1NiJ9.payload"), None)  # fmt: skip  # pragma: allowlist secret
         RedactionFilter().filter(record)
         line = JsonFormatter().format(record)
         self.assertNotIn("agr_abcdefgh", line)

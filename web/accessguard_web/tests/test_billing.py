@@ -28,6 +28,7 @@ from accessguard_web.scans import services
 from accessguard_web.tests.support import login, make_org, sample_project
 
 WEBHOOK_SECRET = "whsec_test_secret_for_unit_tests"  # pragma: allowlist secret
+WRONG_SECRET = "whsec_wrong_secret_value"  # pragma: allowlist secret
 STRIPE_TEST = {
     **settings.STRIPE,
     "SECRET_KEY": "sk_test_dummy_key_for_unit_tests",  # pragma: allowlist secret
@@ -76,7 +77,10 @@ class WebhookTests(TestCase):
         payload = event(
             "evt_1", "customer.subscription.created", subscription(self.org.pk, "active")
         )
-        self.assertEqual(self.deliver(payload, secret="whsec_wrong_secret_value").status_code, 400)
+        self.assertEqual(
+            self.deliver(payload, secret=WRONG_SECRET).status_code,
+            400,
+        )
         unsigned = self.client.post(
             reverse("stripe_webhook"), data=json.dumps(payload), content_type="application/json"
         )
