@@ -4,15 +4,30 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
 
 ## Current state (2026-10-30, V1 commercial beta, second session)
 
-- Branch: `feature/v1-commercial-beta` (from `b94f5b7`). **No git remote is configured** and
-  the GitHub account `kris7011` has no AccessGuard repository (checked with `gh`, 20 repos).
-  Nothing is pushed, merged, published or deployed; `main` is unchanged.
+- Branch: `feature/v1-commercial-beta` (from `b94f5b7`), pushed to the **private** repository
+  `kris7011/accessguard` (`origin`, SSH). **Draft PR #1** into `main`, open and not merged.
+  Nothing is merged, published or deployed; `main` is unchanged.
 - V1 plan and acceptance record (three axes: implemented / verified locally / blocked
   externally): `docs/milestones/V1.md`. **9 of 12 packages accepted; billing (6), AI
   assistants (7) and operations (10) are implemented but blocked externally.**
 - This session's commits (oldest first): `054abc8` rules-page form fix + browser-faithful
   tests, `5ca94fc` compose/image fixes, `0ccdd87` runner install text, `f223fd0` customer
   acceptance script, then the documentation commit after it.
+
+### GitHub and CI (PR #1)
+
+CI (`.github/workflows/test.yml`) runs on the pull request only for feature branches
+(`d6a48a6`). It ran for the first time on this PR and found four defects that local Windows
+runs could not show; each is fixed in its own commit:
+
+| Run | Commit | Result | Failure and fix |
+| --- | --- | --- | --- |
+| 41030339469 | `d6a48a6` | 3 of 6 jobs failed | Ubuntu (3.11 and 3.13) rebuilt the committed ML dataset with another version, because `math.log1p` is not correctly rounded in every C library → correctly rounded `Decimal` ln (`737bc42`). mypy failed on Linux: Windows-only attributes behind `os.name`, and missing Playwright types → `sys.platform` and the locked e2e requirements (`10d6445`). The verify scripts showed only 15 log lines, hiding a second failure → full log for failed steps (`6473fa4`) |
+| 41031684030 | `6473fa4` | 5 of 6 passed | Ubuntu/3.13: `test_deep_nesting_within_the_size_limit_is_invalid_json` got `not_an_object`. `json` stops deep nesting only at CPython's C recursion limit, which is above 5000 on Linux with 3.13 and below it on Windows and on 3.11, so the rejection category depended on the platform → explicit `MAX_NESTING_DEPTH` (32) in `parse_action`, boundary and in-string tests added, original test unchanged (`c93242e`) |
+| 41033173820 | `c93242e` | **6 of 6 passed** | lint/types/audit/secrets/build; engine tests 354 (2 skipped) on Ubuntu 3.11, Ubuntu 3.13 and Windows 3.13; 78 web tests on PostgreSQL 17; container image builds |
+
+The documentation commit after `c93242e` (this file) gets its own CI run; see the PR for its
+result.
 
 ### Verified this session
 
@@ -49,7 +64,7 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
   the assistants use `num_ctx` 16384, free commit memory was 1.2-3.5 GB, and the machine
   crashed twice (below).
 - **E-mail**: no SMTP settings. Needs an SMTP provider with STARTTLS on 587.
-- **Server, domain, TLS, production backup drill, CI**: owner decisions and a push.
+- **Server, domain, TLS, production backup drill**: owner decisions.
 
 ### Machine incidents (not caused by AccessGuard code, but caused during this work)
 
@@ -67,12 +82,14 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
 ### Latest verification
 
 - `PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30, after the code commits): lint; format (244 files); mypy strict (213 files); 351 engine/runner/ML tests, 2 opt-in real-model tests skipped; 78 web tests; migrations check; deploy check; pip-audit no known vulnerabilities; detect-secrets 342 tracked files clean; wheel 45 files, 0 problems; lab demo exact match
+- After the CI fixes (2026-10-30, `c93242e`): `ops/verify.ps1 -Steps lint,format,types,tests`
+  passed locally (354 engine/runner/ML tests, 2 skipped); CI on the same commit: see above.
 - Customer acceptance runs and the Docker results: see above, `docs/install.md` and
   `docs/operations.md` (drill record).
 
-### Publishing review (for an eventual push)
+### Publishing review (done before the push; the repository is private)
 
-- 342 tracked files; 31 commits on this branch not in `main`; other local branches:
+- 342 tracked files at the time; 31 commits on this branch not in `main`; other local branches:
   `feature/m1-reproducible-foundation`, `feature/m2-adaptive-agent`, `main`.
 - No `.env`, database, dump, key or report file is tracked (`.gitignore` covers `.env*`,
   `.local/`, `reports/`, `web/db.sqlite3`); `.env.example` holds placeholders only; the secret
@@ -86,7 +103,7 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
 ### Next steps (each needs the owner)
 
 See the prioritised owner list in the session report and `docs/launch-checklist.md`. In short:
-create the GitHub repository (choose visibility) and approve a push so CI runs; Stripe test
+review draft PR #1 (merge only on the owner's explicit approval); Stripe test
 account; an Anthropic API key for the assistant verification; reserve the PyPI name; hosting
 and domain; legal texts; design-partner conversations.
 
