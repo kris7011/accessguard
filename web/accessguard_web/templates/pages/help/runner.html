@@ -3,9 +3,12 @@
 <p>The runner is the part of AccessGuard that sends requests to your test environment. It runs on your side, so test credentials and response content never leave your environment, and AccessGuard's servers never connect to your systems.</p>
 <h2>Install</h2>
 <p>Python 3.11 or newer. The runner has no third-party dependencies.</p>
+<p>During the beta the runner is not on PyPI. Install the wheel file you received from us (<span class="mono">accessguard-&lt;version&gt;-py3-none-any.whl</span>) into its own virtual environment:</p>
 <pre>python -m venv .venv
-.venv/bin/pip install accessguard      # Windows: .venv\Scripts\pip install accessguard</pre>
-<p class="small muted">During the beta the package may not be on PyPI yet; install it from the source archive you received.</p>
+.venv/bin/python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl
+# Windows: .venv\Scripts\python -m pip install .\accessguard-&lt;version&gt;-py3-none-any.whl
+.venv/bin/accessguard --version</pre>
+<p class="small muted">Do not run <span class="mono">pip install accessguard</span> before we announce the PyPI release: until then that name is not ours on PyPI, and pip would install whatever package someone else publishes under it.</p>
 <h2>Configure</h2>
 <p>Create a runner token on the Runners page and store it in the environment variable named in the configuration. Then write <span class="mono">runner.toml</span>:</p>
 <pre>[control_plane]

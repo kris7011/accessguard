@@ -15,7 +15,7 @@
 <div class="card">
   <h2>Set up a runner</h2>
   <ol>
-    <li>Install it (Python 3.11 or newer, no other dependencies): <pre>pip install accessguard</pre><span class="small muted">Until the package is published, install it from the repository: <span class="mono">pip install ./</span>.</span></li>
+    <li>Install the wheel file you received from us into a virtual environment (Python 3.11 or newer, no other dependencies): <pre>python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl</pre><span class="small muted">The runner is not on PyPI during the beta; do not use <span class="mono">pip install accessguard</span> until we announce it. <a href="{% url 'pages:help_page' 'runner' %}">Installation details</a>.</span></li>
     <li>Create a token below and set it: <pre>export ACCESSGUARD_RUNNER_TOKEN=agr_…   # PowerShell: $env:ACCESSGUARD_RUNNER_TOKEN = "agr_…"</pre></li>
     <li>Write <span class="mono">runner.toml</span> next to a credentials file (JSON, test user id → credential; keep it out of git):
 <pre id="runner-config">[control_plane]
