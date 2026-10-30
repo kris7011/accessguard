@@ -1,4 +1,4 @@
-# Report schema 1.2
+# Report schema 1.3
 
 `report.json` is the machine-readable result of one run. Keys are stable within a
 `schema_version`; additive changes bump the minor version, breaking changes the major version.
@@ -9,7 +9,7 @@ scrubbing.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | string | `"1.2"` (1.1 added `run.completed` and `status.complete`; 1.2 added `run.agent`, `run.planner.seed`, `results[].requests_used_after` and the agent interruption reasons; older readers can ignore new keys) |
+| `schema_version` | string | `"1.3"` (1.3 added `run.scope.zone`, `run.scope.path_prefixes`, `run.selection` and, for runner scans, `run.spec_sha256`; 1.1 added `run.completed` and `status.complete`; 1.2 added `run.agent`, `run.planner.seed`, `results[].requests_used_after` and the agent interruption reasons; older readers can ignore new keys) |
 | `tool` | object | `name`, `version` |
 | `run` | object | Provenance, scope, planner, limits (below) |
 | `status` | object | `overall` (`findings`, `needs_review`, `incomplete`, `checks_passed`), `complete` (false if the run was interrupted) and `meaning` (includes an interruption note) |
@@ -24,7 +24,10 @@ scrubbing.
 ## `run`
 
 `id`, `started_at`, `finished_at` (ISO 8601, UTC), `target` (label), `scope.origin`,
-`scope.constraints`, `policy.id`, `policy.sha256` (of the exact policy bytes), `planner`
+`scope.zone` (`loopback`, `private` or `public`), `scope.path_prefixes`, `scope.constraints`,
+`selection` (`mode`: `all` or `subset` for a retest, `selected_checks`, `full_matrix_checks`;
+a subset report's `status.meaning` says that unselected checks are not covered),
+`spec_sha256` (added by the runner: hash of the approved scan spec), `policy.id`, `policy.sha256` (of the exact policy bytes), `planner`
 (`kind`: `deterministic`, `seeded-random`, `ollama` (M1 reorder-only) or `agent`; `uses_ai`,
 true only when a real model adapter was configured; `model`, `prompt_version`, `latency_ms`
 (for the agent: total model latency), `seed`), `agent` (see below; `null` unless the agent

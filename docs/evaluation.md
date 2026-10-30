@@ -836,3 +836,37 @@ Kept locally (git-ignored, not committed): `reports/eval-hc-2026-10-27/`:
   CSV, watchdog summary, start and stop records;
 - `analysis.md` (every run listed, the rule applied), and the scratch scripts `session.sh`,
   `save_reports.py`, `watchdog.py` and `analyze.py`.
+
+## V1: learned ranking foundation on synthetic applications (2026-10-29)
+
+Not a rerun of the M2 benchmark: no model chooses checks in a scan, and no HTTP scans were
+run for this. It measures whether a simple learned ranker over engine features would find
+violations earlier than the simple rules, using verified labels (ADR 0013).
+
+- **Data:** dataset `ds-b82628ce4c20c8e3` (committed in `ml/datasets/`): 240 checks with
+  `features-v1`, 50 violations, six synthetic applications (`eval:helpdesk`, `eval:clinic`,
+  `eval:projects`, `eval:library`, `lab:vulnerable`, `sampleapp:flawed`), labels from the
+  hand-written answer keys. 0 customer applications.
+- **Method:** leave-one-application-out; seeded, class-weighted logistic regression
+  (`train-v1`, 400 epochs); metric recall of violations within the first 25 % / 50 % of the
+  application's checks (offline; ignores probes and baselines). Baselines: policy order,
+  list-first, deny-first, median of 20 seeded random orders. `eval:library` has no
+  violations and is excluded from the means.
+- **Command:** `python -m accessguard_ml train --dataset ml/datasets/ds-b82628ce4c20c8e3 --registry ml/registry`
+
+| Strategy | Mean recall@25 % | Mean recall@50 % |
+| --- | ---: | ---: |
+| Learned ranker (candidate) | 0.262 | 0.703 |
+| List-first | 0.275 | 0.387 |
+| Random (median of 20) | 0.270 | 0.529 |
+| Deny-first | 0.152 | 0.376 |
+| Policy order | 0.094 | 0.152 |
+
+Per application at 25 %, the candidate found 0.000 on `clinic` and `helpdesk` and 0.143 on
+`projects`, more than 0.2 below the best baseline on each; it was best on `lab:vulnerable`
+(0.565) and `sampleapp:flawed` (0.600).
+
+**Conclusion:** better at a 50 % budget on these six applications, not better at 25 %, and
+unstable across applications. With no customer data the promotion gate refused it; no model is
+active. Six synthetic applications, all known while the features were chosen, are far too
+few to conclude anything about real systems.

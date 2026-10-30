@@ -1,4 +1,4 @@
-# Threat model (milestones 1 and 2)
+# Threat model (milestones 1, 2 and V1)
 
 Status: covers the implemented milestone 1 and 2 system (local CLI, local lab, adaptive agent,
 evaluation fixtures). Must be revised before
@@ -82,3 +82,32 @@ The tool therefore legitimately holds sensitive capabilities.
 - The secret scrubber is defense in depth; the primary control is that results never contain
   credentials. Unknown credential formats that are not `Bearer/Basic/Token` values are only
   scrubbed if they are known secrets.
+
+## V1: control plane, runner, billing and assistants
+
+New assets: customer accounts and organisations, project configurations (target URLs, test
+user ids, record paths), reports and findings, runner tokens, Stripe customer ids, assistant
+usage records. New trust boundaries: browser → web app; runner → runner API; Stripe →
+webhook; web app → AI provider; customer-supplied OpenAPI documents and pasted code.
+
+| # | Threat | Mitigation | Verified by |
+| --- | --- | --- | --- |
+| T24 | One customer reads or changes another customer's projects, scans, reports, findings or runners | Every lookup goes through `tenancy.get_owned` filtered by the current membership's organisation; other tenants' ids answer 404; organisation switch only to own memberships | `web/.../tests/test_tenancy_and_roles.py::IsolationTests` |
+| T25 | Privilege escalation inside an organisation | Roles viewer < admin < owner; `membership_required(role)` on every mutating view; last owner cannot be removed | `RoleTests` |
+| T26 | Stolen or guessed runner token claims jobs or uploads fake reports | 256-bit random tokens, stored as SHA-256, shown once, revocable; a runner sees only scans of its organisation (or demo scans for the platform runner) and only scans it claimed; reports must match the approved check list, spec hash and finding list | `test_runner_api_and_findings.py`, `CrossOrgRunnerTests` |
+| T27 | Compromised control plane redirects scans to other hosts (SSRF through customers' runners) | Runner-side origin allowlist with network zone, spec hash check, policy paths must lie under allowed prefixes; control plane itself never connects to targets | `tests/integration/test_runner_control_plane.py`, `test_sampleapp_integration.py` |
+| T28 | Credentials or response data reach our servers | Credentials only in the runner's local config; reports contain names, statuses, sizes and hashes only; runner scrubs known secrets before upload | `test_claims_scans_and_uploads_a_scrubbed_report`, `test_sign_up_configure_scan_fix_retest` |
+| T29 | Partial, cancelled or lost scans, invalid sessions or retest subsets shown as "secure" | One banner rule (`scans/presenters.py`): green only for a completed, complete, full-matrix pass; lost runners → no result | `test_presentation.py::BannerTests`, cancellation e2e test |
+| T30 | Forged, replayed or reordered payment webhooks grant plans | Signature verified by the Stripe SDK; event ids unique; older subscription events ignored; plans only from webhooks | `test_billing.py::WebhookTests` |
+| T31 | Credential stuffing against sign-in | Failure counter per IP and per account (10 per 15 min); password validators (min 12) | `LoginThrottleTests` |
+| T32 | XSS, clickjacking, CSRF | Auto-escaping templates; CSP `default-src 'self'` without inline script/style (static test); `X-Frame-Options: DENY`; CSRF on all forms; runner API and webhook accept no cookies | `HeaderTests`, `test_authentication_is_required_and_cookies_are_not_enough` |
+| T33 | Prompt injection through OpenAPI text, finding text or pasted code | Inputs wrapped as untrusted data; outputs schema-validated; setup answers can only reference extracted paths/fields; explanations are labelled drafts and change nothing | `test_assistant.py` |
+| T34 | Customer data sent to an AI provider without consent | Third-party providers require the organisation's opt-in (off by default); quotas; prompts not stored | `test_consent_is_required_for_third_party_providers` |
+| T35 | Customer data reused for ML without consent or with identifiers | Export only for consenting organisations; features are engine enumerations and counts; HMAC application groups | `test_learning_export.py` |
+| T36 | Secrets in logs or error reports | JSON log formatter with a redaction filter (bearer, runner, Stripe, Anthropic keys, `password=`); Sentry with PII off and scrubbing | `LoggingTests` |
+| T37 | Data loss | Daily backups with integrity check, restore refuses to overwrite without `--replace`, retention never deletes open findings | `test_backup.py`, restore drill in docs/operations.md |
+
+Residual risks (V1): login throttling is per installation; no e-mail verification of new
+accounts; a customer's own runner can upload false verdicts for its own organisation; the
+PostgreSQL path, Docker images and real Stripe and AI-provider calls are not verified on this
+machine; legal texts (terms, privacy, DPA) are not written.

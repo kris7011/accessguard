@@ -1,13 +1,141 @@
 # AccessGuard project walkthrough
 
-Status as of milestone 2 (version 0.3.0): implementation with mock and contract verification.
-A real local model passed a 3-call smoke test and, with the runtime's prompt cache disabled,
-the full opt-in real-model test (2026-10-27). Bounded comparisons against simple strategies
-(all four fixtures, 25 % and 50 % budgets) showed no demonstrated AI advantage: a simple
-"listings first" rule matches the model on `projects`, and the model was worse than the best
-simple baseline on `helpdesk` and `clinic`; 100 % budgets have not been run with the model. Every statement is marked by status where it matters:
-**implemented** (code exists), **tested** (an automated test exists and was run),
-**proposed/future** (not built).
+Status as of V1 (2026-10-30, branch `feature/v1-commercial-beta`): a self-serve product with a
+web control plane, a customer-side runner, a separate integration app, billing in Stripe test
+mode, two bounded AI assistants and an ML foundation without an active model. Labels used
+below: **implemented** (code exists), **tested** (an automated test exists and was run),
+**not verified** (written but not exercised, with the reason).
+
+Part A describes the V1 product. Part B (sections 1-12, from milestones 1 and 2) describes
+the engine, the lab and the agent evaluation in detail; it remains accurate where V1 did not
+change the engine (V1 engine changes are listed in A.3).
+
+## A.1 System overview
+
+```text
+                 browser (forms, no SPA)                  Stripe (Checkout, Portal, webhooks)
+                        │ https                                     │ signed webhooks
+                        ▼                                           ▼
+   ┌─────────────── web control plane (Django 6.1, web/accessguard_web) ───────────────┐
+   │ accounts/ tenancy · projects/ config+forms+OpenAPI · scans/ jobs, findings,       │
+   │ runner API, guidance, presenters · billing/ plans, entitlements, webhooks ·       │
+   │ assistant/ providers, tasks · pages/ landing, help, health, backup                │
+   └──────────────┬───────────────────────────────────────────────▲────────────────────┘
+                  │ PostgreSQL (SQLite locally)                   │ https: claim, heartbeat,
+                  ▼                                               │ report, fail (bearer token)
+                                                         customer runner (src/accessguard,
+                                                         stdlib only): local allowlist +
+                                                         credentials → engine → target API
+```
+
+The control plane never connects to customer systems; only the runner does (ADR 0009).
+
+## A.2 Structure and technologies
+
+| Path | Responsibility | Status |
+| --- | --- | --- |
+| `src/accessguard/` | Engine and runner CLI (`accessguard scan`, `accessguard runner`); Python ≥ 3.11, no third-party dependencies | implemented, tested |
+| `web/accessguard_web/` | Control plane: Django 6.1, server-rendered templates, one small script, whitenoise, gunicorn, psycopg, stripe, anthropic (optional), sentry-sdk (optional) | implemented, tested on SQLite; PostgreSQL not verified |
+| `sampleapp/accessguard_sampleapp/` | Synthetic projects API with its own auth, flawed and fixed variants, answer key | implemented, tested |
+| `ml/accessguard_ml/` | Datasets, training, evaluation, registry | implemented, tested |
+| `ops/` | verify scripts, CI helpers, dev stack, browser check, docker entry scripts, economics model | implemented; Docker not built |
+
+Dependencies are hash-locked (`web/requirements.txt`, `requirements-dev.txt`,
+`requirements-e2e.txt`), audited with pip-audit; mypy strict with django-stubs.
+
+## A.3 Engine changes in V1
+
+- `domain/scope.py`: `NetworkZone` (loopback / private / public), always-blocked link-local,
+  metadata, multicast, reserved and unspecified addresses; `TargetScope.authorized` for http/https
+  with path prefixes; the lab rule `from_origin` is unchanged. *Tested:* `test_scope_zones.py`.
+- `adapters/http_transport.py` + `http_target.py`: TLS with certificate and host-name
+  verification while the connection stays pinned to the validated IP; `AuthScheme` (Bearer,
+  header, cookie). *Tested with a real local TLS server:* `test_https_and_auth.py`.
+- `domain/policy.py`: optional identity `subject`, dotted field paths (`data.email`).
+- `application/scan.py`: `select_checks` (retests run a subset; the report records it);
+  `application/runner.py`: `Progress` snapshots for live status.
+- `adapters/scan_spec.py`, `adapters/runner_config.py`, `adapters/control_plane.py`,
+  `entrypoints/runner_service.py`: the runner.
+- `application/ranking.py`: `features-v1` and an (inactive) learned ranker planner.
+
+## A.4 Authentication and authorization
+
+- **People:** Django auth with e-mail login (`accounts/models.py: User`), password validators
+  (min 12 characters), throttled sign-in (`ThrottledLoginView`), password reset by e-mail.
+- **Tenancy:** every product record has an `organization`; `accounts/tenancy.py` resolves the
+  current membership per request and `get_owned` loads records only within it (other tenants'
+  ids answer 404). Roles: viewer (read), admin (configure, approve, triage, runners), owner
+  (billing, members, deletion). *Tested:* `test_tenancy_and_roles.py`.
+- **Runners:** bearer tokens (`agr_…`, 256-bit, stored as SHA-256, shown once, revocable);
+  the platform demo runner may claim demo scans only (`scans/services.py: claim_next`).
+- **Stripe:** webhook signatures verified with the SDK; no session or CSRF involved.
+
+## A.5 Persistence
+
+Models: `accounts` (User, Organization, Membership, Invitation, AuditEvent), `projects`
+(Project with the scan-spec draft as JSON and imported endpoint templates), `scans` (Runner,
+Scan with frozen spec, hash, approval, progress, report; Finding with fingerprint
+`check_id|type`; FindingEvent as history and labels), `billing` (Subscription, StripeEvent),
+`assistant` (AssistantRun). Migrations in each app's `migrations/` (checked in CI by
+`makemigrations --check`). Backups: `manage.py backup_database` / `restore_database`.
+
+## A.6 Core workflows
+
+1. **Sign-up** (`accounts/views.py: signup` → `create_organization`): user, organisation,
+   owner membership, Free subscription and the demo project, in one transaction.
+2. **Configure** (`projects/views.py`): target, test users, records and lists, limits. Forms
+   validate with the engine's domain types; `projects/config.py: evaluate` validates the whole
+   document with the engine's `parse_scan_spec` and computes the budget that guarantees full
+   coverage. Optional OpenAPI import (`projects/openapi.py`) and setup assistant.
+3. **Approve** (`scans/views.py: review` → `services.approve_scan`): scope summary,
+   attestation, plan limits, one active scan per project; the spec is frozen with its SHA-256.
+4. **Run** (`entrypoints/runner_service.py`): claim → refuse untrusted origins or hash
+   mismatch → scan with local credentials → heartbeats every 3 s (progress, cancel flag) →
+   upload the scrubbed report. Cancellation stops the scan and keeps a partial report.
+5. **Ingest** (`services.accept_report` → `validate_report` → `apply_report`): the report must
+   match the approved checks; FAIL/SUSPECTED create or update findings (a resolved one that
+   reappears is reopened); a PASS of the same check resolves a finding as verified.
+6. **Act** (`scans/views.py`): report page (`presenters.py` decides the banner: green only for
+   a complete full pass), finding page with evidence, reproduction, rule-based guidance
+   (`guidance.py`), optional AI explanation, triage (confirm / reject with reason / resolve
+   unverified), retest (`create_retest` adds the legitimate-access checks of the same records).
+7. **Pay** (`billing/`): Checkout and Portal redirects; webhooks update the subscription;
+   `entitlements.py` turns status into limits with a grace period for failed payments.
+
+## A.7 Testing
+
+| Suite | Command | Result (latest local run) |
+| --- | --- | --- |
+| Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 351 run, 2 skipped (opt-in real-model tests) |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner | `bash ops/verify.sh web-tests` | 74 run, 0 failed |
+| Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
+| Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
+
+Mocks are used only at external boundaries: Stripe Checkout/Portal calls, the Anthropic SDK
+call, and fake assistant providers. No real Stripe, AI provider or PostgreSQL run exists yet.
+
+## A.8 Local development, deployment, backup
+
+See [install.md](install.md), [operations.md](operations.md) and
+[launch-checklist.md](launch-checklist.md).
+
+## A.9 Design decisions
+
+ADR 0009 (local runner), 0010 (Django), 0011 (Stripe), 0012 (assistants), 0013 (ML). The
+central trade-offs: credentials stay with the customer at the price of an installed runner;
+server-rendered pages keep the UI simple and testable at the price of rich interactivity;
+deterministic verdicts and full coverage over AI prioritisation, because the evaluation found
+no advantage.
+
+## A.10 Known limitations (V1)
+
+- Not deployed; Docker, PostgreSQL, GitHub Actions, Stripe and AI providers not exercised.
+- No e-mail verification; login throttling per installation; English UI only.
+- Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks.
+- Legal texts are not written; VAT handling not decided.
+- The engine's limits (GET only, declared endpoints, exact JSON matching) apply unchanged.
+
+# Part B: engine, lab and agent (milestones 1 and 2)
 
 ## 1. System overview
 

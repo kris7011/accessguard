@@ -36,14 +36,33 @@ Purpose: lets work resume after an interrupted session. Never put credentials or
 - Claude API: no `ANTHROPIC_API_KEY`; adapter contract-tested with a mock only.
 - E-mail delivery (password reset): console backend only.
 
-### Remaining V1 work (in this order)
+### Latest verification (2026-10-30, end of session)
 
-1. ADRs 0009-0013; `docs/operations.md`, `docs/install.md`, `docs/launch-checklist.md`.
-2. Business material: `docs/business/` (ads, product texts, economics model + script).
-3. Update README, `docs/PROJECT_WALKTHROUGH.md`, threat model, report schema 1.3,
-   `docs/evaluation.md` (ML section), `docs/milestones/V1.md` acceptance record,
-   `docs/interview-prep/V1.md`.
-4. Final full gate + browser check; final HANDOFF update.
+- `PYTHON=.venv/Scripts/python bash ops/verify.sh`: all 11 steps passed (lint, format, mypy
+  strict on 211 files, 351 engine/runner/ML tests with 2 opt-in real-model tests skipped,
+  74 web tests, migrations check, Django deploy check, pip-audit, detect-secrets, wheel build
+  with 45 files and 0 problems, lab demo exact match).
+- `ops/verify.ps1` (Windows PowerShell 5.1): migrations, deploy-check passed; negative
+  control returned exit 3 as expected.
+- Browser check on a fresh stack: 0 problems (desktop and phone).
+
+### V1 status
+
+All twelve work packages in `docs/milestones/V1.md` are met locally; billing, AI assistants
+and operations are only partly verified (see "Not verified"). Documentation is current:
+README, walkthrough (Part A), threat model (T24-T37), report schema 1.3, ADRs 0009-0013,
+install/operations/launch checklist, business material, interview prep V1.
+
+### Next steps (each needs the owner)
+
+1. Review the branch; approve a push so CI runs (engine matrix, web on PostgreSQL, images).
+2. Create a Stripe account in test mode (prices, webhook, Customer Portal) and run the
+   test-mode purchase / failed payment / cancellation flow (docs/launch-checklist.md).
+3. Choose hosting and a domain; build the images there; first backup/restore drill.
+4. Legal texts (terms, privacy, DPA) and VAT/company setup with a lawyer/accountant.
+5. Optional: verify the assistants with a real model (an `ANTHROPIC_API_KEY`, or a local
+   Ollama run on a machine with more free memory than the ~3 GB available here).
+6. Design-partner conversations to validate price and value before live payments.
 
 ### Commands (no secrets)
 
