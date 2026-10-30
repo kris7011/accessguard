@@ -4,6 +4,7 @@ import json
 import unittest
 
 from accessguard.application.agent_contract import (
+    MAX_NESTING_DEPTH,
     Rejection,
     ReplyRejectedError,
     RunCheck,
@@ -102,8 +103,35 @@ class AgentContractTests(unittest.TestCase):
         self.assertEqual(parse('{"action":"stop"}', max_chars=17), Stop())
 
     def test_deep_nesting_within_the_size_limit_is_invalid_json(self) -> None:
+        # Deep enough to exceed the C recursion limit on some platforms and not on others;
+        # the explicit depth limit makes the rejection the same everywhere.
         deep = "[" * 5000 + "]" * 5000
         self.assert_rejected(deep, Rejection.INVALID_JSON, max_chars=20_000)
+        self.assert_rejected(
+            '{"action": "stop", "x": ' + deep + "}", Rejection.INVALID_JSON, max_chars=20_000
+        )
+
+    def test_nesting_limit_boundary(self) -> None:
+        def nested(depth: int) -> str:
+            inner = "[" * (depth - 1) + "]" * (depth - 1)
+            return '{"action": "stop", "x": ' + inner + "}"
+
+        self.assert_rejected(nested(MAX_NESTING_DEPTH), Rejection.UNEXPECTED_FIELDS)
+        self.assert_rejected(nested(MAX_NESTING_DEPTH + 1), Rejection.INVALID_JSON)
+        self.assert_rejected(
+            "[" * MAX_NESTING_DEPTH + "]" * MAX_NESTING_DEPTH, Rejection.NOT_AN_OBJECT
+        )
+
+    def test_brackets_inside_strings_do_not_count_as_nesting(self) -> None:
+        brackets = "[{" * 100
+        self.assert_rejected(
+            json.dumps({"action": "run_check", "check_id": brackets}),
+            Rejection.UNKNOWN_CHECK_ID,
+            max_chars=1_000,
+        )
+        # An escaped quote does not end the string, so the brackets after it stay inside it.
+        escaped = json.dumps({"action": "run_check", "check_id": '\\"' + brackets})
+        self.assert_rejected(escaped, Rejection.UNKNOWN_CHECK_ID, max_chars=1_000)
 
     def test_response_schema_only_offers_pending_ids_and_two_actions(self) -> None:
         schema = response_schema(PENDING)

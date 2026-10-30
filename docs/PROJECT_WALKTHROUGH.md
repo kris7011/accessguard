@@ -217,7 +217,7 @@ pip-audit, detect-secrets, build, setuptools; GitHub Actions. Rationale in ADR 0
   Tested.
 - Model output: reorder planner, schema-validated permutation only (ADR 0006). Agent: strict
   tool contract (only `run_check` with a pending approved alias, or `stop`), limits on calls,
-  invalid replies and output size, every model call bounded by the run deadline and stop
+  invalid replies, output size and JSON nesting depth, every model call bounded by the run deadline and stop
   signal (ADR 0007). Tested with a scripted adapter, mocks and a fake Ollama server.
 - Data sent to a model: opaque aliases, engine enumerations and integers only; no
   credentials, protected values, response bodies, verdict reasons, paths or policy strings.

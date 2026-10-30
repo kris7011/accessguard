@@ -6,12 +6,12 @@ A reply must be exactly one of::
     {"action": "stop"}
 
 This module is the security boundary for model output, not the prompt. Validation is
-strict and does not repair replies: oversized output, invalid JSON, non-standard JSON
-constants, duplicate keys, missing or extra fields, unknown actions, unknown ids and ids
-that were already executed are all rejected. The model therefore cannot change the
-policy, expectations, check content, credentials, endpoints or scope: none of those can
-be expressed in a valid reply. Rejections are reported as fixed categories so that model
-text is never echoed into prompts or reports.
+strict and does not repair replies: oversized output, invalid JSON, nesting deeper than
+:data:`MAX_NESTING_DEPTH`, non-standard JSON constants, duplicate keys, missing or extra
+fields, unknown actions, unknown ids and ids that were already executed are all rejected.
+The model therefore cannot change the policy, expectations, check content, credentials,
+endpoints or scope: none of those can be expressed in a valid reply. Rejections are
+reported as fixed categories so that model text is never echoed into prompts or reports.
 """
 
 from __future__ import annotations
@@ -24,6 +24,10 @@ from typing import Any
 
 PROMPT_VERSION = "agent-v1"
 TOOL_CONTRACT_VERSION = "agent-tools-v1"
+# A valid reply nests one level deep. The limit is far below any platform's recursion limit
+# (RFC 8259 section 9 allows parsers to bound nesting), so deeper input is invalid JSON
+# everywhere, while shallow structures still get their precise structural rejection.
+MAX_NESTING_DEPTH = 32
 
 SYSTEM_PROMPT = (
     "You are the test-selection component of AccessGuard, a read-only authorization "
@@ -98,6 +102,35 @@ def _reject_constant(name: str) -> None:
     raise ValueError(f"non-standard JSON constant {name}")
 
 
+def _exceeds_depth(content: str, limit: int) -> bool:
+    """Whether arrays/objects nest deeper than ``limit``, ignoring brackets inside strings.
+
+    ``json`` only stops deep nesting at the interpreter's C recursion limit, which differs
+    per platform and Python version, so the same reply would be rejected as invalid JSON on
+    one machine and parsed into a structure on another. Exact for valid JSON; on invalid
+    JSON the result does not matter because ``json.loads`` rejects it either way.
+    """
+    depth = 0
+    in_string = escaped = False
+    for char in content:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char in "[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif char in "]}":
+            depth -= 1
+    return False
+
+
 def parse_action(
     content: str,
     *,
@@ -108,6 +141,8 @@ def parse_action(
     """Validate an untrusted reply against the contract or raise :class:`ReplyRejectedError`."""
     if len(content) > max_chars:
         raise ReplyRejectedError(Rejection.OUTPUT_TOO_LARGE)
+    if _exceeds_depth(content, MAX_NESTING_DEPTH):
+        raise ReplyRejectedError(Rejection.INVALID_JSON)
     try:
         reply = json.loads(content, object_pairs_hook=_unique_keys, parse_constant=_reject_constant)
     except _DuplicateKeyError:
