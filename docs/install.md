@@ -85,11 +85,22 @@ pointed `env_file` at a throwaway env file and published the database on 127.0.0
 Not covered: a deliberate `docker compose restart` on a quiet machine, the TLS reverse proxy,
 a real domain, real SMTP, Sentry, and any server other than the development laptop.
 
-Stripe (test mode): create the Team and Business prices, set `STRIPE_*` in `.env`, and point a
-webhook endpoint at `https://<host>/webhooks/stripe/` with the events
-`checkout.session.completed`, `customer.subscription.created|updated|deleted`,
-`invoice.payment_failed`, `invoice.paid`. Enable the Customer Portal (cancellation, payment
-method, invoices) in the Stripe dashboard. This has not been done with a real Stripe account.
+Stripe (test mode): create the Team (EUR 49/month) and Business (EUR 199/month) prices and a
+Customer Portal configuration (cancel at period end, switch between the two prices, payment
+methods, invoice history), set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_TEAM`,
+`STRIPE_PRICE_BUSINESS` and `STRIPE_PORTAL_CONFIGURATION` in `.env`, and point a webhook
+endpoint at `https://<host>/webhooks/stripe/` with the events `checkout.session.completed`,
+`customer.subscription.created|updated|deleted|paused|resumed`, `invoice.payment_failed`,
+`invoice.paid`, `invoice.payment_succeeded`; its signing secret goes into
+`STRIPE_WEBHOOK_SECRET`. Keys that are not test keys are refused unless
+`ACCESSGUARD_ALLOW_LIVE_PAYMENTS=true` (needs explicit approval).
+
+Locally (verified 2026-10-30 against a claimable sandbox; see docs/HANDOFF.md): keep the
+values in a git-ignored file such as `.local/stripe/stripe.env`, forward webhooks with
+`stripe listen --events <the list above> --forward-to http://127.0.0.1:8000/webhooks/stripe/`
+(`stripe listen --print-secret` prints the signing secret for `STRIPE_WEBHOOK_SECRET`), and
+start the stack with `run_stack.py --env-file .local/stripe/stripe.env`. The stack prints
+the names, never the values, of the variables it loaded.
 
 ## 3. Runner in the customer's environment
 

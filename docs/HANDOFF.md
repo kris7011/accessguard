@@ -2,14 +2,118 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-30, V1 commercial beta, second session)
+## Stripe sandbox verification (2026-10-30, third session)
+
+Billing (package 6) ran end to end against a real Stripe test environment. Test payments only;
+no live key, purchase, AI call, deployment or merge. Fix commit: `710f4fe`.
+
+### Setup (owner-approved; no Stripe account was registered)
+
+- Stripe CLI 1.55.3 installed with `npm install -g @stripe/cli@1.55.3` (the package is published
+  by Stripe from `github.com/stripe/stripe-cli`; npm skipped its postinstall script, the binary
+  works). Only CLI calls with an explicit `--config` file and `-p accessguard-sandbox` touched
+  credentials. The default `%USERPROFILE%\.config\stripe` held no prior login; `--help` created
+  an empty docs cache there, which was removed again.
+- `stripe sandbox create --from-git --non-interactive` (git identity of this repository)
+  created a **claimable sandbox**, account `acct_1UWAdYB9QLrE2rSI`, **expires 2026-11-06**.
+  It issues a restricted key with the prefix `rkcs_test_`.
+- The command output (keys and claim link), the CLI config and the app's env file are in
+  `.local/stripe/` (git-ignored; the folder's ACL grants only the Windows user `krisr`):
+  `sandbox-create.out`, `config.toml`, `stripe.env`. Do not print or commit them.
+- Created by API, all `livemode: false`: products `prod_VXHeVVyQ0QQDk9` (Team) and
+  `prod_VXHecucyp9KtJt` (Business); prices `price_1UWD5XB9QLrE2rSIaX4lxei7` (EUR 49/month,
+  lookup key `accessguard_team_monthly_eur`) and `price_1UWD5YB9QLrE2rSIVnnFhrbI` (EUR 199/month,
+  `accessguard_business_monthly_eur`); Customer Portal configuration
+  `bpc_1UWD5ZB9QLrE2rSICEGY6Xch` (cancel at period end, switch between the two prices, payment
+  methods, invoice history). It became the sandbox's default because none existed; the app
+  passes it explicitly anyway.
+- Webhooks: `stripe listen --events <the nine handled types> --forward-to
+  http://127.0.0.1:8000/webhooks/stripe/` (CLI 1.55 requires `--events`); API version
+  `2026-09-30.endive`, the same as the pinned SDK. Its signing secret went from
+  `stripe listen --print-secret` straight into `stripe.env`.
+- App: `ops/dev/run_stack.py --env-file .local/stripe/stripe.env` (new flag) with a **separate
+  database** `.local/stripe-e2e.sqlite3`; the dev database `.local/dev.sqlite3` was not used.
+  Proof that the running server loaded the configuration: it printed the five variable names,
+  the billing page showed the test-mode banner, and it created real `cs_test_` Checkout
+  Sessions with the configured prices.
+
+### Results (evidence: Stripe events delivered by `stripe listen`, `StripeEvent` rows, database state and pages of the running app)
+
+| Scenario | How | Result |
+| --- | --- | --- |
+| Checkout and webhooks | Playwright in headless Chrome: sign-up, "Choose Team" (Org A) and "Choose Business" (Org B), hosted Checkout with card 4242 | Each purchase: `checkout.session.completed`, `customer.subscription.created`, `invoice.paid`, `invoice.payment_succeeded`, all HTTP 200 and stored. Org A `team`/`active`, Org B `business`/`active`, own customer and subscription ids |
+| Plan limits | projects created through the running app | Org A (Team) created a 2nd project; an untouched Free organisation was refused its 2nd ("Your Free plan includes 1 projects") |
+| Customer Portal | "Manage payment method…" in the app | Stripe's `billing_portal.session.created` shows `configuration = bpc_1UWD5Z…`; portal lists plan, payment method, paid invoice |
+| Failed payment | card `pm_card_chargeCustomerFail`, then Team → Business with `always_invoice` and `allow_incomplete` | invoice EUR 150 `open`, `customer.subscription.updated` (`past_due`) and `invoice.payment_failed`: grace started, plan kept, warning "stays active until 2026-11-06" |
+| Grace period | 3rd project during grace; then `past_due_since` moved 8 days back **in the test database only**, then restored | during grace: created. Boundary: 7 days → paid plan, 7 days + 1 s → Free. After expiry: page shows Free with the "grace period has ended" banner, 4th project refused, existing projects kept |
+| Recovery | card 4242 attached, open invoice paid | `invoice.paid` and `subscription.updated` (`active`): `past_due_since` cleared |
+| Cancellation | "Cancel subscription" in the portal UI; later "Don't cancel" and cancel again | **defect** (below); after the fix the app shows "cancelled and ends on 2026-11-30", plan kept; reactivation cleared it |
+| Access after the end | `cancel_at` moved to 90 s ahead; Stripe ended the subscription itself | `customer.subscription.deleted`: Org A `free`/`canceled`, page shows Free, new project refused, its 3 projects kept |
+| Re-subscription | Org A bought Team again | same customer `cus_VXHmYk…` reused, new subscription, `team`/`active` (ordering guard did not block it) |
+| Repeated deliveries | `stripe events resend` of `invoice.payment_failed` (Org A, then active), `checkout.session.completed` and `customer.subscription.created` (Org B) | delivered again with HTTP 200; every field of every organisation unchanged (incl. `updated_at`, audit-event counts), 19 → 19 `StripeEvent` rows; Org A stayed `active` |
+| Organisation isolation | all of the above | Org B's row did not change (`updated_at` 10:39:33) through about 20 events for Org A; the Free control organisation never changed; each organisation got its own customer and subscription |
+
+### Defect found and fixed (`710f4fe`)
+
+New subscriptions use `billing_mode: flexible`. The Customer Portal then cancels with
+`cancel_at` (= period end) and leaves `cancel_at_period_end` **false**, so the app stored no
+cancellation and showed no warning. Access was still correct (it ends on
+`customer.subscription.deleted`). Fix: `Subscription.cancel_at` (migration `0002`, nullable,
+applied to the populated test database), set by the webhook; the warning uses it.
+Regression test `test_flexible_billing_cancellation_uses_cancel_at` failed before the fix.
+
+Same commit: explicit portal configuration (`STRIPE_PORTAL_CONFIGURATION`); key classification
+by mode segment (`rkcs_test_` is a test key) with refusal of every non-test key unless
+`ACCESSGUARD_ALLOW_LIVE_PAYMENTS=true` (before, a live key only changed a banner); and
+`run_stack.py --env-file`. Tests: `GatewaySafetyTests` (3), `tests/unit/test_run_stack_env.py`
+(3).
+
+### Limits of this run (not verified, or verified with a substitute)
+
+- **No test clocks:** the claimable sandbox key gets `PermissionError` on test clocks. So the
+  failed payment was an upgrade invoice, not a renewal, and the end came from a near
+  `cancel_at`, not a natural period end. Stripe's own retry schedule and its final action
+  (cancel or `unpaid`) after failed retries were not observed.
+- The grace expiry relies on the app's clock; it was checked by moving `past_due_since` in
+  the test database, not by waiting 7 days.
+- Plan switching in the portal UI is configured but was not clicked.
+- No webhook endpoint on a server: only `stripe listen` to localhost.
+- The Playwright and SDK driver scripts were ad hoc (session scratchpad), not committed.
+
+### Observations for the owner (no code changed)
+
+1. **Out-of-order delivery happened for real:** `invoice.paid` arrived before
+   `checkout.session.completed` and was recorded as "ignored: unknown customer". Harmless,
+   because the subscription events carry the status. A possible improvement: resolve the
+   organisation from `invoice.parent.subscription_details.metadata`.
+2. **Failed upgrade payment:** with `allow_incomplete`, Stripe applies the new price even
+   though the payment failed, so the organisation had Business during the grace period.
+   Decide whether upgrades should use `pending_if_incomplete` (no upgrade until paid).
+
+### State left behind
+
+- The stack and `stripe listen` are stopped; ports 8000/8800/8801 are free.
+- The sandbox keeps its test data until **2026-11-06**. Claiming it (`stripe --config
+  .local/stripe/config.toml -p accessguard-sandbox sandboxes claim`) turns it into a Stripe
+  account with full keys and test clocks: an owner decision. Otherwise it expires.
+- `.local/stripe-e2e.sqlite3` holds the test organisations (`owner-a`, `owner-a2`,
+  `owner-b@example.test`); delete it whenever convenient.
+
+### Verification after the fix
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30): lint;
+format; mypy strict; 357 engine/runner/ML tests (2 opt-in real-model tests skipped); 82 web
+tests; migrations check; deploy check; pip-audit no known vulnerabilities; detect-secrets 344
+tracked files clean; wheel 45 files, 0 problems; lab demo exact match.
+
+## Previous state (2026-10-30, V1 commercial beta, second session)
 
 - Branch: `feature/v1-commercial-beta` (from `b94f5b7`), pushed to the **private** repository
   `kris7011/accessguard` (`origin`, SSH). **Draft PR #1** into `main`, open and not merged.
   Nothing is merged, published or deployed; `main` is unchanged.
 - V1 plan and acceptance record (three axes: implemented / verified locally / blocked
-  externally): `docs/milestones/V1.md`. **9 of 12 packages accepted; billing (6), AI
-  assistants (7) and operations (10) are implemented but blocked externally.**
+  externally): `docs/milestones/V1.md`. At the end of this session: 9 of 12 accepted. Since
+  the third session (above): **10 of 12**, billing (6) accepted for test mode.
 - This session's commits (oldest first): `054abc8` rules-page form fix + browser-faithful
   tests, `5ca94fc` compose/image fixes, `0ccdd87` runner install text, `f223fd0` customer
   acceptance script, then the documentation commit after it.
@@ -56,10 +160,7 @@ result.
 
 ### Blocked externally (exact missing item)
 
-- **Stripe**: no `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TEAM`,
-  `STRIPE_PRICE_BUSINESS` anywhere on the machine (process, user, machine scope; no `.env`).
-  Needs a Stripe account in test mode with two prices, a webhook endpoint reachable from
-  Stripe (a public URL or the Stripe CLI forwarding to localhost) and the Customer Portal.
+- **Stripe**: resolved in the third session with a claimable sandbox (above).
 - **AI assistants, real call**: no `ANTHROPIC_API_KEY`. The local Ollama model was not run:
   the assistants use `num_ctx` 16384, free commit memory was 1.2-3.5 GB, and the machine
   crashed twice (below).
@@ -104,7 +205,7 @@ result.
 
 See the prioritised owner list in the session report and `docs/launch-checklist.md`. In short:
 review draft PR #1 (merge only on the owner's explicit approval); Stripe test
-account; an Anthropic API key for the assistant verification; reserve the PyPI name; hosting
+account (done in the third session with a sandbox); an Anthropic API key for the assistant verification; reserve the PyPI name; hosting
 and domain; legal texts; design-partner conversations.
 
 ### Commands (no secrets)

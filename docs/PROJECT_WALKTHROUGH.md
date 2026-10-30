@@ -99,22 +99,29 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
    a complete full pass), finding page with evidence, reproduction, rule-based guidance
    (`guidance.py`), optional AI explanation, triage (confirm / reject with reason / resolve
    unverified), retest (`create_retest` adds the legitimate-access checks of the same records).
-7. **Pay** (`billing/`): Checkout and Portal redirects; webhooks update the subscription;
-   `entitlements.py` turns status into limits with a grace period for failed payments.
+7. **Pay** (`billing/`): Checkout and Portal redirects (`gateway.py`, test keys only unless
+   live payments are approved); webhooks update the subscription; `entitlements.py` turns
+   status into limits with a grace period for failed payments and a warning for a scheduled
+   cancellation (`cancel_at`).
 
 ## A.7 Testing
 
 | Suite | Command | Result (latest local run) |
 | --- | --- | --- |
-| Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 351 run, 2 skipped (opt-in real-model tests) |
-| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, and browser-faithful setup-form tests | `bash ops/verify.sh web-tests` | 78 run, 0 failed (SQLite); the same 78 also passed on PostgreSQL 17.11 in the compose stack (2026-10-30) |
+| Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 357 run, 2 skipped (opt-in real-model tests) |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, and browser-faithful setup-form tests | `bash ops/verify.sh web-tests` | 82 run, 0 failed (SQLite, 2026-10-30); the earlier 78 also passed on PostgreSQL 17.11 in the compose stack |
 | Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
 | Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
 | Customer acceptance: runner installed from the wheel / source archive in a clean venv, forms driven over HTTP, scan → triage → fix → retest | `ops/dev/customer_acceptance.py` | PASS (CPython 3.12.7 wheel, 3.13.13 sdist) |
 | Compose stack: build, migrate, readiness, static files, demo runner, scheduler backup, restore into a separate database | manual run, recorded in [install.md](install.md) and [operations.md](operations.md) | passed locally; not on a server |
 
 Mocks are used only at external boundaries: Stripe Checkout/Portal calls, the Anthropic SDK
-call, and fake assistant providers. No real Stripe payment and no real AI call exists yet.
+call, and fake assistant providers. No real AI call exists yet.
+
+Stripe was also exercised for real in a temporary sandbox (2026-10-30, test payments only):
+Checkout, webhooks via `stripe listen`, Customer Portal, failed payment and grace period,
+cancellation, resent events and two organisations; driven by ad-hoc Playwright and SDK
+scripts that are not in the repository. Results and limits: [HANDOFF.md](HANDOFF.md).
 
 The customer acceptance run found a real defect the end-to-end test had missed: the
 "Endpoints and rules" page could not be saved in a browser unless its empty extra record row
@@ -137,8 +144,8 @@ no advantage.
 
 ## A.10 Known limitations (V1)
 
-- Not deployed to a server. Docker and PostgreSQL ran locally only; GitHub Actions, Stripe
-  and AI providers have not been exercised for real.
+- Not deployed to a server. Docker and PostgreSQL ran locally only; AI providers have not
+  been exercised for real. Stripe ran only in a temporary test sandbox, never in live mode.
 - No e-mail verification; login throttling per installation; English UI only.
 - Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks.
 - Legal texts are not written; VAT handling not decided.

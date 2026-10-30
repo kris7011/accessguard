@@ -43,8 +43,8 @@ Status per item, updated 2026-10-30:
 
 | Item | Status |
 | --- | --- |
-| Stripe test account: products/prices for Team and Business, webhook endpoint, Customer Portal | **blocked: needs a Stripe account** (no `STRIPE_*` configuration exists) |
-| Run a test-mode purchase, failed payment (card `4000 0000 0000 0341`), cancellation | open (after the account exists); webhook logic tested with SDK-signed fixtures only |
+| Stripe test account: products/prices for Team and Business, webhook endpoint, Customer Portal | **done in a temporary claimable sandbox** (2026-10-30, expires 2026-11-06): prices, portal configuration, `stripe listen`. A permanent test account (or the claimed sandbox) and a webhook endpoint on the server remain |
+| Run a test-mode purchase, failed payment (card `4000 0000 0000 0341`), cancellation | **done in the sandbox** (docs/HANDOFF.md); a renewal failure with test clocks needs a claimed sandbox |
 | VAT: Stripe Tax or a merchant of record; Danish CVR registration for the business | **open: owner + accountant** |
 | Switch to live keys | **needs explicit approval**; only after the test-mode run and legal texts |
 
