@@ -99,10 +99,16 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
    a complete full pass), finding page with evidence, reproduction, rule-based guidance
    (`guidance.py`), optional AI explanation, triage (confirm / reject with reason / resolve
    unverified), retest (`create_retest` adds the legitimate-access checks of the same records).
-7. **Pay** (`billing/`): Checkout and Portal redirects (`gateway.py`, test keys only unless
-   live payments are approved); webhooks update the subscription; `entitlements.py` turns
-   status into limits with a grace period for failed payments and a warning for a scheduled
-   cancellation (`cancel_at`).
+7. **Pay** (`billing/`): Checkout for a first purchase and Portal redirects (`gateway.py`,
+   test keys only unless live payments are approved). A later plan change updates the one
+   subscription with `payment_behavior=pending_if_incomplete` (`StripeGateway.change_plan`),
+   so a higher plan applies only once paid; a declined payment sends the owner to Stripe's
+   hosted invoice. Webhooks (`webhooks.py`) treat each event as a signal: under a row lock
+   they fetch the subscription from Stripe and mirror its current state, so late, repeated,
+   same-second and concurrent events cannot apply stale state, and events of an earlier
+   subscription cannot touch the current one. Only `active`/`trialing` can raise the plan.
+   `entitlements.py` turns status into limits with a grace period for failed payments (which
+   keeps only the plan already held) and a warning for a scheduled cancellation (`cancel_at`).
 
 ## A.7 Testing
 
@@ -120,8 +126,15 @@ call, and fake assistant providers. No real AI call exists yet.
 
 Stripe was also exercised for real in a temporary sandbox (2026-10-30, test payments only):
 Checkout, webhooks via `stripe listen`, Customer Portal, failed payment and grace period,
-cancellation, resent events and two organisations; driven by ad-hoc Playwright and SDK
-scripts that are not in the repository. Results and limits: [HANDOFF.md](HANDOFF.md).
+plan changes declined and then paid (in the app and in the portal), late first delivery of
+events, cancellation, re-subscription and resent events. The drivers are in the repository
+and run only on explicit opt-in: [ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md).
+Results and limits (no natural renewal, no Stripe retry schedule): [HANDOFF.md](HANDOFF.md).
+
+The billing webhook tests (`test_billing.py`) replace Stripe's API with an in-memory
+`FakeStripe` that returns the "current" subscription, while the real signature check runs.
+Two concurrency tests (`ConcurrentWebhookTests`) use two threads and database connections;
+they need row locks and therefore run only on PostgreSQL (CI), not on SQLite.
 
 The customer acceptance run found a real defect the end-to-end test had missed: the
 "Endpoints and rules" page could not be saved in a browser unless its empty extra record row

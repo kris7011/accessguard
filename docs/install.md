@@ -86,17 +86,28 @@ Not covered: a deliberate `docker compose restart` on a quiet machine, the TLS r
 a real domain, real SMTP, Sentry, and any server other than the development laptop.
 
 Stripe (test mode): create the Team (EUR 49/month) and Business (EUR 199/month) prices and a
-Customer Portal configuration (cancel at period end, switch between the two prices, payment
-methods, invoice history), set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_TEAM`,
-`STRIPE_PRICE_BUSINESS` and `STRIPE_PORTAL_CONFIGURATION` in `.env`, and point a webhook
-endpoint at `https://<host>/webhooks/stripe/` with the events `checkout.session.completed`,
-`customer.subscription.created|updated|deleted|paused|resumed`, `invoice.payment_failed`,
-`invoice.paid`, `invoice.payment_succeeded`; its signing secret goes into
-`STRIPE_WEBHOOK_SECRET`. Keys that are not test keys are refused unless
+Customer Portal configuration (cancel at period end, switch between the two prices with
+proration behaviour **`always_invoice`**, payment methods, invoice history), set
+`STRIPE_SECRET_KEY`, `STRIPE_PRICE_TEAM`, `STRIPE_PRICE_BUSINESS` and
+`STRIPE_PORTAL_CONFIGURATION` in `.env`, and point a webhook endpoint at
+`https://<host>/webhooks/stripe/` with the events `checkout.session.completed`,
+`customer.subscription.created|updated|deleted|paused|resumed|pending_update_applied|pending_update_expired`,
+`invoice.payment_failed`, `invoice.paid`, `invoice.payment_succeeded`
+(`python ops/stripe_sandbox/sandbox.py events` prints the list); its signing secret goes
+into `STRIPE_WEBHOOK_SECRET`. Keys that are not test keys are refused unless
 `ACCESSGUARD_ALLOW_LIVE_PAYMENTS=true` (needs explicit approval).
 
-Locally (verified 2026-10-30 against a claimable sandbox; see docs/HANDOFF.md): keep the
-values in a git-ignored file such as `.local/stripe/stripe.env`, forward webhooks with
+The portal's proration behaviour matters: with `create_prorations` the portal switches to
+the higher plan at once and bills the difference only at renewal, so the higher plan would
+be active unpaid. With `always_invoice` the portal charges at once and, when the payment
+fails, keeps the old price until the invoice is paid (a pending update). The webhook needs
+Stripe's API at runtime: it fetches the subscription for every event and answers 503 when
+Stripe cannot be reached, so Stripe retries.
+
+Locally (verified 2026-10-30 against a claimable sandbox; see docs/HANDOFF.md): the
+opt-in drivers and step-by-step instructions are in
+[ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md). Keep the values in a
+git-ignored file such as `.local/stripe/stripe.env`, forward webhooks with
 `stripe listen --events <the list above> --forward-to http://127.0.0.1:8000/webhooks/stripe/`
 (`stripe listen --print-secret` prints the signing secret for `STRIPE_WEBHOOK_SECRET`), and
 start the stack with `run_stack.py --env-file .local/stripe/stripe.env`. The stack prints

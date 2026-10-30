@@ -2,6 +2,102 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Billing hardening (2026-10-30, fourth session)
+
+Scope: upgrades only after payment, webhook ordering and concurrency, reproducible sandbox
+drivers. Test payments only (claimable sandbox `acct_1UWAdYB9QLrE2rSI`, expires
+**2026-11-06**); no live key, purchase, deployment, merge or AI call. Branch
+`feature/v1-commercial-beta`, draft PR #1. Decision record: ADR 0011, update "current state
+instead of timestamps, pending upgrades".
+
+### Defects confirmed
+
+| # | Defect | Evidence |
+| --- | --- | --- |
+| 1 | "Choose Business" while on Team opened a new Checkout → a **second subscription** | `PlanChangeTests` failed against the old code (Checkout called) |
+| 2 | `invoice.payment_failed` / `invoice.paid` had no ordering guard: a late failure after a successful retry restarted the grace period; an old subscription's `paid` ended a running grace period | `test_late_payment_failure_after_a_successful_payment_changes_nothing`, `test_old_payment_success_does_not_end_the_grace_period_of_the_new_one` failed |
+| 3 | Customer fallback in `_subscription_by_stripe`: events of an earlier subscription changed the current one; a later `deleted` of the old subscription downgraded an active re-subscription to Free | `test_old_failure_of_a_previous_subscription_does_not_touch_the_new_one`, `test_cancellation_of_a_previous_subscription_keeps_the_new_plan` failed |
+| 4 | Same-second events: the later arrival won, whatever was true | `test_events_with_the_same_created_second_follow_stripes_current_state` failed; Stripe produced 3 events with one `created` in the sandbox |
+| 5 | An upgrade applied before payment (`allow_incomplete`) granted the higher plan during the grace period | `test_failed_upgrade_keeps_the_previous_plan_during_the_grace_period` failed |
+| 6 | Customer Portal configured with `create_prorations`: switching to Business applied at once with **no charge** (difference billed at renewal), with a declining card | sandbox, org pc2: Stripe `active` + Business, latest invoice still the EUR 49 purchase, portal "next estimated payment €349" |
+| 7 | CSP `form-action` blocked the redirect to Stripe's hosted invoice page (`net::ERR_ABORTED`) | sandbox, Playwright; unit tests cannot see it; header assertion added |
+
+Baseline before the fix: 13 of the 15 new tests failed (the 2 PostgreSQL concurrency tests
+skip on SQLite; the cross-customer guard already held).
+
+### Fixes
+
+- `webhooks.py`: events are signals. Organisation from subscription id, customer id or our
+  metadata → `SELECT ... FOR UPDATE` on its row → fetch the subscription from Stripe **inside**
+  the lock → mirror it. Events of another subscription apply only when the followed one has
+  ended at Stripe; customer and metadata must match (tenant check). Only `active`/`trialing`
+  raise the plan; other states keep at most the plan already held. No-op syncs save nothing
+  and write no audit event. Duplicate detection is limited to the `StripeEvent` insert.
+  Handles `pending_update_applied|expired`. `last_event_created` removed (migration `0003`;
+  the sandbox database was copied to `.local/stripe-e2e.before-0003.sqlite3` first).
+- `views.webhook`: Stripe API unreachable → nothing stored, HTTP 503, Stripe retries.
+- `gateway.py`: `subscription()`, `change_plan()` (`always_invoice` + `pending_if_incomplete`;
+  returns the hosted invoice URL when pending), Checkout refused while Stripe lists a live
+  subscription for the customer (`BillingRefused`).
+- `views.checkout`: with a live subscription → plan change (refused while a payment is
+  open), otherwise Checkout. Template: "Switch to …" with a note.
+- Sandbox portal configuration `bpc_1UWD5Z…` now uses `always_invoice` (install.md says so).
+
+### Sandbox evidence (stack on `.local/stripe-e2e.sqlite3`, `stripe listen`, drivers in `ops/stripe_sandbox/`)
+
+| Scenario | Org | Result |
+| --- | --- | --- |
+| App upgrade, card declined | pc1 | redirect to `invoice.stripe.com`; Stripe `active`, price Team, `pending_update` → Business, invoice EUR 150 `open`; app Team, no grace |
+| … then paid (`pay-open`) | pc1 | `invoice.paid` (first!), `subscription.updated`, `pending_update_applied` → app Business |
+| Replacing a pending update | pc1 | Stripe sent `pending_update_expired` for the old one; app unchanged |
+| Portal upgrade, `create_prorations`, card declined | pc2 | defect 6 |
+| Portal upgrade, `always_invoice`, card declined | pc3 | portal: "Your payment method was declined"; Stripe pending update, invoice EUR 150 open; app Team |
+| … then paid in the portal with the saved 4242 card | pc3 | app Business |
+| `allow_incomplete` upgrade declined | pc4 | Stripe `past_due` with Business; app **Team** with the grace warning; after paying: Business |
+| Late first delivery: listener stopped, fail + recover, 7 events resent newest-first | pc5 | first event → Business `active`; the other 6, incl. the late `invoice.payment_failed` and the `past_due` snapshot, stored as `unchanged` |
+| Resend of already processed events | pc1 | `duplicate`, `updated_at` unchanged |
+| Portal cancellation, end via `cancel_at` + 60 s | pc2 | warning with end date → `deleted` → Free |
+| Re-subscription via Checkout | pc2 | allowed; same customer, new subscription; app follows it |
+| Extra subscriptions | pc1-pc5 | exactly one live subscription per customer after every plan change |
+
+Side effect of defect 6 worth knowing: pc2's deferred EUR 150 proration stayed as an
+expected charge in the portal even after the cancellation.
+
+### Reproducible drivers
+
+`ops/stripe_sandbox/` (`README.md`, `sandbox.py`, `sandbox_browser.py`): opt-in via
+`ACCESSGUARD_STRIPE_SANDBOX=1`, test keys only (`is_test_key`, `livemode: false` checked),
+credentials only from the git-ignored env file, refuses any database but
+`.local/stripe-e2e.sqlite3`. Not part of `verify.sh` or CI. The earlier ad-hoc scratchpad
+scripts are superseded.
+
+### Still not verified
+
+- A **natural renewal** and its failure, Stripe's **retry schedule** (Smart Retries) and its
+  final action: the claimable sandbox has no test clocks. `fail-renewal` is not a
+  substitute (with flexible billing the reset invoice can be EUR 0, observed).
+- `ConcurrentWebhookTests` (row lock, simultaneous copies) run only on PostgreSQL: CI, not
+  this machine.
+- No public webhook endpoint (only `stripe listen`).
+
+### Verification
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30): lint;
+format; mypy strict (incl. `ops/stripe_sandbox`); 357 engine/runner/ML tests (2 opt-in
+real-model tests skipped); 99 web tests on SQLite (2 skipped: the PostgreSQL-only
+`ConcurrentWebhookTests`); migrations check; deploy check; pip-audit no known
+vulnerabilities; detect-secrets on tracked files (re-run after staging the new files);
+wheel 45 files, 0 problems; lab demo exact match. CI result for the pushed commits: see
+PR #1.
+
+### Machine state after this session
+
+Stack and listener stopped; ports 8000/8800/8801 free; no `stripe.exe` running. Sandbox
+test orgs `owner-pc1…pc5@example.test` in `.local/stripe-e2e.sqlite3`. Logs
+`.local/stripe/stack3-5.log`, `listen3-6.log` (the listener logs contain the webhook secret:
+git-ignored, do not share). `.local/stripe/stripe.env.bak` is a copy taken before `setup`
+(identical ids).
+
 ## Stripe sandbox verification (2026-10-30, third session)
 
 Billing (package 6) ran end to end against a real Stripe test environment. Test payments only;

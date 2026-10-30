@@ -60,6 +60,64 @@ The flow ran against a claimable Stripe sandbox (`stripe sandbox create`, restri
   `ACCESSGUARD_ALLOW_LIVE_PAYMENTS=true`, which needs the owner's explicit approval. Before
   this change, a live key only changed a banner.
 
+## Update 2026-10-30 (later): current state instead of timestamps, pending upgrades
+
+Regression tests written first (`WebhookOrderingTests`, `PlanChangeTests`) failed 13 times
+against the previous design, and the sandbox showed two more gaps. Problems found:
+
+- `invoice.payment_failed` and `invoice.paid` changed the state with no ordering guard, so
+  a late failure after a successful retry restarted the grace period.
+- Lookups fell back from the subscription id to the customer, so an event of an earlier
+  (cancelled) subscription changed the organisation's current one, including a cancellation
+  that downgraded an active re-subscription to Free.
+- Comparing `created` cannot order events of the same second, which Stripe produces
+  routinely (observed: three events with one `created` value).
+- "Choose Business" while on Team opened a new Checkout, which creates a second subscription.
+- An upgrade applied before payment (`allow_incomplete`, or a portal configured with
+  `create_prorations`) granted the higher plan while unpaid.
+
+**Decision.**
+
+1. *Events are signals; Stripe's current state is applied.* For each event the webhook
+   finds the organisation (subscription id, customer id or our metadata), locks its row
+   (`SELECT ... FOR UPDATE`), fetches the named subscription from Stripe inside the lock and
+   mirrors it. This follows Stripe's guidance not to rely on order or `created`
+   (<https://docs.stripe.com/webhooks#event-ordering>). `last_event_created` was removed
+   (migration `0003`).
+2. *One followed subscription.* An event of another subscription is applied only when the
+   followed one has ended at Stripe; customer and metadata must match the organisation.
+3. *Paid rights only.* Only `active`/`trialing` can raise the plan; any other state keeps
+   at most the plan already held. So a grace period never grants an unpaid upgrade.
+4. *Plan changes update the subscription.* With a live subscription, "Switch to …" calls
+   `subscriptions.update` with `proration_behavior=always_invoice` and
+   `payment_behavior=pending_if_incomplete`
+   (<https://docs.stripe.com/billing/subscriptions/pending-updates>); a declined payment
+   redirects to Stripe's hosted invoice (CSP `form-action` allows `invoice.stripe.com`).
+   Checkout is refused while Stripe lists a live subscription for the customer.
+5. *Portal configuration.* Plan switching in the portal must use `always_invoice`. Observed
+   in the sandbox: the portal then charges at once and, on a decline, leaves a pending update
+   (old price, open invoice) exactly like the app's own path. With `create_prorations` it
+   switches at once and bills only at renewal; that cannot be told apart from a paid upgrade.
+
+**Alternatives considered.**
+
+- *Per-subscription timestamp plus event-type rules* (e.g. ignore `payment_failed` after a
+  later `paid`): fewer API calls, but it still cannot order same-second events and grows a
+  rule per event type. Rejected.
+- *Fetch first, then lock:* shorter lock, but two deliveries can fetch in one order and write
+  in the other. The lock is held across one API call (seconds at most) on one organisation's
+  row; acceptable at this scale.
+- *Asynchronous queue with a periodic reconciliation job:* the robust choice at high volume
+  (Stripe recommends asynchronous handling); more moving parts than V1 needs. Revisit with
+  volume.
+- *Disable plan switching in the portal:* simpler, but the observed portal behaviour with
+  `always_invoice` is safe, and customers expect to switch there.
+
+**Consequences.** The webhook depends on Stripe's API being reachable: when it is not, the
+event is not stored and the endpoint answers 503, so Stripe retries (up to three days in live
+mode). One extra API call per event. Natural renewal failures and Stripe's retry schedule
+still need a Stripe account with test clocks to verify.
+
 ## Revisit when
 
 VAT administration becomes a burden (consider option 3), or usage-based pricing is introduced.
