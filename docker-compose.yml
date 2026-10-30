@@ -4,6 +4,7 @@
 services:
   db:
     image: postgres:17-bookworm
+    restart: unless-stopped
     environment:
       POSTGRES_DB: accessguard
       POSTGRES_USER: accessguard
@@ -16,6 +17,7 @@ services:
 
   web:
     build: {context: ., target: web}
+    restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgres://accessguard:${POSTGRES_PASSWORD}@db:5432/accessguard
@@ -31,15 +33,20 @@ services:
 
   scheduler:
     build: {context: ., target: web}
+    restart: unless-stopped
     env_file: .env
     environment:
       DATABASE_URL: postgres://accessguard:${POSTGRES_PASSWORD}@db:5432/accessguard
     command: ["sh", "ops/docker/scheduler.sh"]
+    # The image's health check probes gunicorn, which does not run in this container.
+    healthcheck: {disable: true}
     volumes: ["./ops/docker:/app/ops/docker:ro", "backups:/backups"]
-    depends_on: {db: {condition: service_healthy}}
+    # web runs the migrations before it reports healthy; the jobs need the tables.
+    depends_on: {db: {condition: service_healthy}, web: {condition: service_healthy}}
 
   demo:
     build: {context: ., target: demo}
+    restart: unless-stopped
     environment:
       ACCESSGUARD_CONTROL_PLANE_URL: http://web:8000
     volumes: [demo-state:/demo-state]

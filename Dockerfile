@@ -2,7 +2,9 @@
 #   web  - the control plane (Django + gunicorn); no sample app, no lab code.
 #   demo - the synthetic sample API plus the platform demo runner (trusts only the demo API).
 # Pin the base image by digest before production (docs/launch-checklist.md).
-FROM python:3.13-slim-bookworm AS base
+# Debian 13 (trixie) ships postgresql-client 17: pg_dump must be at least the server's major
+# version (docker-compose.yml runs PostgreSQL 17), or the scheduled backups fail.
+FROM python:3.13-slim-trixie AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN useradd --create-home --uid 10001 accessguard  && mkdir -p /demo-state /backups && chown accessguard /demo-state /backups
 WORKDIR /app
