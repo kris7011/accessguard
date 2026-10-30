@@ -2,7 +2,71 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-27, eighth M2 session)
+## Current state (2026-10-30, V1 commercial beta)
+
+- Branch: `feature/v1-commercial-beta`, created from `b94f5b7` (the last M2 commit). Nothing
+  is pushed or merged; `main` is unchanged.
+- V1 plan and acceptance record: `docs/milestones/V1.md`.
+- Commits so far (oldest first): `4fd78c1` engine for authorised targets, `196b1b3` runner,
+  scan specs and sample app, `898e1db` web control plane, `89935ed`/`66bdd28` reviewed
+  secret-scan allowlists, `2898d5e` web tests, `82e567b` ML foundation, `d6cf1df` static
+  assets/phone layout/browser check, `f7435e0` backup/restore, Docker, compose, CI.
+
+### Done and verified (code + automated tests run locally on Windows 11, CPython 3.13.13)
+
+| Area | Where | Verified by |
+| --- | --- | --- |
+| Engine: network zones, TLS with pinning, path prefixes, Bearer/header/cookie auth, identity subject, dotted fields, check selection, progress | `src/accessguard/domain/scope.py`, `adapters/http_target.py`, `adapters/http_transport.py`, `application/runner.py`, `application/scan.py` | `tests/unit/test_scope_zones.py`, `tests/integration/test_https_and_auth.py`, `tests/unit/test_selection_and_progress.py` |
+| Scan spec, runner config, control-plane client, `accessguard scan` / `accessguard runner` | `adapters/scan_spec.py`, `adapters/runner_config.py`, `adapters/control_plane.py`, `entrypoints/runner_service.py`, `entrypoints/cli.py` | `tests/unit/test_scan_spec_and_runner_config.py`, `tests/integration/test_runner_control_plane.py` |
+| Separate integration app (flawed/fixed, own API-key auth, answer key) | `sampleapp/accessguard_sampleapp/` | `tests/integration/test_sampleapp_integration.py` (flawed: exactly the 10 answer-key findings; fixed: 30/30 PASS) |
+| Web control plane (Django 6.1): accounts, orgs, roles, tenancy, projects via forms, OpenAPI import, scope approval, scans, live status, cancel, reports, findings, triage, retests, guidance, runners, billing, assistant, public pages | `web/accessguard_web/` | 74 Django tests incl. two end-to-end journeys over real HTTP with a real runner (`tests/test_end_to_end.py`) |
+| Billing (Stripe test-mode design) | `web/accessguard_web/billing/` | `tests/test_billing.py` (signatures via the official SDK; no real Stripe account was used) |
+| AI assistants (setup draft, finding explainer) | `web/accessguard_web/assistant/` | `tests/test_assistant.py` (fake providers, Anthropic request shape mocked; **no real model call**) |
+| ML foundation | `src/accessguard/application/ranking.py`, `ml/accessguard_ml/`, `web/.../scans/learning.py` | `tests/unit/test_ml_foundation.py`, `tests/test_learning_export.py`; candidate trained, **gate refused** (no customer data; worse at 25 %) |
+| Backup/restore | `web/accessguard_web/pages/backup.py` + commands | `tests/test_backup.py`; manual drill: dev DB backed up and restored to a fresh file (4 users, 4 scans, 40 findings) |
+| UI in a browser | `ops/dev/browser_check.py` | Chrome (Playwright, local install) desktop + phone: 0 console/CSP errors, 0 HTTP errors, no overflow |
+
+### Not verified (and why)
+
+- Docker images and compose: Docker daemon not running on this machine; not built.
+- PostgreSQL: not installed locally; CI job written (`web` job), not run (nothing pushed).
+- GitHub Actions: not run (nothing pushed).
+- Stripe: no Stripe account/keys; Checkout/Portal calls are mocked; webhooks verified with
+  SDK-generated signatures only.
+- Claude API: no `ANTHROPIC_API_KEY`; adapter contract-tested with a mock only.
+- E-mail delivery (password reset): console backend only.
+
+### Remaining V1 work (in this order)
+
+1. ADRs 0009-0013; `docs/operations.md`, `docs/install.md`, `docs/launch-checklist.md`.
+2. Business material: `docs/business/` (ads, product texts, economics model + script).
+3. Update README, `docs/PROJECT_WALKTHROUGH.md`, threat model, report schema 1.3,
+   `docs/evaluation.md` (ML section), `docs/milestones/V1.md` acceptance record,
+   `docs/interview-prep/V1.md`.
+4. Final full gate + browser check; final HANDOFF update.
+
+### Commands (no secrets)
+
+```bash
+# Git Bash on Windows (use ':' as separator on Linux/macOS)
+PYTHON=.venv/Scripts/python bash ops/verify.sh          # all gates incl. web-tests, deploy-check
+.venv/Scripts/python ops/dev/run_stack.py                # whole product on http://127.0.0.1:8000
+PYTHONPATH=src .venv/Scripts/python ops/dev/browser_check.py --out reports/browser   # stack must run
+PYTHONPATH="src;lab;evaluations;sampleapp;ml" .venv/Scripts/python -m accessguard_ml build-dataset --out ml/datasets
+```
+
+The stack writes only to `.local/` (git-ignored). Stop it with Ctrl+C; if it was started in
+the background, stop the `python.exe` processes whose command line contains `run_stack.py`,
+`runserver`, `accessguard_sampleapp` or `-m accessguard runner`.
+
+### Known issues
+
+- Git Bash heredocs with `\` or `'` in long documents can break; write such files with the
+  editor tools or a script file.
+- `ops/ci/secret_scan.py` scans tracked files only; `git add` before trusting it. Reviewed
+  false positives are allowlisted inline or by file pattern in `.secrets.baseline`.
+
+## Archive: M2 state (2026-10-27, eighth M2 session)
 
 - Branch: `feature/m2-adaptive-agent`.
 - This session added four commits on top of `5b2d4b7`: the list-first adapter `f6d8d25`, the
