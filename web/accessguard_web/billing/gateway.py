@@ -6,6 +6,7 @@ AccessGuard. A plan is granted only by verified webhooks, never by the success r
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -61,9 +62,12 @@ def plan_for_price(price_id: str) -> PlanId | None:
 
 
 class StripeGateway:
-    def __init__(self, secret_key: str, webhook_secret: str) -> None:
+    def __init__(
+        self, secret_key: str, webhook_secret: str, portal_configuration: str = ""
+    ) -> None:
         self._client = stripe.StripeClient(secret_key, max_network_retries=2)
         self._webhook_secret = webhook_secret
+        self._portal_configuration = portal_configuration
 
     def checkout_url(self, request: CheckoutRequest) -> str:
         params: dict[str, Any] = {
@@ -91,10 +95,11 @@ class StripeGateway:
         return str(session.url)
 
     def portal_url(self, customer_id: str, return_url: str) -> str:
+        params: dict[str, Any] = {"customer": customer_id, "return_url": return_url}
+        if self._portal_configuration:
+            params["configuration"] = self._portal_configuration
         try:
-            session = self._client.v1.billing_portal.sessions.create(
-                params={"customer": customer_id, "return_url": return_url}
-            )
+            session = self._client.v1.billing_portal.sessions.create(params=params)  # type: ignore[arg-type]
         except stripe.StripeError as error:
             raise BillingNotConfigured(_provider_message(error)) from None
         return str(session.url)
@@ -108,11 +113,14 @@ class StripeGateway:
 
 
 class UnconfiguredGateway:
+    def __init__(self, reason: str = "Payments are not configured in this environment") -> None:
+        self._reason = reason
+
     def checkout_url(self, request: CheckoutRequest) -> str:
-        raise BillingNotConfigured("Payments are not configured in this environment")
+        raise BillingNotConfigured(self._reason)
 
     def portal_url(self, customer_id: str, return_url: str) -> str:
-        raise BillingNotConfigured("Payments are not configured in this environment")
+        raise BillingNotConfigured(self._reason)
 
     def verified_event(self, payload: bytes, signature: str) -> dict[str, Any]:
         raise InvalidWebhook("Webhooks are not configured in this environment")
@@ -123,12 +131,24 @@ def _provider_message(error: stripe.StripeError) -> str:
     return f"The payment provider refused the request: {reason}"
 
 
+LIVE_KEY_REFUSED = "Live Stripe keys are refused until live payments are approved"
+
+
 def gateway() -> PaymentGateway:
     config = conf.stripe()
-    if config["SECRET_KEY"] and config["WEBHOOK_SECRET"]:
-        return StripeGateway(config["SECRET_KEY"], config["WEBHOOK_SECRET"])
-    return UnconfiguredGateway()
+    if not (config["SECRET_KEY"] and config["WEBHOOK_SECRET"]):
+        return UnconfiguredGateway()
+    if not is_test_key(config["SECRET_KEY"]) and not config["ALLOW_LIVE"]:
+        return UnconfiguredGateway(LIVE_KEY_REFUSED)
+    return StripeGateway(
+        config["SECRET_KEY"], config["WEBHOOK_SECRET"], config["PORTAL_CONFIGURATION"]
+    )
 
 
-def is_live_key(secret_key: str) -> bool:
-    return secret_key.startswith(("sk_live_", "rk_live_"))
+# Secret (sk_), restricted (rk_) and claimable-sandbox (rkcs_) keys all carry their mode
+# after the first underscore. Anything that is not clearly a test key counts as live.
+_TEST_KEY = re.compile(r"^[a-z]+_test_")
+
+
+def is_test_key(secret_key: str) -> bool:
+    return bool(_TEST_KEY.match(secret_key))

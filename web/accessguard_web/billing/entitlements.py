@@ -2,7 +2,9 @@
 
 Rules:
 
-* ``active`` and ``trialing`` give the subscribed plan.
+* ``active`` and ``trialing`` give the subscribed plan. A scheduled cancellation
+  (``cancel_at``, or ``cancel_at_period_end`` in classic billing mode) only adds a warning;
+  the plan ends when Stripe sends ``customer.subscription.deleted``.
 * ``past_due`` keeps the plan for a grace period while Stripe retries the payment, with
   a visible warning; after the grace period the organisation falls back to Free.
 * Every other status (none, incomplete, unpaid, canceled, ...) gives Free. Existing data
@@ -49,11 +51,14 @@ def effective_plan(
     status = subscription.status
     paid = PLANS[PlanId(subscription.plan)]
     if status in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING):
+        ends = subscription.cancel_at or (
+            subscription.current_period_end if subscription.cancel_at_period_end else None
+        )
         warning = None
-        if subscription.cancel_at_period_end and subscription.current_period_end:
+        if ends:
             warning = (
-                f"Your {paid.name} plan is cancelled and ends on "
-                f"{subscription.current_period_end:%Y-%m-%d}; you then return to Free."
+                f"Your {paid.name} plan is cancelled and ends on {ends:%Y-%m-%d}; "
+                "you then return to Free."
             )
         return paid, warning
     if status == SubscriptionStatus.PAST_DUE:

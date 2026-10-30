@@ -36,6 +36,10 @@ class Subscription(models.Model):
     stripe_subscription_id = models.CharField(max_length=80, blank=True, db_index=True)
     current_period_end = models.DateTimeField(null=True, blank=True)
     cancel_at_period_end = models.BooleanField(default=False)
+    cancel_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When a scheduled cancellation ends the subscription (flexible billing mode).",
+    )  # fmt: skip
     past_due_since = models.DateTimeField(null=True, blank=True)
     last_event_created = models.BigIntegerField(
         default=0, help_text="Stripe `created` of the newest applied event; older ones are ignored."

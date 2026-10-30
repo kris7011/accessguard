@@ -21,7 +21,7 @@ from accessguard_web.billing.gateway import (
     CheckoutRequest,
     InvalidWebhook,
     gateway,
-    is_live_key,
+    is_test_key,
 )
 from accessguard_web.billing.plans import PLANS, PlanId
 from accessguard_web.billing.webhooks import process_event
@@ -48,7 +48,9 @@ def overview(request: HttpRequest) -> HttpResponse:
             organization=organization, created_at__gte=since
         ).count(),
     }
-    configured = bool(conf.stripe()["SECRET_KEY"] and conf.stripe()["WEBHOOK_SECRET"])
+    config = conf.stripe()
+    configured = bool(config["SECRET_KEY"] and config["WEBHOOK_SECRET"])
+    test_mode = configured and is_test_key(config["SECRET_KEY"])
     return render(
         request,
         "billing/overview.html",
@@ -56,7 +58,8 @@ def overview(request: HttpRequest) -> HttpResponse:
             "plans": list(PLANS.values()),
             "usage": usage,
             "configured": configured,
-            "test_mode": configured and not is_live_key(conf.stripe()["SECRET_KEY"]),
+            "test_mode": test_mode,
+            "live_refused": configured and not test_mode and not config["ALLOW_LIVE"],
             "checkout_state": request.GET.get("checkout", ""),
             "is_owner": request.membership.has_role(Role.OWNER),  # type: ignore[attr-defined]
             "ent": entitlements_for(organization),

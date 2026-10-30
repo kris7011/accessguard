@@ -236,6 +236,11 @@ STRIPE: dict[str, Any] = {
     "WEBHOOK_SECRET": env("STRIPE_WEBHOOK_SECRET"),
     "PRICE_TEAM": env("STRIPE_PRICE_TEAM"),
     "PRICE_BUSINESS": env("STRIPE_PRICE_BUSINESS"),
+    # Customer Portal configuration (bpc_...) used for every portal session; empty uses the
+    # account's default configuration.
+    "PORTAL_CONFIGURATION": env("STRIPE_PORTAL_CONFIGURATION"),
+    # Non-test keys are refused unless live payments have been explicitly approved.
+    "ALLOW_LIVE": env_bool("ACCESSGUARD_ALLOW_LIVE_PAYMENTS"),
     # Days a past_due subscription keeps its plan while Stripe retries the payment.
     "GRACE_DAYS": int(env("ACCESSGUARD_PAYMENT_GRACE_DAYS", "7")),
 }

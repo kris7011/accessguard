@@ -2,6 +2,7 @@
 
     python ops/dev/run_stack.py            # uses the current interpreter
     python ops/dev/run_stack.py --port 8000
+    python ops/dev/run_stack.py --env-file .local/stripe/stripe.env   # e.g. Stripe test keys
 
 Starts, in this order: database migrations, the sample API (flawed on 8800, fixed on 8801,
 sharing one key file), the platform demo runner (trusting only those two origins) and the
@@ -22,8 +23,28 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCAL = ROOT / ".local"
 
 
-def environment() -> dict[str, str]:
+def read_env_file(path: Path) -> dict[str, str]:
+    """``KEY=VALUE`` lines as in docker compose's ``env_file``; blank and ``#`` lines skipped."""
+    values = {}
+    for number, raw in enumerate(path.read_text("utf-8").splitlines(), start=1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        name, separator, value = line.partition("=")
+        if not separator or not name.strip():
+            raise SystemExit(f"{path}:{number}: expected KEY=VALUE")
+        values[name.strip()] = value.strip()
+    return values
+
+
+def environment(env_files: list[Path]) -> dict[str, str]:
     env = dict(os.environ)
+    for path in env_files:
+        loaded = read_env_file(path)
+        # Like python-dotenv: a variable already set in the shell wins over the file.
+        for name, value in loaded.items():
+            env.setdefault(name, value)
+        print(f"Loaded {', '.join(sorted(loaded))} from {path}", flush=True)
     paths = [str(ROOT / p) for p in ("src", "sampleapp", "web")]
     env["PYTHONPATH"] = os.pathsep.join([*paths, env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
     env.setdefault("ACCESSGUARD_DEBUG", "1")
@@ -46,9 +67,13 @@ def main() -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--env-file", type=Path, action="append", default=[],
+        help="KEY=VALUE file loaded into the environment (repeatable; the shell wins)",
+    )  # fmt: skip
     args = parser.parse_args()
     LOCAL.mkdir(exist_ok=True)
-    env = environment()
+    env = environment(args.env_file)
     manage = str(ROOT / "web" / "manage.py")
     run([manage, "migrate", "--no-input"], env)
     token_file = LOCAL / "demo-runner.token"

@@ -7,7 +7,7 @@ verification code runs. A real Stripe test account was not available for this su
 from __future__ import annotations
 
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import stripe
@@ -22,7 +22,14 @@ from accessguard_web.billing.entitlements import (
     entitlements_for,
     require_scan_allowed,
 )
-from accessguard_web.billing.models import StripeEvent, SubscriptionStatus
+from accessguard_web.billing.gateway import (
+    LIVE_KEY_REFUSED,
+    StripeGateway,
+    UnconfiguredGateway,
+    gateway,
+    is_test_key,
+)
+from accessguard_web.billing.models import StripeEvent, Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PlanId
 from accessguard_web.scans import services
 from accessguard_web.tests.support import login, make_org, sample_project
@@ -35,7 +42,10 @@ STRIPE_TEST = {
     "WEBHOOK_SECRET": WEBHOOK_SECRET,
     "PRICE_TEAM": "price_team_test",
     "PRICE_BUSINESS": "price_business_test",
+    "PORTAL_CONFIGURATION": "",
+    "ALLOW_LIVE": False,
 }
+STRIPE_LIVE = {**STRIPE_TEST, "SECRET_KEY": "rk_live_fake"}  # pragma: allowlist secret
 
 
 def event(
@@ -152,6 +162,21 @@ class WebhookTests(TestCase):
                            subscription(self.org.pk, "canceled"), created=1_800_000_500))  # fmt: skip
         self.assertEqual(entitlements_for(self.org).plan.id, PlanId.FREE)
 
+    def test_flexible_billing_cancellation_uses_cancel_at(self) -> None:
+        # Shape observed from the Customer Portal on a flexible billing mode subscription
+        # (Stripe sandbox, 2026-10-30): cancel_at is set, cancel_at_period_end stays false.
+        ends = 1_850_000_000
+        self.deliver(event("evt_1", "customer.subscription.updated", subscription(
+            self.org.pk, "active", cancel_at=ends, billing_mode={"type": "flexible"})))  # fmt: skip
+        ent = entitlements_for(self.org)
+        self.assertEqual(ent.plan.id, PlanId.TEAM, "access lasts until the subscription ends")
+        self.assertIn(f"ends on {datetime.fromtimestamp(ends, tz=UTC):%Y-%m-%d}", str(ent.warning))
+        self.deliver(event("evt_2", "customer.subscription.updated",
+                           subscription(self.org.pk, "active", cancel_at=None),
+                           created=1_800_000_100))  # fmt: skip
+        ent = entitlements_for(self.org)
+        self.assertEqual((ent.subscription.cancel_at, ent.warning), (None, None), "reactivated")
+
     def test_unknown_events_are_acknowledged_but_not_applied(self) -> None:
         response = self.deliver(
             event("evt_x", "customer.created", {"id": "cus_9", "object": "customer"})
@@ -173,6 +198,50 @@ class WebhookTests(TestCase):
         self.assertEqual(params["mode"], "subscription")
         self.assertEqual(params["line_items"], [{"price": "price_team_test", "quantity": 1}])
         self.assertEqual(params["client_reference_id"], str(self.org.pk))
+
+
+class GatewaySafetyTests(TestCase):
+    def test_test_keys_of_every_documented_kind_are_recognised(self) -> None:
+        # rkcs_test_ is the restricted key of a claimable sandbox (`stripe sandbox create`).
+        for key in ("sk_test_a", "rk_test_a", "rkcs_test_a"):  # pragma: allowlist secret
+            self.assertTrue(is_test_key(key), key)
+        for key in (
+            "sk_live_a",
+            "rk_live_a",
+            "rkcs_live_a",
+            "sk_a",
+            "",
+            "test_a",
+        ):  # pragma: allowlist secret
+            self.assertFalse(is_test_key(key), key)
+
+    def test_live_keys_are_refused_until_live_payments_are_approved(self) -> None:
+        _, owner = make_org("Live")
+        with override_settings(STRIPE=STRIPE_LIVE):
+            self.assertIsInstance(gateway(), UnconfiguredGateway)
+            client = login(owner)
+            self.assertContains(client.get(reverse("billing:overview")), "not been approved")
+            response = client.post(reverse("billing:checkout", args=["team"]), follow=True)
+            self.assertContains(response, LIVE_KEY_REFUSED)
+        with override_settings(STRIPE={**STRIPE_LIVE, "ALLOW_LIVE": True}):
+            self.assertIsInstance(gateway(), StripeGateway)
+
+    @override_settings(STRIPE={**STRIPE_TEST, "PORTAL_CONFIGURATION": "bpc_test_1"})
+    def test_portal_sessions_use_the_configured_portal_configuration(self) -> None:
+        from unittest import mock
+
+        org, owner = make_org("Portal")
+        Subscription.objects.filter(organization=org).update(stripe_customer_id="cus_portal")
+        session = mock.Mock(url="https://billing.stripe.com/p/session/test_1")
+        with mock.patch(
+            "stripe.billing_portal._session_service.SessionService.create", return_value=session
+        ) as create:
+            response = login(owner).post(reverse("billing:portal"))
+        self.assertEqual(response["Location"], session.url)
+        params = create.call_args.kwargs["params"]
+        self.assertEqual(
+            (params["customer"], params["configuration"]), ("cus_portal", "bpc_test_1")
+        )
 
 
 class UnconfiguredBillingTests(TestCase):

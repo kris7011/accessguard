@@ -4,6 +4,7 @@
 {% if checkout_state == "success" %}<div class="banner banner-info"><p>Thank you. Your plan changes as soon as Stripe confirms the payment (usually within seconds). Reload this page if it still shows the old plan.</p></div>
 {% elif checkout_state == "cancelled" %}<div class="banner banner-neutral"><p>Checkout was cancelled; nothing was charged.</p></div>{% endif %}
 {% if not configured %}<div class="banner banner-neutral"><p>Payments are not configured in this environment. Plans and limits work; upgrading is disabled.</p></div>
+{% elif live_refused %}<div class="banner banner-warn"><p>A live Stripe key is configured, but live payments have not been approved. Upgrading is disabled.</p></div>
 {% elif test_mode %}<div class="banner banner-info"><p><strong>Test mode:</strong> payments use Stripe's test environment; no real money moves.</p></div>{% endif %}
 
 <div class="card">

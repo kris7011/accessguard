@@ -139,6 +139,9 @@ def _subscription_changed(event_type: str, created: int, obj: dict[str, Any]) ->
     elif plan is not None:
         subscription.plan = plan
     subscription.cancel_at_period_end = bool(obj.get("cancel_at_period_end"))
+    # Flexible billing mode (the default for new subscriptions) schedules a cancellation
+    # with cancel_at, also from the Customer Portal; cancel_at_period_end then stays false.
+    subscription.cancel_at = _timestamp(obj.get("cancel_at"))
     # Newer API versions report the period on the subscription item.
     subscription.current_period_end = _timestamp(
         obj.get("current_period_end") or first.get("current_period_end")
