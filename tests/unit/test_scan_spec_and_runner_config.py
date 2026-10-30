@@ -134,6 +134,14 @@ class RunnerConfigTests(unittest.TestCase):
             with self.subTest(case=name), self.assertRaises(RunnerConfigError):
                 parse_runner_config(document, base_dir=Path("/x"))
 
+    def test_plain_http_to_a_private_host_needs_an_explicit_flag(self) -> None:
+        plane = {"url": "http://web:8000", "allow_plain_http": True}
+        parsed = parse_runner_config(config(control_plane=plane), base_dir=Path("/x"))
+        self.assertEqual(parsed.control_plane_url, "http://web:8000")
+        with self.assertRaises(RunnerConfigError):
+            parse_runner_config(config(control_plane={**plane, "allow_plain_http": "yes"}),
+                                base_dir=Path("/x"))  # fmt: skip
+
     def test_loopback_http_control_plane_is_allowed_for_development(self) -> None:
         parsed = parse_runner_config(
             config(control_plane={"url": "http://127.0.0.1:8000/"}), base_dir=Path("/x")

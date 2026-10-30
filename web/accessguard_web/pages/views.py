@@ -9,7 +9,8 @@ from typing import Any
 
 from django.db import connection
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
+from django.templatetags.static import static
 
 from accessguard_web.billing.plans import PLANS
 from accessguard_web.scans.models import Scan, ScanKind, ScanStatus
@@ -70,6 +71,10 @@ def help_page(request: HttpRequest, slug: str = "getting-started") -> HttpRespon
 
 def terms(request: HttpRequest) -> HttpResponse:
     return render(request, "pages/terms.html")
+
+
+def favicon(request: HttpRequest) -> HttpResponse:
+    return redirect(static("accessguard/favicon.svg"), permanent=True)
 
 
 def healthz(request: HttpRequest) -> JsonResponse:

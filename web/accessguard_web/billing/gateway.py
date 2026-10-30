@@ -82,15 +82,21 @@ class StripeGateway:
             params["customer"] = request.customer_id
         else:
             params["customer_email"] = request.customer_email
-        session = self._client.v1.checkout.sessions.create(params=params)  # type: ignore[arg-type]
+        try:
+            session = self._client.v1.checkout.sessions.create(params=params)  # type: ignore[arg-type]
+        except stripe.StripeError as error:
+            raise BillingNotConfigured(_provider_message(error)) from None
         if not session.url:
             raise BillingNotConfigured("Stripe did not return a checkout URL")
         return str(session.url)
 
     def portal_url(self, customer_id: str, return_url: str) -> str:
-        session = self._client.v1.billing_portal.sessions.create(
-            params={"customer": customer_id, "return_url": return_url}
-        )
+        try:
+            session = self._client.v1.billing_portal.sessions.create(
+                params={"customer": customer_id, "return_url": return_url}
+            )
+        except stripe.StripeError as error:
+            raise BillingNotConfigured(_provider_message(error)) from None
         return str(session.url)
 
     def verified_event(self, payload: bytes, signature: str) -> dict[str, Any]:
@@ -110,6 +116,11 @@ class UnconfiguredGateway:
 
     def verified_event(self, payload: bytes, signature: str) -> dict[str, Any]:
         raise InvalidWebhook("Webhooks are not configured in this environment")
+
+
+def _provider_message(error: stripe.StripeError) -> str:
+    reason = error.user_message or type(error).__name__
+    return f"The payment provider refused the request: {reason}"
 
 
 def gateway() -> PaymentGateway:

@@ -91,8 +91,11 @@ def parse_runner_config(document: Mapping[str, object], *, base_dir: Path) -> Ru
     plane = document.get("control_plane")
     if plane is not None:
         plane = _table(plane, "control_plane")
-        _keys(plane, "control_plane", {"url", "token_env"})
-        url = _control_plane_url(plane.get("url"))
+        _keys(plane, "control_plane", {"url", "token_env", "allow_plain_http"})
+        allow_plain = plane.get("allow_plain_http", False)
+        if not isinstance(allow_plain, bool):
+            raise RunnerConfigError("control_plane.allow_plain_http must be true or false")
+        url = _control_plane_url(plane.get("url"), allow_plain_http=allow_plain)
         token_env = _env_name(plane.get("token_env", DEFAULT_TOKEN_ENV), "control_plane.token_env")
     raw_targets = document.get("targets", [])
     if not isinstance(raw_targets, list) or not raw_targets or len(raw_targets) > MAX_TARGETS:
@@ -106,13 +109,19 @@ def parse_runner_config(document: Mapping[str, object], *, base_dir: Path) -> Ru
     return RunnerConfig(url, token_env, targets, float(poll))
 
 
-def _control_plane_url(value: object) -> str:
+def _control_plane_url(value: object, *, allow_plain_http: bool = False) -> str:
+    """https, or http on loopback; plain http elsewhere only when explicitly allowed.
+
+    ``allow_plain_http`` exists for a runner and control plane on the same private
+    network (for example the demo container next to the web container); the runner token
+    then travels unencrypted on that network, so it must never be used across the internet.
+    """
     if not isinstance(value, str):
         raise RunnerConfigError("control_plane.url must be a string")
     parts = urlsplit(value)
     if parts.scheme not in {"http", "https"} or not parts.hostname:
         raise RunnerConfigError("control_plane.url must be an http(s) URL")
-    if parts.scheme == "http" and parts.hostname not in _LOOPBACK_HOSTS:
+    if parts.scheme == "http" and parts.hostname not in _LOOPBACK_HOSTS and not allow_plain_http:
         raise RunnerConfigError("control_plane.url must use https unless it is on loopback")
     if parts.username or parts.password or parts.query or parts.fragment:
         raise RunnerConfigError("control_plane.url must not contain credentials or a query")

@@ -35,11 +35,11 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-dev.txt
           python -m pip install --no-deps --no-build-isolation -e . -e ./lab -e ./evaluations -e ./sampleapp
-      - name: Lint, format, types, dependency audit, secret scan, build
-        run: bash ops/verify.sh lint format types audit secrets build
+      - name: Lint, format, types, dependency audit, secret scan, build, Django deploy checks
+        run: bash ops/verify.sh lint format types audit secrets build migrations deploy-check
 
   tests:
-    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    name: Engine tests (${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -56,7 +56,8 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      # The runtime has no third-party dependencies: tests and demo run without installing.
+      # The engine has no third-party dependencies: tests and demo run without installing.
+      # tests/unit/test_ml_foundation.py imports nothing from the web package.
       - name: Tests and before/after demo (bash)
         if: runner.os != 'Windows'
         run: bash ops/verify.sh tests demo
@@ -64,3 +65,44 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./ops/verify.ps1 -Steps tests,demo
+
+  web:
+    name: Web tests on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-bookworm
+        env:
+          POSTGRES_DB: accessguard
+          POSTGRES_USER: accessguard
+          POSTGRES_PASSWORD: ci-only-password # pragma: allowlist secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U accessguard" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://accessguard:ci-only-password@localhost:5432/accessguard # pragma: allowlist secret
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Install locked runtime and tooling
+        run: python -m pip install --require-hashes -r requirements-dev.txt
+      - name: Web tests, migrations check
+        run: bash ops/verify.sh web-tests migrations
+
+  image:
+    name: Container images build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build web and demo targets (not pushed)
+        run: |
+          docker build --target web -t accessguard-web:ci .
+          docker build --target demo -t accessguard-demo:ci .

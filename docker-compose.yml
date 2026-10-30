@@ -1,0 +1,51 @@
+# Local or single-server deployment: PostgreSQL, the control plane, scheduled jobs and the demo.
+# Copy .env.example to .env and fill it in first. Put a TLS-terminating reverse proxy
+# (Caddy, nginx, a platform load balancer) in front of "web" for anything public.
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: accessguard
+      POSTGRES_USER: accessguard
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes: [db-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accessguard"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: {context: ., target: web}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://accessguard:${POSTGRES_PASSWORD}@db:5432/accessguard
+      ACCESSGUARD_DEMO_FLAWED_ORIGIN: http://127.0.0.1:8800
+      ACCESSGUARD_DEMO_FIXED_ORIGIN: http://127.0.0.1:8801
+    command: >
+      sh -c "python web/manage.py migrate --no-input && python web/manage.py createcachetable &&
+             (test -s /demo-state/demo-runner.token || python web/manage.py bootstrap_demo_runner --token-file /demo-state/demo-runner.token) &&
+             exec gunicorn accessguard_web.wsgi --chdir web --bind 0.0.0.0:8000 --workers 3 --timeout 60 --access-logfile -"
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: [demo-state:/demo-state]
+    depends_on: {db: {condition: service_healthy}}
+
+  scheduler:
+    build: {context: ., target: web}
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://accessguard:${POSTGRES_PASSWORD}@db:5432/accessguard
+    command: ["sh", "ops/docker/scheduler.sh"]
+    volumes: ["./ops/docker:/app/ops/docker:ro", "backups:/backups"]
+    depends_on: {db: {condition: service_healthy}}
+
+  demo:
+    build: {context: ., target: demo}
+    environment:
+      ACCESSGUARD_CONTROL_PLANE_URL: http://web:8000
+    volumes: [demo-state:/demo-state]
+    depends_on: [web]
+
+volumes:
+  db-data:
+  demo-state:
+  backups:
