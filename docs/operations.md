@@ -1,7 +1,8 @@
 # Operations guide
 
 For the person running the AccessGuard control plane. Items marked *(tested)* were run on the
-development machine; the rest are written procedures not yet exercised in production.
+development machine; *(tested in Docker)* means the compose stack (PostgreSQL 17.11, images on
+Debian 13) on Docker 29.8 / WSL2 on 2026-10-30. Nothing here has run on a production server yet.
 
 ## Architecture in production
 
@@ -31,9 +32,14 @@ Every response carries `X-Request-Id`; ask customers for it in support cases.
 
 | Job | Command | Frequency |
 | --- | --- | --- |
-| Mark lost scans | `python web/manage.py sweep_scans` | every minute (also done lazily on access) |
-| Retention | `python web/manage.py purge_expired_data [--dry-run]` | daily |
-| Backup | `python web/manage.py backup_database --out /backups` | daily, keep 14 days |
+| Mark lost scans | `python web/manage.py sweep_scans` | every minute (also done lazily on access) *(tested in Docker)* |
+| Retention | `python web/manage.py purge_expired_data [--dry-run]` | daily *(tested in Docker)* |
+| Backup | `python web/manage.py backup_database --out /backups` | daily, keep 14 days *(tested in Docker)* |
+
+The `scheduler` container runs these (`ops/docker/scheduler.sh`). It starts only after `web`
+is healthy (web migrates first). A failing job does not stop it: it logs a line starting with
+`scheduler: ERROR` and retries the daily purge and backup after 15 minutes. **Alert on that
+line** (or check that a new `accessguard-*.dump` appears in the `backups` volume every day).
 | ML export (only with consent, research) | `python web/manage.py export_ml_labels --out <outside repo>` | on demand |
 
 Retention follows each organisation's plan history (30 / 365 / 730 days): finished scans and
@@ -45,7 +51,10 @@ purged. Processed Stripe event ids are kept 90 days.
 - **SQLite** (local, small installs): `backup_database` makes an online copy and runs an
   integrity check. *(tested: dev database restored into a fresh file, counts matched)*
 - **PostgreSQL**: `backup_database` runs `pg_dump --format=custom`; the password goes through
-  `PGPASSWORD`, never the command line. *(not tested locally: no PostgreSQL installed)*
+  `PGPASSWORD`, never the command line. `pg_dump` must be at least the server's major
+  version: the images ship `postgresql-client` 17 (Debian 13) for the PostgreSQL 17 server in
+  `docker-compose.yml`. Upgrading the server to 18 requires a matching client first.
+  *(tested in Docker: scheduled and manual backups, and the restore drill below)*
 - Copy backups off the server (object storage or another machine); keep at least 14 daily
   copies; encrypt them at rest.
 
@@ -58,6 +67,21 @@ Restore drill (do it once before launch and then quarterly):
 4. `python web/manage.py migrate --check`, start the services, check `/readyz`, sign in, open
    a recent report.
 5. Record date, backup used, duration and result.
+
+To rehearse without touching the live database, restore into a separate one:
+
+```bash
+docker compose exec db createdb -U accessguard accessguard_restore_drill
+docker compose exec -e DATABASE_URL=postgres://accessguard:<password>@db:5432/accessguard_restore_drill \
+  scheduler python web/manage.py restore_database /backups/accessguard-<stamp>.dump
+```
+
+Drill record, 2026-10-30, local compose stack (test data only): backup
+`accessguard-20261030T082535Z.dump` (107,049 bytes) restored into
+`accessguard_restore_drill` in 1 s; `migrate --check` clean; exact row counts for every model
+(2 users, 2 organisations, 3 projects, 3 scans, 20 findings, 21 finding events, 18 audit
+events, ...) and a digest over user e-mails, finding fingerprints and statuses and every
+scan's report matched the source database. Not yet done on a production server.
 
 ## Deploying a new version
 
@@ -85,3 +109,11 @@ Restore drill (do it once before launch and then quarterly):
 - Login throttling uses the database cache; it is per installation, not global.
 - One web container is enough for the beta; scale gunicorn workers first, then containers.
 - No email verification of new accounts.
+- SMTP always uses STARTTLS (`EMAIL_USE_TLS = True`, port 587 by default); providers that only
+  offer implicit TLS on port 465 are not supported by the settings yet. Real e-mail delivery
+  has not been tested (no SMTP account; only the console backend).
+- Machine size: the compose stack itself is small (images 293 MB web, 121 MB demo), but the
+  development laptop (7.3 GB RAM, about 2 GB free commit memory with an editor and a browser
+  open) crashed twice with a GPU-driver bugcheck (`0x116`, `STATUS_INSUFFICIENT_RESOURCES`)
+  while Docker Desktop's VM ran. Give a server at least 2 GB RAM for the stack alone and do
+  not run it next to memory-heavy desktop software.

@@ -14,11 +14,14 @@ with evidence, fix guidance, triage and retests.
 | Part | Path | Status |
 | --- | --- | --- |
 | Engine + runner CLI (stdlib only) | `src/accessguard/` | implemented, tested |
-| Web control plane (Django 6.1) | `web/accessguard_web/` | implemented, tested (74 tests incl. end-to-end over HTTP) |
+| Web control plane (Django 6.1) | `web/accessguard_web/` | implemented, tested (78 tests incl. end-to-end over HTTP; also run on PostgreSQL 17) |
 | Separate integration app (flawed/fixed) | `sampleapp/` | implemented, tested |
 | ML foundation (datasets, training, gated registry) | `ml/accessguard_ml/` | implemented, tested; **no model active** |
 | Development lab and M2 evaluation fixtures | `lab/`, `evaluations/` | unchanged from M2 |
-| Deployment: Dockerfile, compose, CI | `Dockerfile`, `docker-compose.yml`, `.github/` | written; **not built or run** (no Docker daemon, nothing pushed) |
+| Runner distribution (wheel / source archive) | `pyproject.toml`, `ops/dev/customer_acceptance.py` | built and installed in clean venvs; full customer journey passes; **not published to PyPI** |
+| Deployment: Dockerfile, compose | `Dockerfile`, `docker-compose.yml` | built and run locally (Docker 29.8, PostgreSQL 17); **not deployed to a server** |
+| CI | `.github/workflows/` | written; **never run** (nothing pushed) |
+| Billing (Stripe) and AI assistants | `web/accessguard_web/billing/`, `.../assistant/` | implemented, tested with signed fixtures and fake providers only; **no real Stripe payment and no real AI call made** |
 
 ## Run the whole product locally
 

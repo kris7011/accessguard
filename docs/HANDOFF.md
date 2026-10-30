@@ -2,67 +2,93 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
-## Current state (2026-10-30, V1 commercial beta)
+## Current state (2026-10-30, V1 commercial beta, second session)
 
-- Branch: `feature/v1-commercial-beta`, created from `b94f5b7` (the last M2 commit). Nothing
-  is pushed or merged; `main` is unchanged.
-- V1 plan and acceptance record: `docs/milestones/V1.md`.
-- Commits so far (oldest first): `4fd78c1` engine for authorised targets, `196b1b3` runner,
-  scan specs and sample app, `898e1db` web control plane, `89935ed`/`66bdd28` reviewed
-  secret-scan allowlists, `2898d5e` web tests, `82e567b` ML foundation, `d6cf1df` static
-  assets/phone layout/browser check, `f7435e0` backup/restore, Docker, compose, CI.
+- Branch: `feature/v1-commercial-beta` (from `b94f5b7`). **No git remote is configured** and
+  the GitHub account `kris7011` has no AccessGuard repository (checked with `gh`, 20 repos).
+  Nothing is pushed, merged, published or deployed; `main` is unchanged.
+- V1 plan and acceptance record (three axes: implemented / verified locally / blocked
+  externally): `docs/milestones/V1.md`. **9 of 12 packages accepted; billing (6), AI
+  assistants (7) and operations (10) are implemented but blocked externally.**
+- This session's commits (oldest first): `054abc8` rules-page form fix + browser-faithful
+  tests, `5ca94fc` compose/image fixes, `0ccdd87` runner install text, `f223fd0` customer
+  acceptance script, then the documentation commit after it.
 
-### Done and verified (code + automated tests run locally on Windows 11, CPython 3.13.13)
+### Verified this session
 
-| Area | Where | Verified by |
+| What | How | Result |
 | --- | --- | --- |
-| Engine: network zones, TLS with pinning, path prefixes, Bearer/header/cookie auth, identity subject, dotted fields, check selection, progress | `src/accessguard/domain/scope.py`, `adapters/http_target.py`, `adapters/http_transport.py`, `application/runner.py`, `application/scan.py` | `tests/unit/test_scope_zones.py`, `tests/integration/test_https_and_auth.py`, `tests/unit/test_selection_and_progress.py` |
-| Scan spec, runner config, control-plane client, `accessguard scan` / `accessguard runner` | `adapters/scan_spec.py`, `adapters/runner_config.py`, `adapters/control_plane.py`, `entrypoints/runner_service.py`, `entrypoints/cli.py` | `tests/unit/test_scan_spec_and_runner_config.py`, `tests/integration/test_runner_control_plane.py` |
-| Separate integration app (flawed/fixed, own API-key auth, answer key) | `sampleapp/accessguard_sampleapp/` | `tests/integration/test_sampleapp_integration.py` (flawed: exactly the 10 answer-key findings; fixed: 30/30 PASS) |
-| Web control plane (Django 6.1): accounts, orgs, roles, tenancy, projects via forms, OpenAPI import, scope approval, scans, live status, cancel, reports, findings, triage, retests, guidance, runners, billing, assistant, public pages | `web/accessguard_web/` | 74 Django tests incl. two end-to-end journeys over real HTTP with a real runner (`tests/test_end_to_end.py`) |
-| Billing (Stripe test-mode design) | `web/accessguard_web/billing/` | `tests/test_billing.py` (signatures via the official SDK; no real Stripe account was used) |
-| AI assistants (setup draft, finding explainer) | `web/accessguard_web/assistant/` | `tests/test_assistant.py` (fake providers, Anthropic request shape mocked; **no real model call**) |
-| ML foundation | `src/accessguard/application/ranking.py`, `ml/accessguard_ml/`, `web/.../scans/learning.py` | `tests/unit/test_ml_foundation.py`, `tests/test_learning_export.py`; candidate trained, **gate refused** (no customer data; worse at 25 %) |
-| Backup/restore | `web/accessguard_web/pages/backup.py` + commands | `tests/test_backup.py`; manual drill: dev DB backed up and restored to a fresh file (4 users, 4 scans, 40 findings) |
-| UI in a browser | `ops/dev/browser_check.py` | Chrome (Playwright, local install) desktop + phone: 0 console/CSP errors, 0 HTTP errors, no overflow |
+| Distribution | `python -m build`; wheel and sdist into clean venvs made from the base interpreters (no repo `.venv`, no `PYTHONPATH`, cwd outside the repo) | wheel 45 files, 0 problems; sdist holds only the package. `accessguard_sampleapp`, `accessguard_web`, `accessguard_lab` not importable in the venvs |
+| Customer journey with the installed runner | `ops/dev/customer_acceptance.py` (new control plane on a fresh SQLite file, sample app as the customer's API, forms over HTTP) | PASS with the wheel on CPython 3.12.7 and the sdist on 3.13.13: 30 checks, 10 findings, no key in the report, triage, fixed variant on the same origin, retest 10/10 resolved and verified |
+| Docker compose | Docker Desktop 29.8 (WSL2) started for the run; project name `agverify`, throwaway env file in the scratchpad, override only for `env_file` and a loopback db port | build, migrations, `/healthz` `/readyz`, hashed static files, CSP, demo runner in compose, wheel runner on the host against the container (scan with 10 findings), scheduler sweep/purge/backup, restore into a separate database (exact counts and digest), 78 web tests on PostgreSQL 17.11. Test stack and volumes removed afterwards; images kept |
+| Anthropic adapter | current API docs (claude-api skill) + the installed SDK 2.3.0 signature | request shape statically valid (`output_config.format`, `effort`, `fallbacks: "default"` with `server-side-fallback-2026-07-01`). **No real call** |
 
-### Not verified (and why)
+### Defects found and fixed
 
-- Docker images and compose: Docker daemon not running on this machine; not built.
-- PostgreSQL: not installed locally; CI job written (`web` job), not run (nothing pushed).
-- GitHub Actions: not run (nothing pushed).
-- Stripe: no Stripe account/keys; Checkout/Portal calls are mocked; webhooks verified with
-  SDK-generated signatures only.
-- Claude API: no `ANTHROPIC_API_KEY`; adapter contract-tested with a mock only.
-- E-mail delivery (password reset): console backend only.
+1. **Rules page unsavable in a browser** (`054abc8`): the empty record row's owner select had
+   no blank option, browsers submit the first option, so the row failed validation. Adding a
+   list or editing a record failed until the empty row was filled. The e2e test missed it
+   because it posts hand-built rows.
+2. **No `.dockerignore`** (`5ca94fc`): local SQLite files and caches would be baked into the
+   web image. Allowlist added; images verified clean (no `*.sqlite3`, `__pycache__`, tests).
+3. **Backups never worked in Docker** (`5ca94fc`): pg_dump 15 (bookworm) vs server 17. Images
+   now on `python:3.13-slim-trixie` (postgresql-client 17).
+4. **Scheduler died on a fresh install** (`5ca94fc`): started before migrations, `set -eu`,
+   no restart policy. Now waits for a healthy web, restarts unless stopped, logs and retries
+   failed jobs; its inherited gunicorn health check is disabled.
+5. **Install text pointed at an unpublished PyPI name** (`0ccdd87`): replaced by the wheel
+   install with a warning. The PyPI names were free on 2026-10-30, so anyone could take them.
 
-### Latest verification (2026-10-30, end of session)
+### Blocked externally (exact missing item)
 
-- `PYTHON=.venv/Scripts/python bash ops/verify.sh`: all 11 steps passed (lint, format, mypy
-  strict on 211 files, 351 engine/runner/ML tests with 2 opt-in real-model tests skipped,
-  74 web tests, migrations check, Django deploy check, pip-audit, detect-secrets, wheel build
-  with 45 files and 0 problems, lab demo exact match).
-- `ops/verify.ps1` (Windows PowerShell 5.1): migrations, deploy-check passed; negative
-  control returned exit 3 as expected.
-- Browser check on a fresh stack: 0 problems (desktop and phone).
+- **Stripe**: no `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TEAM`,
+  `STRIPE_PRICE_BUSINESS` anywhere on the machine (process, user, machine scope; no `.env`).
+  Needs a Stripe account in test mode with two prices, a webhook endpoint reachable from
+  Stripe (a public URL or the Stripe CLI forwarding to localhost) and the Customer Portal.
+- **AI assistants, real call**: no `ANTHROPIC_API_KEY`. The local Ollama model was not run:
+  the assistants use `num_ctx` 16384, free commit memory was 1.2-3.5 GB, and the machine
+  crashed twice (below).
+- **E-mail**: no SMTP settings. Needs an SMTP provider with STARTTLS on 587.
+- **Server, domain, TLS, production backup drill, CI**: owner decisions and a push.
 
-### V1 status
+### Machine incidents (not caused by AccessGuard code, but caused during this work)
 
-All twelve work packages in `docs/milestones/V1.md` are met locally; billing, AI assistants
-and operations are only partly verified (see "Not verified"). Documentation is current:
-README, walkthrough (Part A), threat model (T24-T37), report schema 1.3, ADRs 0009-0013,
-install/operations/launch checklist, business material, interview prep V1.
+- Two unexpected reboots, 09:02 and 09:15 local time, both bugcheck `0x116`
+  (`VIDEO_TDR_FAILURE`, parameter 3 `0xC000009A` = `STATUS_INSUFFICIENT_RESOURCES`). Dumps:
+  `C:\Windows\Minidump\103026-10453-01.dmp` and `103026-15640-01.dmp`. Both happened while
+  Docker Desktop's VM ran with about 1-2 GB free commit memory; `nvlddmkm` event 153 preceded
+  the first. Older dumps from 26-10 and 29-10 exist, so the machine had this before.
+- No repository or development data was lost (`.local/` untouched; all test data lived in the
+  scratchpad and the `agverify` volumes).
+- Docker Desktop was stopped at the end (`docker desktop stop`, `wsl --shutdown`). The
+  `agverify-*` images (about 700 MB) remain; remove them with
+  `docker image rm agverify-web agverify-scheduler agverify-demo` if not needed.
+
+### Latest verification
+
+- `PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30, after the code commits): lint; format (244 files); mypy strict (213 files); 351 engine/runner/ML tests, 2 opt-in real-model tests skipped; 78 web tests; migrations check; deploy check; pip-audit no known vulnerabilities; detect-secrets 342 tracked files clean; wheel 45 files, 0 problems; lab demo exact match
+- Customer acceptance runs and the Docker results: see above, `docs/install.md` and
+  `docs/operations.md` (drill record).
+
+### Publishing review (for an eventual push)
+
+- 342 tracked files; 31 commits on this branch not in `main`; other local branches:
+  `feature/m1-reproducible-foundation`, `feature/m2-adaptive-agent`, `main`.
+- No `.env`, database, dump, key or report file is tracked (`.gitignore` covers `.env*`,
+  `.local/`, `reports/`, `web/db.sqlite3`); `.env.example` holds placeholders only; the secret
+  scan (detect-secrets on tracked files) is part of `verify.sh`.
+- Worth a conscious decision before a **public** repository: `AccessGuard-Claude-Code.md` (the
+  original Danish task prompt for Claude Code) and `ml/datasets/ds-b82628ce4c20c8e3/`
+  (140 KB, built from the synthetic lab and sample app, no customer data).
+- Dependencies unchanged this session (`requirements*.txt`, `web/requirements.txt` untouched;
+  pip-audit is part of the gate).
 
 ### Next steps (each needs the owner)
 
-1. Review the branch; approve a push so CI runs (engine matrix, web on PostgreSQL, images).
-2. Create a Stripe account in test mode (prices, webhook, Customer Portal) and run the
-   test-mode purchase / failed payment / cancellation flow (docs/launch-checklist.md).
-3. Choose hosting and a domain; build the images there; first backup/restore drill.
-4. Legal texts (terms, privacy, DPA) and VAT/company setup with a lawyer/accountant.
-5. Optional: verify the assistants with a real model (an `ANTHROPIC_API_KEY`, or a local
-   Ollama run on a machine with more free memory than the ~3 GB available here).
-6. Design-partner conversations to validate price and value before live payments.
+See the prioritised owner list in the session report and `docs/launch-checklist.md`. In short:
+create the GitHub repository (choose visibility) and approve a push so CI runs; Stripe test
+account; an Anthropic API key for the assistant verification; reserve the PyPI name; hosting
+and domain; legal texts; design-partner conversations.
 
 ### Commands (no secrets)
 
@@ -71,7 +97,8 @@ install/operations/launch checklist, business material, interview prep V1.
 PYTHON=.venv/Scripts/python bash ops/verify.sh          # all gates incl. web-tests, deploy-check
 .venv/Scripts/python ops/dev/run_stack.py                # whole product on http://127.0.0.1:8000
 PYTHONPATH=src .venv/Scripts/python ops/dev/browser_check.py --out reports/browser   # stack must run
-PYTHONPATH="src;lab;evaluations;sampleapp;ml" .venv/Scripts/python -m accessguard_ml build-dataset --out ml/datasets
+# customer journey with a runner installed from the wheel in a clean venv (see docs/install.md)
+.venv/Scripts/python ops/dev/customer_acceptance.py --runner-venv <venv> --out <new dir>
 ```
 
 The stack writes only to `.local/` (git-ignored). Stop it with Ctrl+C; if it was started in
@@ -82,8 +109,19 @@ the background, stop the `python.exe` processes whose command line contains `run
 
 - Git Bash heredocs with `\` or `'` in long documents can break; write such files with the
   editor tools or a script file.
-- `ops/ci/secret_scan.py` scans tracked files only; `git add` before trusting it. Reviewed
-  false positives are allowlisted inline or by file pattern in `.secrets.baseline`.
+- `ops/ci/secret_scan.py` scans tracked files only; `git add` before trusting it.
+- `py -3.11` is registered on this machine but its `python.exe` is missing, so Python 3.11 is
+  untested locally.
+- This laptop cannot safely run Docker Desktop and a local model next to an editor and a
+  browser (see the incidents above).
+
+## Previous V1 session (2026-10-30, first): summary
+
+Commits `4fd78c1` … `c37f9e5`: engine for authorised targets, runner, sample app, web control
+plane, web tests, ML foundation, static assets, backup/restore, Docker/compose/CI files, ADRs
+0009-0013, install/operations/checklist, business material, V1 docs. Gate then: 351 engine
+tests (2 skipped), 74 web tests, wheel 45 files. Docker, PostgreSQL, Stripe and real AI calls
+were not exercised; Docker and PostgreSQL now are (above).
 
 ## Archive: M2 state (2026-10-27, eighth M2 session)
 

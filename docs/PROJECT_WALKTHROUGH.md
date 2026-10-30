@@ -35,10 +35,10 @@ The control plane never connects to customer systems; only the runner does (ADR 
 | Path | Responsibility | Status |
 | --- | --- | --- |
 | `src/accessguard/` | Engine and runner CLI (`accessguard scan`, `accessguard runner`); Python ≥ 3.11, no third-party dependencies | implemented, tested |
-| `web/accessguard_web/` | Control plane: Django 6.1, server-rendered templates, one small script, whitenoise, gunicorn, psycopg, stripe, anthropic (optional), sentry-sdk (optional) | implemented, tested on SQLite; PostgreSQL not verified |
+| `web/accessguard_web/` | Control plane: Django 6.1, server-rendered templates, one small script, whitenoise, gunicorn, psycopg, stripe, anthropic (optional), sentry-sdk (optional) | implemented, tested on SQLite and (locally, in compose) PostgreSQL 17 |
 | `sampleapp/accessguard_sampleapp/` | Synthetic projects API with its own auth, flawed and fixed variants, answer key | implemented, tested |
 | `ml/accessguard_ml/` | Datasets, training, evaluation, registry | implemented, tested |
-| `ops/` | verify scripts, CI helpers, dev stack, browser check, docker entry scripts, economics model | implemented; Docker not built |
+| `ops/` | verify scripts, CI helpers, dev stack, browser check, docker entry scripts, economics model | implemented; Docker images built and run locally |
 
 Dependencies are hash-locked (`web/requirements.txt`, `requirements-dev.txt`,
 `requirements-e2e.txt`), audited with pip-audit; mypy strict with django-stubs.
@@ -107,12 +107,20 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
 | Suite | Command | Result (latest local run) |
 | --- | --- | --- |
 | Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 351 run, 2 skipped (opt-in real-model tests) |
-| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner | `bash ops/verify.sh web-tests` | 74 run, 0 failed |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, and browser-faithful setup-form tests | `bash ops/verify.sh web-tests` | 78 run, 0 failed (SQLite); the same 78 also passed on PostgreSQL 17.11 in the compose stack (2026-10-30) |
 | Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
 | Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
+| Customer acceptance: runner installed from the wheel / source archive in a clean venv, forms driven over HTTP, scan → triage → fix → retest | `ops/dev/customer_acceptance.py` | PASS (CPython 3.12.7 wheel, 3.13.13 sdist) |
+| Compose stack: build, migrate, readiness, static files, demo runner, scheduler backup, restore into a separate database | manual run, recorded in [install.md](install.md) and [operations.md](operations.md) | passed locally; not on a server |
 
 Mocks are used only at external boundaries: Stripe Checkout/Portal calls, the Anthropic SDK
-call, and fake assistant providers. No real Stripe, AI provider or PostgreSQL run exists yet.
+call, and fake assistant providers. No real Stripe payment and no real AI call exists yet.
+
+The customer acceptance run found a real defect the end-to-end test had missed: the
+"Endpoints and rules" page could not be saved in a browser unless its empty extra record row
+was filled, because the owner `<select>` had no blank option and browsers submit the first
+option. The e2e test posted hand-built rows without the empty one. Fixed in `054abc8` with
+tests that build the POST data from the rendered page (`test_project_setup.py`).
 
 ## A.8 Local development, deployment, backup
 
@@ -129,7 +137,8 @@ no advantage.
 
 ## A.10 Known limitations (V1)
 
-- Not deployed; Docker, PostgreSQL, GitHub Actions, Stripe and AI providers not exercised.
+- Not deployed to a server. Docker and PostgreSQL ran locally only; GitHub Actions, Stripe
+  and AI providers have not been exercised for real.
 - No e-mail verification; login throttling per installation; English UI only.
 - Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks.
 - Legal texts are not written; VAT handling not decided.
