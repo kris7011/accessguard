@@ -16,6 +16,8 @@ from pathlib import Path
 from tests.helpers import REPO_ROOT
 
 DELIBERATE_EXIT = 3
+# selftest-fail prints this, then 20 more lines: only a full log of the failed step shows it.
+FAILING_STEP_FIRST_LINE = "negative control: deliberately failing step"
 
 
 def find_bash() -> str | None:
@@ -62,6 +64,7 @@ class BashVerifyTests(unittest.TestCase):
         self.assertIn("FAILED  selftest-fail (exit 3", result.stdout)
         self.assertIn("Verification FAILED (exit 3)", result.stdout)
         self.assertEqual(result.stdout.count("ok      selftest-pass"), 2)
+        self.assertIn(FAILING_STEP_FIRST_LINE, result.stdout)
 
     def test_passing_steps_pass(self) -> None:
         result = self.verify("selftest-pass")
@@ -134,6 +137,7 @@ class PowerShellVerifyTests(unittest.TestCase):
         self.assertEqual(result.returncode, DELIBERATE_EXIT, result.stdout + result.stderr)
         self.assertIn("FAILED  selftest-fail (exit 3", result.stdout)
         self.assertIn("Verification FAILED (exit 3)", result.stdout)
+        self.assertIn(FAILING_STEP_FIRST_LINE, result.stdout)
 
     def test_passing_steps_pass(self) -> None:
         result = self.verify("selftest-pass")

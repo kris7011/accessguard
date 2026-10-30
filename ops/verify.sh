@@ -37,7 +37,7 @@ step_args() {
     build) ARGS=(ops/ci/build_check.py) ;;
     demo) ARGS=(-m accessguard_lab demo --out "$LOG_DIR/demo") ;;
     selftest-pass) ARGS=(-c "print('negative control: passing step')") ;;
-    selftest-fail) ARGS=(-c "print('negative control: deliberately failing step'); raise SystemExit(3)") ;;
+    selftest-fail) ARGS=(-c "print('negative control: deliberately failing step'); [print('filler', i) for i in range(20)]; raise SystemExit(3)") ;;
     *) return 1 ;;
   esac
 }
@@ -57,10 +57,13 @@ for step in "$@"; do
   echo "==> $step: $PYTHON ${ARGS[*]}"
   "$PYTHON" "${ARGS[@]}" >"$log" 2>&1
   code=$?
-  tail -n 15 "$log"  # display only; $code was captured above
+  # Display only; $code was captured above. A failed step prints its whole log, because a
+  # tail can hide earlier failures (CI keeps no other copy of the log).
   if [ "$code" -eq 0 ]; then
+    tail -n 15 "$log"
     summary+=("ok      $step")
   else
+    cat "$log"
     summary+=("FAILED  $step (exit $code, log: $log)")
     [ "$first_failure" -eq 0 ] && first_failure=$code
   fi

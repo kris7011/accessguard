@@ -47,7 +47,7 @@ $definitions = @{
     'build'         = @('ops/ci/build_check.py')
     'demo'          = @('-m', 'accessguard_lab', 'demo', '--out', (Join-Path $LogDir 'demo'))
     'selftest-pass' = @('-c', "print('negative control: passing step')")
-    'selftest-fail' = @('-c', "print('negative control: deliberately failing step'); raise SystemExit(3)")
+    'selftest-fail' = @('-c', "print('negative control: deliberately failing step'); [print('filler', i) for i in range(20)]; raise SystemExit(3)")
 }
 
 # Accept both -Steps a,b and -Steps "a,b" (the latter is how -File passes a single string).
@@ -72,7 +72,11 @@ foreach ($step in $Steps) {
     $code = $LASTEXITCODE
     if ($null -eq $code) { $code = 1 }  # the native command did not run at all
     $ErrorActionPreference = 'Stop'
-    if (Test-Path $log) { Get-Content -Path $log -Tail 15 }  # display only; $code is kept
+    # Display only; $code is kept. A failed step prints its whole log, because a tail can
+    # hide earlier failures (CI keeps no other copy of the log).
+    if (Test-Path $log) {
+        if ($code -eq 0) { Get-Content -Path $log -Tail 15 } else { Get-Content -Path $log }
+    }
     if ($code -eq 0) {
         $summary += "ok      $step"
     } else {
