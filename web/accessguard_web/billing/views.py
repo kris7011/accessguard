@@ -12,17 +12,21 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from accessguard_web import conf
-from accessguard_web.accounts.models import Membership, Role
+from accessguard_web.accounts.models import Membership, Role, record
 from accessguard_web.accounts.tenancy import current_org, current_user, membership_required
 from accessguard_web.assistant.models import AssistantRun
 from accessguard_web.billing.entitlements import entitlements_for, month_start
 from accessguard_web.billing.gateway import (
+    ENDED_STATUSES,
     BillingNotConfigured,
+    BillingRefused,
     CheckoutRequest,
     InvalidWebhook,
+    ProviderUnavailable,
     gateway,
     is_test_key,
 )
+from accessguard_web.billing.models import Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PLANS, PlanId
 from accessguard_web.billing.webhooks import process_event
 from accessguard_web.projects.models import Project
@@ -51,6 +55,7 @@ def overview(request: HttpRequest) -> HttpResponse:
     config = conf.stripe()
     configured = bool(config["SECRET_KEY"] and config["WEBHOOK_SECRET"])
     test_mode = configured and is_test_key(config["SECRET_KEY"])
+    ent = entitlements_for(organization)
     return render(
         request,
         "billing/overview.html",
@@ -62,7 +67,8 @@ def overview(request: HttpRequest) -> HttpResponse:
             "live_refused": configured and not test_mode and not config["ALLOW_LIVE"],
             "checkout_state": request.GET.get("checkout", ""),
             "is_owner": request.membership.has_role(Role.OWNER),  # type: ignore[attr-defined]
-            "ent": entitlements_for(organization),
+            "ent": ent,
+            "has_subscription": _has_subscription(ent.subscription),
         },
     )
 
@@ -70,26 +76,66 @@ def overview(request: HttpRequest) -> HttpResponse:
 @require_POST
 @membership_required(Role.OWNER)
 def checkout(request: HttpRequest, plan_id: str) -> HttpResponse:
+    """Choose a paid plan: Checkout for a first purchase, otherwise change the subscription."""
     organization = current_org(request)
     if plan_id not in (PlanId.TEAM, PlanId.BUSINESS):
         return HttpResponseBadRequest("Unknown plan")
+    plan = PlanId(plan_id)
     subscription = entitlements_for(organization).subscription
+    if _has_subscription(subscription):
+        return _change_plan(request, subscription, plan)
     billing_url = request.build_absolute_uri(reverse("billing:overview"))
     try:
         url = gateway().checkout_url(
             CheckoutRequest(
                 organization_id=organization.pk,
-                plan=PlanId(plan_id),
+                plan=plan,
                 customer_id=subscription.stripe_customer_id or None,
                 customer_email=current_user(request).email,
                 success_url=f"{billing_url}?checkout=success",
                 cancel_url=f"{billing_url}?checkout=cancelled",
             )
         )
-    except BillingNotConfigured as error:
+    except (BillingNotConfigured, BillingRefused) as error:
         messages.error(request, str(error))
         return redirect("billing:overview")
     return redirect(url)
+
+
+def _has_subscription(subscription: Subscription) -> bool:
+    """A live subscription exists, so a plan change must update it rather than add one."""
+    return bool(subscription.stripe_subscription_id) and subscription.status not in (
+        ENDED_STATUSES | {SubscriptionStatus.NONE}
+    )
+
+
+def _change_plan(request: HttpRequest, subscription: Subscription, plan: PlanId) -> HttpResponse:
+    if subscription.status not in (SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING):
+        messages.error(
+            request,
+            "The subscription has an open payment. Settle it in the Customer Portal before "
+            "changing the plan.",
+        )
+        return redirect("billing:overview")
+    try:
+        change = gateway().change_plan(subscription.stripe_subscription_id, plan)
+    except (BillingNotConfigured, BillingRefused) as error:
+        messages.error(request, str(error))
+        return redirect("billing:overview")
+    record(subscription.organization, current_user(request), "billing.plan_change_requested",
+           "subscription", plan=plan.value, applied=change.applied)  # fmt: skip
+    name = PLANS[plan].name
+    if change.applied:
+        messages.success(
+            request, f"Your plan changes to {name} as soon as Stripe confirms it (seconds)."
+        )
+        return redirect("billing:overview")
+    messages.warning(
+        request,
+        f"The payment for {name} did not go through, so your current plan stays. Pay the open "
+        "invoice within 23 hours to switch; otherwise the change is discarded.",
+    )
+    return redirect(change.invoice_url or reverse("billing:overview"))
 
 
 @require_POST
@@ -113,10 +159,16 @@ def portal(request: HttpRequest) -> HttpResponse:
 @require_POST
 def webhook(request: HttpRequest) -> HttpResponse:
     """Stripe calls this; authenticity comes from the signature, not from a session or CSRF."""
+    provider = gateway()
     try:
-        event = gateway().verified_event(request.body, request.headers.get("Stripe-Signature", ""))
+        event = provider.verified_event(request.body, request.headers.get("Stripe-Signature", ""))
     except InvalidWebhook:
         logger.warning("rejected a Stripe webhook with an invalid signature")
         return HttpResponse(status=400)
-    outcome = process_event(event)
+    try:
+        outcome = process_event(event, provider.subscription)
+    except ProviderUnavailable as error:
+        # Nothing was stored, so Stripe's automatic retry delivers the event again.
+        logger.warning("stripe event %s not applied, API unavailable: %s", event.get("id"), error)
+        return HttpResponse(status=503)
     return HttpResponse(outcome, content_type="text/plain")

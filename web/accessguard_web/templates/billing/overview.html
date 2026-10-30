@@ -37,7 +37,8 @@
     <p class="muted">{{ p.summary }}</p>
     {% include "billing/_plan_limits.html" with plan=p %}
     {% if p.is_paid and is_owner and configured and ent.plan.id != p.id %}
-      <form method="post" action="{% url 'billing:checkout' p.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">Choose {{ p.name }}</button></form>
+      <form method="post" action="{% url 'billing:checkout' p.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">{% if has_subscription %}Switch to{% else %}Choose{% endif %} {{ p.name }}</button></form>
+      {% if has_subscription %}<p class="small muted">Charged now for the rest of the period; the plan changes once the payment succeeds.</p>{% endif %}
     {% elif ent.plan.id == p.id %}<span class="chip chip-pass">Current plan</span>{% endif %}
   </div>
 {% endfor %}

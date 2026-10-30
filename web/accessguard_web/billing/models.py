@@ -1,4 +1,8 @@
-"""Subscription state per organisation, mirrored from Stripe webhooks, and processed events."""
+"""Subscription state per organisation, mirrored from Stripe webhooks, and processed events.
+
+The row follows one Stripe subscription at a time; ``plan`` is the plan granted, which can
+differ from the subscription's price while a higher price is not yet paid.
+"""
 
 from __future__ import annotations
 
@@ -41,9 +45,6 @@ class Subscription(models.Model):
         help_text="When a scheduled cancellation ends the subscription (flexible billing mode).",
     )  # fmt: skip
     past_due_since = models.DateTimeField(null=True, blank=True)
-    last_event_created = models.BigIntegerField(
-        default=0, help_text="Stripe `created` of the newest applied event; older ones are ignored."
-    )
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:

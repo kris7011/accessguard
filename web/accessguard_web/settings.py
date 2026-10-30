@@ -188,7 +188,14 @@ SECURE_CSP = {
     "style-src": [CSP.SELF],
     "img-src": [CSP.SELF, "data:"],
     "connect-src": [CSP.SELF],
-    "form-action": [CSP.SELF, "https://checkout.stripe.com", "https://billing.stripe.com"],
+    # Browsers apply form-action to the redirects a form POST answers with: Checkout, the
+    # Customer Portal and the hosted invoice page of an upgrade whose payment failed.
+    "form-action": [
+        CSP.SELF,
+        "https://checkout.stripe.com",
+        "https://billing.stripe.com",
+        "https://invoice.stripe.com",
+    ],
     "frame-ancestors": [CSP.NONE],
     "base-uri": [CSP.NONE],
     "object-src": [CSP.NONE],
