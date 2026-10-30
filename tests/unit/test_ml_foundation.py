@@ -3,12 +3,14 @@
 import json
 import tempfile
 import unittest
+from decimal import Context, Decimal
 from pathlib import Path
 
 from accessguard.application.ranking import (
     FEATURE_NAMES,
     LearnedRankerPlanner,
     LinearRanker,
+    _log1p,
     check_features,
 )
 from accessguard.domain.checks import generate_checks
@@ -33,6 +35,18 @@ class FeatureTests(unittest.TestCase):
             features = check_features(policy, check)
             self.assertEqual(tuple(features), FEATURE_NAMES)
             self.assertTrue(all(isinstance(v, float) for v in features.values()))
+
+    def test_log_features_are_correctly_rounded_on_every_platform(self) -> None:
+        # C libraries need not round log1p correctly, and the committed dataset's version once
+        # differed between Linux and Windows CI. The pinned values are the correctly rounded ones.
+        pinned = {0: 0.0, 1: 0.6931471805599453, 2: 1.0986122886681098,
+                  3: 1.3862943611198906, 4: 1.6094379124341003}  # fmt: skip
+        for count, expected in pinned.items():
+            self.assertEqual(_log1p(count), expected, count)
+        context = Context(prec=60)
+        for count in range(2000):
+            self.assertEqual(_log1p(count), float(Decimal(count + 1).ln(context)), count)
+        self.assertEqual(_log1p(-3), 0.0)
 
     def test_learned_ranker_only_reorders(self) -> None:
         policy = two_tenant_policy(with_collection=True)
@@ -79,7 +93,10 @@ class DatasetTests(unittest.TestCase):
     def test_committed_dataset_matches_the_sources(self) -> None:
         committed = sorted(Path("ml/datasets").glob("ds-*"))
         self.assertTrue(committed, "a dataset version is committed")
-        self.assertEqual(committed[-1].name, build_dataset(synthetic_examples()).version)
+        built = build_dataset(synthetic_examples())
+        # Compare the examples first: a mismatch then names the differing row, not two hashes.
+        self.assertEqual(load_dataset(committed[-1]).examples, built.examples)
+        self.assertEqual(committed[-1].name, built.version)
 
 
 class TrainingTests(unittest.TestCase):

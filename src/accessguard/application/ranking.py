@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Context, Decimal
 
 from accessguard.application.ports import Plan, PlannerInfo
 from accessguard.domain.checks import Check, Expectation, ItemCheck, ListCheck, Relation
@@ -41,8 +42,13 @@ FEATURE_NAMES: tuple[str, ...] = (
 )
 
 
+_LN_CONTEXT = Context(prec=40)
+
+
 def _log1p(value: int) -> float:
-    return math.log1p(max(value, 0))
+    # Correctly rounded on every platform. ``math.log1p`` comes from the C library, whose
+    # last bit differs between Windows and glibc, and dataset versions hash these values.
+    return float(Decimal(max(value, 0) + 1).ln(_LN_CONTEXT))
 
 
 def check_features(policy: AccessPolicy, check: Check) -> dict[str, float]:
