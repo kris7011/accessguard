@@ -173,7 +173,9 @@ class ResourceForm(forms.Form):
 
     def __init__(self, *args: Any, config: dict[str, Any], **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self.fields["owner"].choices = identity_choices(config)  # type: ignore[attr-defined]
+        # The blank first choice keeps an untouched extra row unchanged: without it a browser
+        # submits the first test user, and the empty row then fails as a half-filled record.
+        self.fields["owner"].choices = [("", "Choose a test user"), *identity_choices(config)]  # type: ignore[attr-defined]
         collections = (config.get("policy") or {}).get("collections") or []
         self.fields["collection"].choices = [("", "None")] + [  # type: ignore[attr-defined]
             (c["id"], c["id"]) for c in collections if isinstance(c, dict)
