@@ -1,0 +1,48 @@
+{
+  "_note": "Every number is a hypothesis to validate. Sources to check are named in docs/business/economics.md. Amounts in EUR per month unless stated.",
+  "prices_eur_month": {
+    "team": 49,
+    "business": 199
+  },
+  "plan_mix_business_share": 0.2,
+  "payment_fee_percent": 0.015,
+  "payment_fee_fixed_eur": 0.25,
+  "ai": {
+    "requests_per_paying_customer_month": 30,
+    "input_tokens_per_request": 3000,
+    "output_tokens_per_request": 1000,
+    "usd_per_million_input": 4.0,
+    "usd_per_million_output": 20.0,
+    "eur_per_usd": 0.92
+  },
+  "hosting_fixed_eur_month": 60,
+  "hosting_per_customer_eur_month": 0.5,
+  "tools_and_services_eur_month": 80,
+  "accounting_and_legal_eur_month": 150,
+  "acquisition_cost_per_new_customer_eur": 300,
+  "monthly_churn": 0.03,
+  "owner_salary_eur_month": 0,
+  "danish_corporate_tax": 0.22,
+  "dividend_tax_low_rate": 0.27,
+  "dividend_tax_high_rate": 0.42,
+  "dividend_low_bracket_eur_year": 10000,
+  "scenarios": {
+    "first_beta": {
+      "paying_customers": 5,
+      "new_customers_month": 2
+    },
+    "early_traction": {
+      "paying_customers": 40,
+      "new_customers_month": 6
+    },
+    "established_small": {
+      "paying_customers": 250,
+      "new_customers_month": 15
+    },
+    "ambitious": {
+      "paying_customers": 1500,
+      "new_customers_month": 60
+    }
+  },
+  "support_cost_per_customer_eur_month": 4
+}
