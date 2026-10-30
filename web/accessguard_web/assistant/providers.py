@@ -24,8 +24,36 @@ ANTHROPIC_MODEL = "claude-opus-5-5"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
+@dataclass(frozen=True)
+class Attempt:
+    """One model attempt within a call; a declined attempt and its fallback are two."""
+
+    model: str
+    input_tokens: int
+    output_tokens: int
+
+
 class ProviderError(Exception):
-    """The provider failed or declined. Messages never contain prompt or customer data."""
+    """The provider failed or declined. Messages never contain prompt or customer data.
+
+    When the provider did answer (a refusal or a cut-off answer), the usage of that answer
+    is kept so the call is still recorded with its model and tokens.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        model: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        attempts: tuple[Attempt, ...] = (),
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.attempts = attempts
 
 
 @dataclass(frozen=True)
@@ -36,6 +64,7 @@ class Completion:
     latency_ms: int
     input_tokens: int | None = None
     output_tokens: int | None = None
+    attempts: tuple[Attempt, ...] = ()
 
 
 class AssistantProvider(Protocol):
@@ -58,6 +87,27 @@ def _parse(text: str) -> dict[str, Any]:
     return data
 
 
+def _usage(response: Any) -> dict[str, Any]:
+    """The returned message's model and tokens, and every attempt behind it.
+
+    With a refusal fallback, the top-level ``usage`` covers only the attempt that produced
+    the message; ``usage.iterations`` lists each attempt with its own model (a declined
+    attempt is a ``message`` entry, the one that served a ``fallback_message`` entry).
+    """
+    model, usage = str(response.model), response.usage
+    attempts = tuple(
+        Attempt(str(entry.model or model), entry.input_tokens, entry.output_tokens)
+        for entry in usage.iterations or ()
+        if entry.type in {"message", "fallback_message"}
+    )
+    return {
+        "model": model,
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "attempts": attempts or (Attempt(model, usage.input_tokens, usage.output_tokens),),
+    }
+
+
 class AnthropicProvider:
     name = "anthropic"
     sends_data_to_third_party = True
@@ -67,6 +117,7 @@ class AnthropicProvider:
 
         self._anthropic = anthropic
         self._client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=2)
+        self._timeout = timeout
         self.model = model
 
     def complete_json(
@@ -95,22 +146,20 @@ class AnthropicProvider:
             raise ProviderError("the AI provider rejected the API key") from None
         except errors.APIStatusError as error:
             raise ProviderError(f"the AI provider answered HTTP {error.status_code}") from None
+        except errors.APITimeoutError:  # a subclass of APIConnectionError: catch it first
+            raise ProviderError(
+                f"the AI provider did not answer within {self._timeout:g} seconds"
+            ) from None
         except errors.APIConnectionError:
             raise ProviderError("the AI provider could not be reached") from None
         latency = int((time.monotonic() - started) * 1000)
+        usage = _usage(response)
         if response.stop_reason == "refusal":
-            raise ProviderError("the AI provider declined this request")
+            raise ProviderError("the AI provider declined this request", **usage)
         if response.stop_reason == "max_tokens":
-            raise ProviderError("the AI answer was cut off before it was complete")
+            raise ProviderError("the AI answer was cut off before it was complete", **usage)
         text = next((b.text for b in response.content if b.type == "text"), "")
-        return Completion(
-            _parse(text),
-            self.name,
-            str(response.model),
-            latency,
-            response.usage.input_tokens,
-            response.usage.output_tokens,
-        )
+        return Completion(_parse(text), self.name, latency_ms=latency, **usage)
 
 
 class OllamaProvider:

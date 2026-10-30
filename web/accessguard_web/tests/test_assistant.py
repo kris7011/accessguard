@@ -17,6 +17,7 @@ from accessguard_web.assistant.models import AssistantKind, AssistantOutcome, As
 from accessguard_web.assistant.providers import (
     FALLBACK_BETA,
     AnthropicProvider,
+    Attempt,
     Completion,
     ProviderError,
 )
@@ -193,6 +194,19 @@ class ExplainerTests(TestCase):
         with self.assertRaises(InvalidAnswer):
             validate_explanation({**GOOD_EXPLANATION, "fix_steps": ["x" * 401]})
 
+    def test_a_cut_off_answer_is_recorded_with_its_model_and_tokens(self) -> None:
+        self.org.ai_assistance_enabled = True
+        self.org.save()
+        error = ProviderError(
+            "the AI answer was cut off before it was complete",
+            model="claude-opus-4-8", input_tokens=412, output_tokens=264,
+        )  # fmt: skip
+        run = self.run_explain(FakeProvider(error))
+        self.assertEqual(
+            (run.outcome, run.model, run.input_tokens, run.output_tokens),
+            ("failed", "claude-opus-4-8", 412, 264),
+        )
+
     def test_quota_is_enforced(self) -> None:
         self.org.ai_assistance_enabled = True
         self.org.save()
@@ -214,7 +228,7 @@ class AnthropicAdapterTests(TestCase):
         )  # pragma: allowlist secret
         reply = mock.Mock(stop_reason="end_turn", model="claude-opus-5-5",
                           content=[mock.Mock(type="text", text=json.dumps(GOOD_EXPLANATION))],
-                          usage=mock.Mock(input_tokens=321, output_tokens=123))  # fmt: skip
+                          usage=mock.Mock(input_tokens=321, output_tokens=123, iterations=None))  # fmt: skip
         with mock.patch.object(
             provider._client.beta.messages, "create", return_value=reply
         ) as create:
@@ -234,3 +248,37 @@ class AnthropicAdapterTests(TestCase):
             self.assertRaisesRegex(ProviderError, "declined"),
         ):
             provider.complete_json(system="s", user="u", schema=EXPLAIN_SCHEMA, max_tokens=500)
+
+    def test_cut_off_and_refused_answers_keep_their_usage_and_every_attempt(self) -> None:
+        provider = AnthropicProvider("sk-ant-test-not-real")  # pragma: allowlist secret
+        # Opus 5.5 declined before any output; the fallback model answered and was cut off.
+        # Top-level usage is the fallback's attempt only; iterations hold both.
+        iterations = [
+            mock.Mock(type="message", model="claude-opus-5-5", input_tokens=535, output_tokens=0),
+            mock.Mock(type="fallback_message", model="claude-opus-4-8", input_tokens=412,
+                      output_tokens=264),
+        ]  # fmt: skip
+        reply = mock.Mock(stop_reason="max_tokens", model="claude-opus-4-8", content=[],
+                          usage=mock.Mock(input_tokens=412, output_tokens=264, iterations=iterations))  # fmt: skip
+        with (
+            mock.patch.object(provider._client.beta.messages, "create", return_value=reply),
+            self.assertRaisesRegex(ProviderError, "cut off") as raised,
+        ):
+            provider.complete_json(system="s", user="u", schema=EXPLAIN_SCHEMA, max_tokens=500)
+        error = raised.exception
+        self.assertEqual(
+            (error.model, error.input_tokens, error.output_tokens), ("claude-opus-4-8", 412, 264)
+        )
+        self.assertEqual(
+            error.attempts,
+            (Attempt("claude-opus-5-5", 535, 0), Attempt("claude-opus-4-8", 412, 264)),
+        )
+
+        reply.stop_reason, reply.model = "refusal", "claude-opus-5-5"
+        reply.usage = mock.Mock(input_tokens=90, output_tokens=0, iterations=None)
+        with (
+            mock.patch.object(provider._client.beta.messages, "create", return_value=reply),
+            self.assertRaisesRegex(ProviderError, "declined") as raised,
+        ):
+            provider.complete_json(system="s", user="u", schema=EXPLAIN_SCHEMA, max_tokens=500)
+        self.assertEqual(raised.exception.attempts, (Attempt("claude-opus-5-5", 90, 0),))

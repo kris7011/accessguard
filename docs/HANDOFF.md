@@ -2,6 +2,80 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Package 7: AI assistant verification (2026-10-30, fifth session)
+
+Status: **real-model run PENDING** (no `ANTHROPIC_API_KEY`; paid calls need an approved
+budget). Everything that needs no paid call is done. No paid call, purchase, deployment or
+merge. Branch `feature/v1-commercial-beta`, draft PR #1.
+
+### CI on `c58a853` (billing hardening)
+
+Run 41052053351: all six jobs passed (lint/types/security/build, engine tests on Ubuntu 3.11
+and 3.13 and Windows 3.13, container images, web tests on PostgreSQL). The PostgreSQL job:
+`Ran 99 tests ... OK`, no skips, so `ConcurrentWebhookTests` (row locks) ran and passed.
+
+### Prepared
+
+- `web/accessguard_web/tests/test_assistant_flows.py`: both flows (setup draft from a
+  synthetic OpenAPI document with canary values; explanation of `orbit-billing@ben` from a
+  real in-process scan of the sample app) through the pages, the provider port and
+  `AssistantRun`. The same scenarios run with a recording fake (always) and with the real
+  `AnthropicProvider` (`ACCESSGUARD_AI_LIVE=paid`, at most 3 calls, evidence to the
+  git-ignored `.local/ai-live/runs.jsonl`). Reuses `support.py` and the fakes and OpenAPI
+  document of `test_assistant.py`; no new production architecture.
+- `providers.py`: a timeout now says "did not answer within N seconds" (before:
+  "could not be reached", because `APITimeoutError` subclasses `APIConnectionError`).
+  A refusal or cut-off answer now keeps its model and tokens on the `ProviderError`, and
+  every model attempt is read from `usage.iterations` (`Attempt`). Top-level `usage`
+  covers only the attempt that produced the message, so iterations are used instead of,
+  never added to, it.
+- `service.py`: latency is recorded for failed calls too (was 0); a refused or cut-off
+  call now stores its model and tokens (were empty).
+- Evidence file: each attempt priced at its own model; a model without a known price
+  gives `"unknown"` (was a silent USD 0). A line is written before the checks, so a
+  failed call is still logged. `MAX_PAID_CALLS` is documented as counting logical SDK
+  calls, not the SDK's retries or fallback attempts.
+- `docs/ai-live-verification.md`: what is checked, opt-in levels, model and price check,
+  budget (estimate vs credits vs spend limits, with retries and fallback), API access
+  (check plan-included API credits first; linking an organization and accepting terms
+  are the owner's manual decisions), PowerShell commands that keep the key out of the
+  chat and history.
+
+### Run without cost (2026-10-30)
+
+| Check | Result |
+| --- | --- |
+| Fake flows: model/tokens/latency/outcome stored, answer on the page, draft changes nothing, applying one template leaves `target`/`policy` unchanged, no API key / protected value / canary sent | passed |
+| Invalid answer (setup) and refusal (explainer) through the pages: error shown, rule-based draft or no explanation, no stand-in text | passed |
+| Timeout through the real SDK against a local silent server (0.3 s, 3 attempts) | passed; page says "did not answer within 0.3 seconds", latency ≥ 900 ms |
+| `ACCESSGUARD_AI_LIVE=free`: real request to the Claude API with an invalid key | `HTTP/1.1 401 Unauthorized`; page says "rejected the API key" |
+| Regression: refused / cut-off answer keeps model and tokens (adapter, mocked SDK response with a declined and a fallback attempt; service); cost per attempt, `"unknown"` for an unpriced model | passed |
+
+### Checks
+
+- Full `ops/verify.sh` before the usage fixes (13:22): all 11 steps ok; 108 web tests OK
+  (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free).
+- After the fixes: ruff check and format, mypy strict (219 files) clean; web tests 111
+  OK (same 6 skipped); detect-secrets with the new files staged: 350 files, exit 0.
+  Engine tests, audit, build and demo not re-run (nothing under `src/`, dependencies or
+  packaging changed).
+
+### Pending (needs the owner)
+
+1. Check whether the Claude plan includes API credits (Max or Team; see
+   `docs/ai-live-verification.md`). Claiming them (choosing the Console organization,
+   accepting the terms) is a manual decision; without credits the run stays pending.
+2. Approve a budget (proposed USD 2 in total, as the workspace spend limit). One run is
+   ≤ USD 0.31 at `claude-opus-5-5` (USD 4 / 20 per million tokens, checked 2026-10-30),
+   ≤ USD 0.69 if every call falls back; SDK retries could in theory triple that, which
+   only the spend limit stops.
+3. Create a workspace with that spend limit and an API key in it; enter the key locally as
+   in `docs/ai-live-verification.md`, never in the chat.
+4. Run the module with `ACCESSGUARD_AI_LIVE=paid`; record the three evidence lines here.
+
+Not provable with a real model: a classifier refusal (not provoked on purpose) and an
+invalid structured answer (the API enforces the schema); both are tested with fakes.
+
 ## Billing hardening (2026-10-30, fourth session)
 
 Scope: upgrades only after payment, webhook ordering and concurrency, reproducible sandbox
@@ -87,8 +161,8 @@ format; mypy strict (incl. `ops/stripe_sandbox`); 357 engine/runner/ML tests (2 
 real-model tests skipped); 99 web tests on SQLite (2 skipped: the PostgreSQL-only
 `ConcurrentWebhookTests`); migrations check; deploy check; pip-audit no known
 vulnerabilities; detect-secrets on tracked files (re-run after staging the new files);
-wheel 45 files, 0 problems; lab demo exact match. CI result for the pushed commits: see
-PR #1.
+wheel 45 files, 0 problems; lab demo exact match. CI on `c58a853`: all six jobs passed,
+PostgreSQL 99 web tests without skips (see the fifth session above).
 
 ### Machine state after this session
 

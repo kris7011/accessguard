@@ -122,7 +122,15 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
 | Compose stack: build, migrate, readiness, static files, demo runner, scheduler backup, restore into a separate database | manual run, recorded in [install.md](install.md) and [operations.md](operations.md) | passed locally; not on a server |
 
 Mocks are used only at external boundaries: Stripe Checkout/Portal calls, the Anthropic SDK
-call, and fake assistant providers. No real AI call exists yet.
+call, and fake assistant providers. `tests/test_assistant_flows.py` runs both assistant
+flows through the pages, the provider port and the usage record, with a recording fake by
+default and with the real Claude API when opted in (`ACCESSGUARD_AI_LIVE=paid`,
+[ai-live-verification.md](ai-live-verification.md)). Run without cost so far: the fake
+flows, a timeout through the real SDK, and a real `401` for an invalid key. **The paid
+real-model run is pending** (no API key yet). A refused or cut-off answer is stored with
+its model and tokens; with a refusal fallback, `AssistantRun` holds the attempt that
+produced the answer, and the adapter's `Attempt` list (from `usage.iterations`) gives every
+attempt to the live run's evidence file (tested with a mocked SDK response).
 
 Stripe was also exercised for real in a temporary sandbox (2026-10-30, test payments only):
 Checkout, webhooks via `stripe listen`, Customer Portal, failed payment and grace period,
@@ -160,7 +168,8 @@ no advantage.
 - Not deployed to a server. Docker and PostgreSQL ran locally only; AI providers have not
   been exercised for real. Stripe ran only in a temporary test sandbox, never in live mode.
 - No e-mail verification; login throttling per installation; English UI only.
-- Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks.
+- Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks yet
+  (the opt-in test is prepared and waits for an approved budget).
 - Legal texts are not written; VAT handling not decided.
 - The engine's limits (GET only, declared endpoints, exact JSON matching) apply unchanged.
 

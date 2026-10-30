@@ -6,6 +6,7 @@ guidance and import stay available, and nothing is silently replaced by canned t
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -68,6 +69,7 @@ def run_task(
         outcome=AssistantOutcome.FAILED,
         **links,
     )
+    started = time.monotonic()
     try:
         completion = provider.complete_json(
             system=system, user=message, schema=schema, max_tokens=max_tokens
@@ -79,6 +81,9 @@ def run_task(
         run.result = validate(completion.data)
         run.outcome = AssistantOutcome.OK
     except ProviderError as error:
+        run.latency_ms = int((time.monotonic() - started) * 1000)
+        run.model = error.model or run.model
+        run.input_tokens, run.output_tokens = error.input_tokens, error.output_tokens
         run.error = str(error)[:300]
     except InvalidAnswer as error:
         run.outcome = AssistantOutcome.INVALID
