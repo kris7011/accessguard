@@ -20,7 +20,11 @@ PYTHON = getattr(sys, "_base_executable", sys.executable)
 class CliCancellationTests(unittest.TestCase):
     def test_interrupt_writes_partial_report_and_exits_130(self) -> None:
         env = {**os.environ, "PYTHONPATH": os.pathsep.join(["src", "lab"])}
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+        # sys.platform (not os.name) lets mypy skip the other platform's API on every host.
+        if sys.platform == "win32":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            creationflags = 0
         with tempfile.TemporaryDirectory() as out:
             process = subprocess.Popen(  # noqa: S603 - fixed interpreter and arguments
                 [
@@ -48,7 +52,7 @@ class CliCancellationTests(unittest.TestCase):
             # ~14 s run (0.2 s pacing); 4 s leaves completed checks to keep, even on slow hosts.
             time.sleep(4.0)
             started = time.monotonic()
-            if os.name == "nt":
+            if sys.platform == "win32":
                 os.kill(process.pid, signal.CTRL_BREAK_EVENT)
             else:
                 process.send_signal(signal.SIGINT)
