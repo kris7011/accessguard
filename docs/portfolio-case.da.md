@@ -16,8 +16,10 @@ kommer med bevis, rettevejledning og en gentest, der dokumenterer, at rettelsen 
 lovlig adgang stadig fungerer.
 
 Målet var et produkt, der kunne sælges som selvbetjent beta. Det er nu afsluttet som et
-præsentabelt porteføljeprojekt: koden, testene og historikken er bevaret, intet er
-offentliggjort, deployet eller solgt, og repositoryet er privat.
+præsentabelt porteføljeprojekt: koden, testene og historikken er bevaret, og repositoryet er
+offentligt på GitHub. Ingen hostet tjeneste er lanceret eller sat til salg, og der er ikke
+modtaget livebetalinger. Den engelske [README](../README.md) er projektets primære
+præsentation; denne danske case er et supplement.
 
 ## Mit arbejde med projektet
 
