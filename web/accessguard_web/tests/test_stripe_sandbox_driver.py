@@ -1,13 +1,16 @@
-"""The sandbox driver's reading of Stripe CLI output: JSON after the banner, errors, no keys."""
+"""The sandbox driver's reading of Stripe CLI output: JSON after the banner, errors, no keys.
+
+The driver (ops/stripe_sandbox/sandbox.py) needs the web dependencies (``stripe``), so its
+tests live here rather than with the dependency-free engine tests.
+"""
 
 import importlib.util
 import sys
 import unittest
-
-from tests.helpers import REPO_ROOT
+from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
-    "stripe_sandbox", REPO_ROOT / "ops" / "stripe_sandbox" / "sandbox.py"
+    "stripe_sandbox", Path(__file__).resolve().parents[3] / "ops" / "stripe_sandbox" / "sandbox.py"
 )
 assert _spec and _spec.loader
 sandbox = importlib.util.module_from_spec(_spec)

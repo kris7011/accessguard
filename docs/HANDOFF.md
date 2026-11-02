@@ -34,7 +34,7 @@ payment retries with test clocks").
 | Commands now wait up to 30 s for the app's status to match Stripe's before printing | **defect:** `clock-next-retry` printed the app before the webhooks arrived (recovery showed `past_due` although the app turned `active` 9 s later) |
 | `current_period_end` in the app view | needed to see a renewal |
 
-Tests: `tests/unit/test_stripe_sandbox_cli.py` (CLI JSON after the banner, errors, no key
+Tests: `web/accessguard_web/tests/test_stripe_sandbox_driver.py` (CLI JSON after the banner, errors, no key
 fragments, `livemode` on plain JSON), 5 tests.
 
 ### Results (stack on `.local/stripe-e2e.sqlite3`, `stripe listen`, evidence below)
@@ -89,10 +89,17 @@ machine), the real restic image and repository, SMTP, any server.
 ### Checks
 
 `PYTHON=.venv/Scripts/python bash ops/verify.sh` (2026-11-02, with the changes staged): all
-11 steps ok: lint, format, mypy strict; 381 engine/runner/ML tests OK (3 skipped, as before:
-2 opt-in real-model, 1 POSIX-only), incl. the 11 new ones; 122 web tests OK (6 skipped, as
-before); migrations; deploy check; pip-audit; detect-secrets with the new files staged;
-build; demo.
+11 steps ok: lint, format, mypy strict; engine/runner/ML tests OK (3 skipped, as before:
+2 opt-in real-model, 1 POSIX-only); web tests OK (6 skipped, as before); migrations; deploy
+check; pip-audit; detect-secrets with the new files staged; build; demo. Final counts after
+the move below: 376 engine/runner/ML tests (6 new), 127 web tests (5 new).
+
+CI on `177bf0a` (run 41416449371): both Ubuntu engine jobs failed, `ModuleNotFoundError: No
+module named 'stripe'`. The engine jobs install no third-party packages; the new driver test
+imported `sandbox.py`, which needs `stripe`. Moved to the web tests
+(`test_stripe_sandbox_driver.py`), which run in CI with the web dependencies. Re-checked
+locally: engine tests with the bare system Python 3.13 (no `stripe`) 376 OK; lint, format,
+types, tests, web tests and secrets ok. The off-site backup tests passed on Ubuntu in that run.
 
 ### Machine and sandbox state
 
