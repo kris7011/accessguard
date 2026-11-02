@@ -6,8 +6,9 @@
 
 Decision basis for the smallest useful operation of a **self-serve beta**: customers sign
 up, install the runner and scan without talking to us. Prepared 2026-11-02. Prices are
-quotes from official sources on that day, not invoices. Nothing has been bought, deployed or
-published. The decisions marked "owner" are yours.
+quotes from official sources on that day, not invoices. The source repository is public;
+no commercial service or package has been bought, deployed, published or offered. The
+decisions marked "owner" are yours.
 
 The AI assistants are verified for their synthetic scenarios (one real-model run on
 2026-10-30, docs/ai-live-verification.md); nothing here changes that, and no model call was
@@ -53,7 +54,7 @@ Assumptions:
   console.**
 - Not included: Stripe fees (only with live payments), AI usage (off by default; the
   measured run cost USD 0.007-0.023 per call), optional monitoring services (free tiers or
-  self-hosted exist), GitHub Actions minutes for the private repository.
+  self-hosted exist), GitHub Actions minutes for CI.
 - **Availability risk (A):** on 2026-11-02 Hetzner's public plan pages showed "This product
   is currently unavailable" for the listed shared plans. Check in the Hetzner Console when
   ordering; if CX23 cannot be ordered, the next plans with at least 4 GB on the same pages

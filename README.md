@@ -7,13 +7,13 @@ requests for every combination; a deterministic engine reports a violation only 
 tenant's protected values actually appear in a response. Every finding comes with evidence,
 fix guidance and a retest that proves the fix.
 
-> **Status: portfolio project (2026-11-02).** The commercial launch is **paused**. The code,
-> tests and history are kept as they are; nothing is deployed, published or sold, and no
-> live payment has ever been taken. The repository is private. A passing AccessGuard report
-> covers only the declared policy and checks; it is not a security guarantee.
+> **Status: portfolio project (2026-11-02).** The commercial launch is **paused**. The source
+> repository is public; the hosted service has not launched. Nothing is deployed or offered
+> for sale, no package has been published, and no live payment has ever been taken. A passing
+> AccessGuard report covers only the declared policy and checks; it is not a security guarantee.
 
-Danish portfolio summary: [docs/portfolio-case.da.md](docs/portfolio-case.da.md) ·
-Five-minute demo: [docs/demo.md](docs/demo.md)
+**Danish portfolio supplement:** [Portfolio case (in Danish)](docs/portfolio-case.da.md) ·
+**Five-minute local demo:** [Demo walkthrough](docs/demo.md)
 
 ## The problem
 
@@ -100,12 +100,13 @@ run); mocks and fake providers are named as such.
 | Docker compose stack with PostgreSQL 17 | Built and run locally: migrations, readiness, demo runner, scheduled backups, restore into a separate database. **Not run on a server** |
 | Browser | Playwright check of the main screens at desktop and phone width; the demo path re-walked in headless Chrome on 2026-11-02 |
 
-**Latest results** (both on commit `2fefd69`, 2026-11-02):
+**Recorded verification** (2026-11-02; the local run was on `2fefd69`; CI also passed on
+the documentation-only commit `36256a5`):
 
 | Where | Result |
 | --- | --- |
 | Local, Windows 11, `ops/verify.sh` (11 steps: lint, format, mypy strict, engine tests, web tests, migrations, deploy check, pip-audit, secret scan, wheel build, lab demo) | all steps ok; engine/runner/ML 376 tests OK (9 skipped); web tests on SQLite 150 OK (7 skipped) |
-| GitHub Actions CI, [run 41455086418](https://github.com/kris7011/accessguard/actions/runs/41455086418), six jobs | all passed; engine 376 tests on Ubuntu 3.11/3.13 (2 skipped each) and Windows 3.13 (9 skipped); web 150 tests on PostgreSQL 17 (4 skipped) |
+| GitHub Actions CI, [run 41464989398](https://github.com/kris7011/accessguard/actions/runs/41464989398) on `36256a5`, six jobs | all passed; engine 376 tests on Ubuntu 3.11/3.13 (2 skipped each) and Windows 3.13 (9 skipped); web 150 tests on PostgreSQL 17 (4 skipped) |
 
 The skipped tests are opt-in by design: paid or free real-model runs, POSIX-only tests on
 Windows, and PostgreSQL-only row-lock tests on SQLite. Session-by-session evidence:
@@ -172,15 +173,15 @@ Docker and production-like setup: [docs/install.md](docs/install.md).
 
 ## How this project was built
 
-I defined the product, its requirements ([original brief, Danish](AccessGuard-Claude-Code.md)),
-the milestones and the acceptance criteria, and made the owner decisions recorded in the
+I defined the product, requirements ([original brief, Danish](AccessGuard-Claude-Code.md)),
+milestones and acceptance criteria, and made the owner decisions recorded in the
 [handoff log](docs/HANDOFF.md) (for example the rule for voiding a failed renewal invoice and
 keeping a 7-day grace period). I ran the paid real-model test myself and claimed and checked
-the Stripe sandbox. The code, tests and most documentation were written with an AI coding
-assistant (Claude Code) under that direction, and the AI-assisted sessions also drove most
-verification runs; every result above comes from commands that were actually run and
-recorded. The [interview preparation notes](docs/interview-prep/V1.md) are how I make sure I
-can explain and defend each part.
+the Stripe sandbox. Claude Code was the AI coding assistant used to write the code, tests and
+most documentation under my direction; AI-assisted sessions also ran most verification
+commands. The results above are recorded command outcomes, not independent review or a
+security guarantee. The [interview preparation notes](docs/interview-prep/V1.md) help me
+explain and defend each part.
 
 ## Documentation
 

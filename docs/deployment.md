@@ -36,7 +36,8 @@ Every step that needs an account, a payment, a DNS change or a login is the owne
 
 ## 2. Code and secrets on the server
 
-The repository is private, so no GitHub credentials go to the server. Copy the release:
+The source repository is public, so no GitHub credentials need to go to the server. Copy
+the release:
 
 ```bash
 # on your machine, from a clean checkout of the release commit

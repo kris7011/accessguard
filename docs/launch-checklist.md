@@ -48,7 +48,7 @@ Status per item, updated 2026-11-02:
 | Alert on a missing daily dump or off-site copy | ready: heartbeat ping after each successful off-site copy, skipped when the newest dump is older than 26 h; needs the heartbeat service choice |
 | Error monitoring (`SENTRY_DSN`) and admin e-mail | ready (needs an account or self-hosted GlitchTip) |
 | SMTP for password reset | **blocked: needs an SMTP provider** offering STARTTLS on 587 (implicit TLS on 465 is not supported by the settings). Reset flow and its e-mail limit tested with Django's test mail backend; real delivery not tested |
-| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: CI runs on draft PR #1 (private repository); all six jobs green on `2fefd69` (run 41455086418) |
+| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: all six jobs passed on PR #1 at `36256a5` (run 41464989398); the linked run records this verification snapshot |
 
 ## Payments
 

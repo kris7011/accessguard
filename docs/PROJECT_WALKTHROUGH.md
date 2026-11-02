@@ -1,10 +1,11 @@
 # AccessGuard project walkthrough
 
-Status as of 2026-11-02 (branch `feature/v1-commercial-beta`, draft PR #1): **the commercial
-launch is paused and the project is closed as a portfolio project.** What exists is V1: a
+**Status (2026-11-02): portfolio project; commercial launch paused.** The source repository
+is public, but the hosted service has not launched: nothing is deployed or offered for sale,
+no package has been published, and no live payment has been taken. What exists is V1: a
 self-serve product with a web control plane, a customer-side runner, a separate integration
 app, billing in Stripe test mode, two bounded AI assistants and an ML foundation without an
-active model. Nothing is deployed, published or sold. The local demo:
+active model. The local demo:
 [demo.md](demo.md). Labels used below: **implemented** (code exists), **tested** (an
 automated test exists and was run), **not verified** (written but not exercised, with the
 reason).
@@ -376,7 +377,7 @@ in M1 and five in the pre-M2 hardening) were all detected by the suite; they are
 ## 9. Local development and deployment
 
 See README. At the time of milestone 1 there was no deployment and CI had not run. Since
-V1, CI runs on GitHub for the draft pull request, and a single-server deployment is
+V1, CI runs on GitHub Actions for pull requests, and a single-server deployment is
 prepared but not carried out (docs/deployment.md).
 
 ## 10. Backup and restore
