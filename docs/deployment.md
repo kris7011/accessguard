@@ -4,7 +4,8 @@ Runbook for the first public deployment: one Linux server running the existing c
 stack plus `docker-compose.prod.yml` (TLS proxy, off-site backups, log rotation). The choice
 of host and its cost are in [beta-operations-plan.md](beta-operations-plan.md).
 
-**Status (2026-11-02): prepared, not run.** No server exists yet. What has been checked
+**Status (2026-11-02): prepared, not run; the commercial launch is paused**, so no
+deployment is planned. No server exists. What has been checked
 without one is listed at the end; everything else in this file is a procedure to follow and
 record, not a result.
 
@@ -147,7 +148,7 @@ replaces the live database instead (docs/operations.md, steps 1-5).
 | Errors | `SENTRY_DSN` (Sentry or self-hosted GlitchTip); without it, `ACCESSGUARD_ADMIN_EMAILS` get error e-mails |
 | Certificate | Caddy renews automatically; the uptime check fails if it stops working |
 | Disk | Container logs are rotated (5 × 10 MB per service); check `df -h` and the `backups` volume monthly |
-| Scheduler | `docker compose ... logs scheduler offsite-backup | grep ERROR` |
+| Scheduler | `docker compose ... logs scheduler offsite-backup \| grep ERROR` |
 
 ## 8. Updates
 

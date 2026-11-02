@@ -1,5 +1,9 @@
 # Beta operations plan: hosting, readiness and self-serve onboarding
 
+> **Paused (2026-11-02).** The commercial launch is on hold and the project is closed as a
+> portfolio project. This plan is kept for reference; nothing in it was ordered, and its
+> prices are those of 2026-11-02 and would need to be checked again.
+
 Decision basis for the smallest useful operation of a **self-serve beta**: customers sign
 up, install the runner and scan without talking to us. Prepared 2026-11-02. Prices are
 quotes from official sources on that day, not invoices. Nothing has been bought, deployed or

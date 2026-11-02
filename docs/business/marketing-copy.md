@@ -1,5 +1,8 @@
 # Product texts and ad drafts
 
+> **Paused (2026-11-02):** the commercial launch is on hold; none of these drafts was
+> published, and none should be without a new decision.
+
 Rules for every text: describe only implemented features; no customer names, testimonials,
 statistics about customers, certifications or security guarantees; no claim that AI finds
 vulnerabilities. Publishing any of this needs the owner's approval.

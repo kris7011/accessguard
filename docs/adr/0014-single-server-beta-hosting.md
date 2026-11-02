@@ -1,6 +1,7 @@
 # ADR 0014: Beta hosting on one server with the compose stack
 
-- Status: proposed (the owner decides; nothing ordered or deployed)
+- Status: deferred (proposed 2026-11-02; the same day the commercial launch was paused, so no
+  hosting decision is pending; nothing ordered or deployed)
 - Date: 2026-11-02
 
 ## Problem

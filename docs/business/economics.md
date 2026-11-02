@@ -1,5 +1,8 @@
 # Economics model (hypotheses)
 
+> **Paused (2026-11-02):** the commercial launch is on hold; this model is kept as an example
+> of the planning work, not as a current plan.
+
 **Nothing here is a forecast or a promise.** Prices, conversion, churn and acquisition cost
 are unvalidated assumptions. The model exists so the assumptions are explicit and can be
 replaced with measured numbers as soon as the first customers pay.

@@ -2,6 +2,68 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Commercial launch paused; closed as a portfolio project (2026-11-02, eleventh session)
+
+Status: **owner decision: the commercial launch is paused, and the project is finished as a
+presentable GitHub portfolio project.** Documentation only: no code, test, dependency or
+configuration change, no new product feature or commercial setup. No merge, publication,
+deployment, purchase or model call. Branch `feature/v1-commercial-beta`, PR #1 stays a
+draft, repository stays private.
+
+### Changes
+
+| File | Change |
+| --- | --- |
+| `README.md` | Rewritten for a reader new to the project: status (paused, portfolio), problem, solution, architecture, key decisions with trade-offs and ADRs, what works and how it is verified, latest local and CI results, AI/ML status (assistants implemented; no learned model active), local run, limitations, how the project was built |
+| `docs/demo.md` (new) | Step-by-step local demo: start → find the 10 violations → deploy the fixed demo version (and which code fixes each of the 3 bugs) → retest → resolved; optional regression step; troubleshooting |
+| `docs/portfolio-case.da.md` (new) | Short Danish portfolio case: purpose, the owner's work, technologies, documented results, lessons learned |
+| `docs/milestones/V1.md` | Status: paused. Corrected: Django 5.2 LTS → built on 6.1; the "owner decision" on the open invoice after the last retry is resolved (void rule, ninth/tenth session); "before the first real payment" no longer lists the test-mode Stripe work that is done |
+| `docs/PROJECT_WALKTHROUGH.md` | Status line; test table on CI `2fefd69`; browser and demo rows; pause in A.10; Part B marked as the M1/M2 snapshot (its "no UI, database, authentication" statements describe that time); V1 and closure in the ownership section |
+| `docs/launch-checklist.md`, `docs/beta-operations-plan.md`, `docs/deployment.md`, ADR 0014, `docs/business/*` | "Paused" notes; ADR 0014 status proposed → deferred; checklist: CI on `2fefd69`, browser check re-run |
+| `docs/threat-model.md` | Status line no longer says it covers only M1/M2 (it has a V1 section) |
+| `docs/install.md` | Link to the demo guide |
+| `docs/deployment.md` | An unescaped `\|` in a code span split a table row on GitHub |
+
+### Verification reused, not rerun
+
+The previous results stand and are quoted, not repeated: Stripe sandbox runs, the paid
+real-model run, customer acceptance, the Docker compose run, the M2 evaluation and the ML
+gate. **CI on `2fefd69`** (run 41455086418; only reported in the tenth session until now):
+all six jobs passed; engine tests 376, 2 skipped on Ubuntu 3.11 and 3.13, 9 skipped on
+Windows 3.13; web tests on PostgreSQL 150, 4 skipped (3 paid, 1 free).
+
+### Checks run this session
+
+- **Demo walked through in headless Chrome** (Playwright script in the session scratchpad,
+  only the visible buttons named in `docs/demo.md`), three times against fresh throwaway
+  SQLite databases (`DATABASE_URL` outside the repository; `.local/dev.sqlite3` and
+  `.local/stripe-e2e.sqlite3` checked by SHA-256 before and after: unchanged): 30 checks →
+  10 confirmed violations → "Deploy the fixed version" → retest of 17 checks passed → 0
+  open, 10 resolved, chip "Resolved · verified by retest"; then switched back and a full
+  scan reopened all 10 with "Regression: the violation reappeared in scan #7".
+- `ops/dev/browser_check.py` against the same stack: 0 problems (desktop and phone).
+- Documentation check (script in the session scratchpad, not committed): 38 Markdown files,
+  123 relative links and their `#anchors` resolve; the backticked paths in the changed files
+  exist (package-relative ones such as `domain/scope.py` resolved under `src/accessguard/`
+  or `web/accessguard_web/`).
+- `PYTHON=.venv/Scripts/python bash ops/verify.sh` (Windows, changes staged): all 11 steps
+  ok; 376 engine/runner/ML tests OK (9 skipped); 150 web tests on SQLite OK (7 skipped);
+  detect-secrets 365 tracked files, exit 0; pip-audit no known vulnerabilities.
+
+### Machine state
+
+Stack stopped; ports 8000/8800/8801 free (`netstat` briefly listed stale 8800 entries
+without an owning process; binding all three ports succeeded). `run_stack.py` regenerated
+`.local/demo-runner.token`, `demo-runner.toml` and `sampleapp-credentials.json`, as it does
+on every start.
+
+### If the project is resumed
+
+Open items are unchanged and listed in `docs/launch-checklist.md` and
+`docs/beta-operations-plan.md` (hosting, domain, SMTP, legal texts, DPA, VAT, live keys).
+The claimable sandbox's restricted key and the test clocks expire on Stripe's side; check
+the sandbox before any new run.
+
 ## Review fix of the renewal-invoice void rule (2026-11-02, tenth session)
 
 Status: **fixed and tested locally; CI numbers for this commit are reported in the session,

@@ -1,8 +1,10 @@
 # Threat model (milestones 1, 2 and V1)
 
 Status: covers the implemented milestone 1 and 2 system (local CLI, local lab, adaptive agent,
-evaluation fixtures). Must be revised before
-any external target, hosted service or real credentials are supported (milestones 3–4).
+evaluation fixtures) and, in the V1 section, the control plane, runner, billing and
+assistants (T30-T38). Not reviewed against a real deployment: the system was never run on a
+public server, and the commercial launch is paused (2026-11-02). Revise it before any
+deployment.
 
 ## System and assets
 

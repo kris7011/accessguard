@@ -26,7 +26,8 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\python ops\dev\run_stack.py
 ```
 
-Open <http://127.0.0.1:8000/>, create an account and run the demo scan. The script migrates a
+Open <http://127.0.0.1:8000/>, create an account and run the demo scan; the step-by-step
+walkthrough (find, fix, retest) is [demo.md](demo.md). The script migrates a
 SQLite database in `.local/`, starts the synthetic sample API (flawed on 8800, fixed on
 8801), the platform demo runner and the Django development server. Ctrl+C stops everything.
 On Linux/macOS use `.venv/bin/python`.

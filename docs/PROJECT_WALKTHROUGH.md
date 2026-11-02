@@ -1,10 +1,13 @@
 # AccessGuard project walkthrough
 
-Status as of V1 (2026-10-30, branch `feature/v1-commercial-beta`): a self-serve product with a
-web control plane, a customer-side runner, a separate integration app, billing in Stripe test
-mode, two bounded AI assistants and an ML foundation without an active model. Labels used
-below: **implemented** (code exists), **tested** (an automated test exists and was run),
-**not verified** (written but not exercised, with the reason).
+Status as of 2026-11-02 (branch `feature/v1-commercial-beta`, draft PR #1): **the commercial
+launch is paused and the project is closed as a portfolio project.** What exists is V1: a
+self-serve product with a web control plane, a customer-side runner, a separate integration
+app, billing in Stripe test mode, two bounded AI assistants and an ML foundation without an
+active model. Nothing is deployed, published or sold. The local demo:
+[demo.md](demo.md). Labels used below: **implemented** (code exists), **tested** (an
+automated test exists and was run), **not verified** (written but not exercised, with the
+reason).
 
 Part A describes the V1 product. Part B (sections 1-12, from milestones 1 and 2) describes
 the engine, the lab and the agent evaluation in detail; it remains accurate where V1 did not
@@ -127,12 +130,13 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
 
 ## A.7 Testing
 
-| Suite | Command | Result (CI on `dfd01c3`, 2026-11-02; local Windows run in brackets) |
+| Suite | Command | Result (CI on `2fefd69`, run 41455086418, 2026-11-02; local Windows run in brackets) |
 | --- | --- | --- |
-| Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 376 run, 2 skipped on Ubuntu (opt-in real-model tests), 9 on Windows (plus POSIX-only tests) |
-| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 144 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 7 skipped, adding the 3 PostgreSQL-only row-lock tests; after the void-rule review fix: 150 run, 7 skipped locally) |
+| Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 376 run, 2 skipped on Ubuntu 3.11 and 3.13 (opt-in real-model tests), 9 on Windows (plus POSIX-only tests) (local: 376, 9 skipped) |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 150 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 150, 7 skipped, adding the 3 PostgreSQL-only row-lock tests) |
 | Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
-| Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
+| Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems (re-run 2026-11-02) |
+| Demo path start → findings → fixed version → retest → resolved | manual, [demo.md](demo.md) | walked through in headless Chrome on 2026-11-02: 10 findings, 10 resolved and verified; a later full scan of the flawed version reopened all 10 |
 | Customer acceptance: runner installed from the wheel / source archive in a clean venv, forms driven over HTTP, scan → triage → fix → retest | `ops/dev/customer_acceptance.py` | PASS (CPython 3.12.7 wheel, 3.13.13 sdist) |
 | Compose stack: build, migrate, readiness, static files, demo runner, scheduler backup, restore into a separate database | manual run, recorded in [install.md](install.md) and [operations.md](operations.md) | passed locally; not on a server |
 
@@ -199,6 +203,9 @@ no advantage.
 
 ## A.10 Known limitations (V1)
 
+- The commercial launch is paused (2026-11-02). The launch and operations documents
+  (launch checklist, beta operations plan, deployment runbook, economics, product texts)
+  are kept for reference; their open items are not being worked on.
 - Not deployed to a server. Docker and PostgreSQL ran locally only; the production overlay
   (TLS proxy, off-site backups) is prepared and config-checked, not run. The Claude API ran in
   one opt-in test run; the local Ollama provider has not been exercised for V1 tasks.
@@ -210,6 +217,12 @@ no advantage.
 - The engine's limits (GET only, declared endpoints, exact JSON matching) apply unchanged.
 
 # Part B: engine, lab and agent (milestones 1 and 2)
+
+> **Snapshot of milestones 1 and 2 (2026-10-26/27).** Statements about the state of the
+> whole project in this part (no hosted service, UI, database or ML; no authentication of
+> AccessGuard itself; the test count; no deployment; nothing stateful to back up) describe
+> that time. V1 added all of these; Part A is current. The engine design below is still
+> accurate except for the V1 changes in A.3.
 
 ## 1. System overview
 
@@ -248,7 +261,7 @@ Layered modular monolith; dependencies point inwards (ADR 0001), enforced by
 | `src/accessguard/entrypoints/` | `cli.py` (`validate-policy`, `plan`), `agent_options.py` (`--model` and agent limits), `exit_codes.py`, `interrupt.py` (signals → stop event, worker thread) |
 | `evaluations/accessguard_eval/` | Evaluation harness (`harness.py`), data-driven fixture server (`fixture_server.py`), fixture loader with a separate answer-key loader (`fixtures.py`), CLI (`cli.py`), fixtures with hand-written answer keys |
 | `lab/accessguard_lab/` | Vulnerable synthetic API (`server.py`), data (`dataset.py`), profiles, hand-written `ground_truth.py`, lab composition root (`scan.py`), lab CLI (`cli.py`), policies |
-| `tests/{unit,integration,security,e2e}/` | 266 tests (1 opt-in real-model test skipped by default) |
+| `tests/{unit,integration,security,e2e}/` | 266 tests at M2 (1 opt-in real-model test skipped by default); 376 in V1 (A.7) |
 | `ops/verify.sh`, `ops/verify.ps1` | One verification entry point per shell; preserve exit codes |
 | `ops/ci/` | `check_wheel.py` (no lab or evaluation code in the wheel), `build_check.py`, `secret_scan.py` |
 | `docs/` | This walkthrough, threat model, ADRs, report schema, milestone report |
@@ -490,4 +503,11 @@ the design (fixtures, budgets, strategies, three server sessions), and the decis
 committed before the model runs. The owner should review the conclusion that the measured
 advantage on `projects` is explained by a simple rule.
 
-Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`.
+V1 (2026-10-29 to 2026-11-02) was built the same way, session by session, with the owner's
+decisions and the recorded results in `docs/HANDOFF.md`. The owner ran the paid real-model
+test and claimed and checked the Stripe sandbox. The portfolio closure on 2026-11-02 (pause of
+the commercial launch, README, demo guide, Danish portfolio case, status corrections) was
+done with Claude Code at the owner's request; it changed documentation only.
+
+Interview preparation: `docs/interview-prep/M1.md`, `docs/interview-prep/M2.md`,
+`docs/interview-prep/V1.md`. Danish portfolio summary: `docs/portfolio-case.da.md`.

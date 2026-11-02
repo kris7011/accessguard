@@ -1,5 +1,9 @@
 # Launch checklist (self-serve beta)
 
+> **Paused (2026-11-02).** The commercial launch is on hold and the project is closed as a
+> portfolio project. This checklist is kept as the record of what was done and what a launch
+> would still need; no open item below is being worked on.
+
 The plan, the hosting decision basis and the open items by kind (technical, owner,
 legal, optional): [beta-operations-plan.md](beta-operations-plan.md).
 
@@ -25,7 +29,7 @@ Status per item, updated 2026-11-02:
 | Self-serve runner download (checked wheel served by the app with its SHA-256, members only) | done in code and tests (2026-11-02); needs the wheel placed on the server (`ACCESSGUARD_RUNNER_WHEEL`) |
 | Support contact on the site | **open: needs the owner's support address** |
 | AI assistants with a real model | done for the synthetic scenarios: one opt-in run against the Claude API on 2026-10-30 (`claude-opus-5-5`, 3 calls, USD 0.034 estimated, 10 tests OK; docs/ai-live-verification.md). Answer quality beyond those scenarios is not measured; the local Ollama provider is not exercised |
-| Browser check desktop + phone (Chrome) | done earlier; templates changed since in the runner install text and the runner download (2026-11-02, covered by web tests, not re-checked in a browser) |
+| Browser check desktop + phone (Chrome) | done: `ops/dev/browser_check.py` re-run on 2026-11-02 after the template changes, 0 problems; the demo path walked through in headless Chrome the same day (docs/demo.md) |
 | Publish the runner on PyPI (`pip install accessguard`) | **optional distribution choice**; the beta uses the in-app download. Wheel and sdist build and install; publishing needs a PyPI account and approval. The names `accessguard` and `accessguard-runner` were free on PyPI on 2026-10-30 |
 
 ## Infrastructure
@@ -44,7 +48,7 @@ Status per item, updated 2026-11-02:
 | Alert on a missing daily dump or off-site copy | ready: heartbeat ping after each successful off-site copy, skipped when the newest dump is older than 26 h; needs the heartbeat service choice |
 | Error monitoring (`SENTRY_DSN`) and admin e-mail | ready (needs an account or self-hosted GlitchTip) |
 | SMTP for password reset | **blocked: needs an SMTP provider** offering STARTTLS on 587 (implicit TLS on 465 is not supported by the settings). Reset flow and its e-mail limit tested with Django's test mail backend; real delivery not tested |
-| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: CI runs on draft PR #1 (private repository); all six jobs green on `71c4d3d` |
+| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: CI runs on draft PR #1 (private repository); all six jobs green on `2fefd69` (run 41455086418) |
 
 ## Payments
 
