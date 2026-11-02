@@ -171,7 +171,10 @@ requires it.
   or `RESTIC_PASSWORD` stops the start with a message.
 - `ops/docker/offsite_backup.sh`: `sh -n`, and one loop iteration per case with stubbed
   `restic` and `wget` (no dump, old dump, fresh dump, failing backup, no heartbeat URL).
-  The Sunday `restic check` branch and the real restic image were not run.
+  Since 2026-11-02 also `tests/unit/test_offsite_backup.py` (runs the script under `sh`
+  with stubbed `date`, `find`, `restic`, `wget`, `sleep`): weekday, Sunday check passed,
+  Sunday check failed (no heartbeat), failed backup, no recent dump, before 02:00 UTC.
+  The real restic image and repository were not run.
 - `ops/deploy/check_env.py`: unit tests (`tests/unit/test_deploy_env_check.py`).
 - Client address behind one proxy and the password-reset flow and limits: web tests.
 - Image digests were read from Docker Hub; the Python digest is the one built and run
