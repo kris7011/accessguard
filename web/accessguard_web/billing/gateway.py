@@ -12,6 +12,7 @@ Checkout, every later plan change updates that subscription with
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -20,6 +21,8 @@ import stripe
 
 from accessguard_web import conf
 from accessguard_web.billing.plans import PlanId
+
+logger = logging.getLogger(__name__)
 
 
 class BillingNotConfigured(Exception):  # noqa: N818 - a deployment state, shown to the user
@@ -207,15 +210,18 @@ class StripeGateway:
             raise ProviderUnavailable(type(error).__name__) from None
 
     def void_invoice(self, invoice_id: str) -> dict[str, Any]:
-        """Void an open invoice and return it as it is afterwards.
+        """Void an open invoice and return it as Stripe has it afterwards.
 
         Stripe refuses to void an invoice that is no longer open, for instance one the
-        customer paid a moment earlier. Such a refusal is an answer, not an outage: the
-        invoice is fetched again and returned as it is, so the caller sees what happened.
+        customer paid a moment earlier, but a refusal does not prove that anything changed.
+        After a refusal the invoice is fetched again and returned as it is; the caller must
+        check it, because a returned invoice that is still ``open`` was not voided.
         """
         try:
             return self._client.v1.invoices.void_invoice(invoice_id).to_dict()
-        except stripe.InvalidRequestError:
+        except stripe.InvalidRequestError as error:
+            reason = error.code or error.user_message
+            logger.warning("Stripe refused to void invoice %s: %s", invoice_id, reason)
             current = self.invoice(invoice_id)
             if current is None:
                 raise ProviderUnavailable("invoice vanished while voiding") from None

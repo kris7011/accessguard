@@ -199,14 +199,15 @@ through the API) and `invoices <email>` (every invoice of the customer).
 | Final action and void | `owner-void-e@example.test` | renewal `in_…WyB9…` failed 9 times (renewal + 8 retries); Stripe `canceled`, `cancellation_details.reason = payment_failed`. `customer.subscription.deleted` → `subscription canceled (free); voided renewal invoice in_…`; the `invoice.payment_failed` of the 9th attempt, same second → `unchanged …; invoice … kept: status void`. One audit row. First invoice (`subscription_create`) stays `paid` |
 | Pay the voided invoice | `owner-void-e` | Stripe: `InvalidRequestError` "Voided invoices cannot be paid."; invoice still `void`, `amount_paid` 0 |
 | Redelivery | `owner-void-e` | `stripe events resend` of the deletion: HTTP 200, no new stored event, still one void and one audit row |
-| Billing page after the end | `owner-void-e` | Free; "cancelled because the renewal payment still failed after Stripe's retries … voids the unpaid renewal invoice …; choose a plan below to subscribe again" |
+| Billing page after the end | `owner-void-e` | Free; "cancelled because the renewal payment still failed after Stripe's retries … voids the unpaid renewal invoice …; choose a plan below to subscribe again" (text of that run; after the review fix the page says "has voided … nothing is owed" only when the void's audit event exists, as it did here, and a neutral text otherwise, ADR 0011) |
 | Re-subscription | `owner-void-e` | hosted Checkout with the 4242 card: same customer `cus_VYRP…`, new subscription `active`, new invoice EUR 49 paid (the voided amount was not added); app Team, `cancellation_reason` cleared |
 | Requested cancellation with an open renewal | `owner-req-f@example.test` | `cancel-now` while `past_due`: reason `cancellation_requested`, outcome `subscription canceled (free)` with no invoice step; renewal invoice stays `open` |
 | Other customers | `renew-a`, `retry-b`, `recover-c`, `pay-d` | all 8 invoices `paid` before and after |
 | Webhooks | | 29 deliveries, all HTTP 200; 28 stored events, exactly one void |
 
 Not run in the sandbox (covered by tests in `test_billing.py` only): an API error during the
-void (503 and redelivery), a payment that reaches Stripe just before the void, partly paid
+void (503 and redelivery), a refused void that leaves the invoice open and unpaid (503 and
+redelivery), a payment that reaches Stripe just before the void, partly paid
 or non-renewal invoices, a delayed cancellation of an earlier subscription, two concurrent
 deliveries (PostgreSQL-only test, runs in CI).
 

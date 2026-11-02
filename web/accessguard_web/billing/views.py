@@ -28,7 +28,7 @@ from accessguard_web.billing.gateway import (
 )
 from accessguard_web.billing.models import Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PLANS, PlanId
-from accessguard_web.billing.webhooks import PAYMENT_FAILED, process_event
+from accessguard_web.billing.webhooks import PAYMENT_FAILED, process_event, renewal_voided
 from accessguard_web.projects.models import Project
 from accessguard_web.scans.models import Runner, Scan
 
@@ -56,6 +56,10 @@ def overview(request: HttpRequest) -> HttpResponse:
     configured = bool(config["SECRET_KEY"] and config["WEBHOOK_SECRET"])
     test_mode = configured and is_test_key(config["SECRET_KEY"])
     ent = entitlements_for(organization)
+    ended_unpaid = (
+        ent.subscription.status == SubscriptionStatus.CANCELED
+        and ent.subscription.cancellation_reason == PAYMENT_FAILED
+    )
     return render(
         request,
         "billing/overview.html",
@@ -70,8 +74,9 @@ def overview(request: HttpRequest) -> HttpResponse:
             "ent": ent,
             "has_subscription": _has_subscription(ent.subscription),
             "recovery": payment_recovery(ent.subscription),
-            "ended_unpaid": ent.subscription.status == SubscriptionStatus.CANCELED
-            and ent.subscription.cancellation_reason == PAYMENT_FAILED,
+            "ended_unpaid": ended_unpaid,
+            # Only a void Stripe confirmed may be shown as done; otherwise the text stays neutral.
+            "renewal_voided": ended_unpaid and renewal_voided(ent.subscription),
         },
     )
 
@@ -171,7 +176,9 @@ def webhook(request: HttpRequest) -> HttpResponse:
     try:
         outcome = process_event(event, provider)
     except ProviderUnavailable as error:
-        # Nothing was stored, so Stripe's automatic retry delivers the event again.
-        logger.warning("stripe event %s not applied, API unavailable: %s", event.get("id"), error)
+        # Nothing was stored, so Stripe's automatic retry delivers the event again: after an
+        # API outage, or after a refused void that left the invoice unchanged (VoidNotApplied).
+        logger.warning("stripe event %s not applied, answering 503 for a retry: %s: %s",
+                       event.get("id"), type(error).__name__, error)  # fmt: skip
         return HttpResponse(status=503)
     return HttpResponse(outcome, content_type="text/plain")

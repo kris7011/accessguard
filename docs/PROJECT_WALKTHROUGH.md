@@ -119,14 +119,18 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
    When Stripe finally cancels for non-payment (`cancellation_details.reason ==
    "payment_failed"`), `_void_failed_renewal` voids that subscription's open, unpaid renewal
    invoice (strictly scoped; requested cancellations and paid invoices are never touched),
-   records an audit event, and the owner can subscribe again through Checkout.
+   records an audit event, and the owner can subscribe again through Checkout. If Stripe
+   refuses the void but the invoice still qualifies, the event is not stored and the
+   endpoint answers 503, so Stripe redelivers it. The billing page says the invoice was voided
+   only when that audit event exists for the subscription; otherwise it shows a neutral
+   text (`webhooks.renewal_voided`).
 
 ## A.7 Testing
 
 | Suite | Command | Result (CI on `dfd01c3`, 2026-11-02; local Windows run in brackets) |
 | --- | --- | --- |
 | Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 376 run, 2 skipped on Ubuntu (opt-in real-model tests), 9 on Windows (plus POSIX-only tests) |
-| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 144 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 7 skipped, adding the 3 PostgreSQL-only row-lock tests) |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 144 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 7 skipped, adding the 3 PostgreSQL-only row-lock tests; after the void-rule review fix: 150 run, 7 skipped locally) |
 | Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
 | Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
 | Customer acceptance: runner installed from the wheel / source archive in a clean venv, forms driven over HTTP, scan → triage → fix → retest | `ops/dev/customer_acceptance.py` | PASS (CPython 3.12.7 wheel, 3.13.13 sdist) |
@@ -159,8 +163,10 @@ views, because Stripe's test clock does not move the app's clock. Results and li
 The billing webhook tests (`test_billing.py`) replace Stripe's API with an in-memory
 `FakeStripe` that returns the "current" subscription and invoices and voids like the
 gateway, while the real signature check runs. `FailedRenewalVoidTests` cover the void rule
-(scope, duplicates, late events, API errors, a payment that wins the race, other
-organisations, the page and Checkout afterwards). Three concurrency tests
+(scope, duplicates, late events, API errors, a refused void that is retried, a full or
+partial payment that wins the race, other organisations, the page text for each outcome
+and Checkout afterwards). `GatewayVoidRefusalTests` run a refused void through the real
+`StripeGateway` and endpoint with only Stripe's SDK services mocked. Three concurrency tests
 (`ConcurrentWebhookTests`) use two threads and database connections; they need row locks and
 therefore run only on PostgreSQL (CI), not on SQLite. The void rule was also run in the
 sandbox on 2026-11-02 ([ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md)).

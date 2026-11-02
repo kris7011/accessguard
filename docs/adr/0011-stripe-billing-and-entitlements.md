@@ -160,7 +160,8 @@ the tenant check (`_belongs_to`) and inside the same row lock and transaction:
 - is idempotent: every later event of the subscription finds the invoice `void` and stops;
 - concurrency with a payment is resolved by Stripe, which applies either the payment or the
   void. `StripeGateway.void_invoice` turns a refusal (`InvalidRequestError`) into "return the
-  invoice as it is now", so a paid invoice is kept and a warning is logged (possible refund);
+  invoice as it is now"; the webhook then re-checks it (see the review fix below), so a paid
+  or partly paid invoice is kept and a paid one logs a warning (possible refund);
 - a transient API error raises `ProviderUnavailable`: the transaction rolls back, nothing is
   stored, the endpoint answers 503 and Stripe redelivers;
 - each void writes an audit event `billing.renewal_invoice_voided`, and the row stores
@@ -189,6 +190,47 @@ accounting question for the owner (Stripe's API documentation says the same).
 
 **Revisit when** a reconciliation job is introduced, the Dashboard's invoice action changes,
 or the grace period is aligned with the retry window.
+
+### Review fix (2026-11-02): an unfinished void is retried, and the page claims only a confirmed void
+
+A review of `ee1af63` found two defects:
+
+1. **A refused void counted as handled.** `StripeGateway.void_invoice` catches every
+   `InvalidRequestError` and returns the re-fetched invoice. If that invoice was still
+   `open` and unpaid, `_void_failed_renewal` stored the outcome `kept: void refused, status
+   open` and the endpoint answered 200, so Stripe never redelivered and the invoice stayed
+   payable. Now the webhook runs `_keep_invoice_because` again on the invoice the refusal
+   returned. A *confirmed change* (`paid`, partly paid, `void`, ...) is kept as before,
+   with its reason. If the invoice *still qualifies*, the void did not happen: the webhook
+   raises `VoidNotApplied` (a `ProviderUnavailable`), the transaction rolls back, nothing is
+   stored, the endpoint answers 503 and Stripe redelivers. The gateway still only reports
+   Stripe's state, plus a warning with the refusal's code. The decision stays in the webhook
+   because that is where the eligibility rule lives, so a partly paid invoice is kept at
+   once instead of after one more retry.
+2. **The billing page promised a void it had not checked.** It said "voids the unpaid
+   renewal invoice, so nothing is owed" whenever the status was `canceled` with reason
+   `payment_failed`, also when the invoice had been paid or partly paid and was kept. Now
+   `webhooks.renewal_voided` looks for the `billing.renewal_invoice_voided` audit event of
+   the row's subscription. That event is written only after Stripe returned the invoice
+   `void`, in the same transaction. If it exists, the page says the invoice was voided and
+   nothing is owed. Otherwise it says the invoice was not voided and points to the
+   Customer Portal for its status, with no promise of a void or a refund. The past-due
+   timeline now states the condition ("if the renewal invoice is then still open with
+   nothing paid") instead of a promise.
+
+*Alternatives considered:* raise in the gateway whenever a refused void leaves the invoice
+`open`. That is simpler, but it splits the rule across two layers and retries a partly paid
+invoice once more before keeping it. For the page, a new `Subscription` column (e.g. the
+voided invoice id) would also work, but it needs a migration and must be reset whenever the
+row starts following another subscription. The audit event is already keyed by
+subscription, and if it is missing the page shows the neutral text (fails safe).
+
+*Limits:* a void that Stripe keeps refusing although the invoice stays open and unpaid makes
+Stripe redeliver until it gives up (three days in live mode). Until then the row keeps its
+previous state (`past_due`, Free once the grace period has ended), because the cancellation
+rolls back with the event. Each attempt logs a warning, and Stripe flags the failing
+endpoint. This branch was tested with mocks only, not in the sandbox: Stripe offers no way
+to make it refuse a void on demand.
 
 ## Revisit when
 

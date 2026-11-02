@@ -9,7 +9,8 @@ Rules:
   visible warning; after it the organisation falls back to Free. Stripe's payment retries
   run on separately and longer (``RETRY_DAYS``, 14 in the Dashboard), so a customer can be
   on Free while Stripe still retries; a successful retry restores the plan. If every retry
-  fails, Stripe cancels the subscription and the webhook voids the unpaid renewal invoice.
+  fails, Stripe cancels the subscription and the webhook voids the renewal invoice if it is
+  still open with nothing paid (``webhooks._void_failed_renewal``).
 * Every other status (none, incomplete, unpaid, canceled, ...) gives Free. Existing data
   is kept; only new work is limited.
 """

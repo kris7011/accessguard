@@ -2,6 +2,45 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Review fix of the renewal-invoice void rule (2026-11-02, tenth session)
+
+Status: **fixed and tested locally; CI numbers for this commit are reported in the session,
+not committed** (no documentation-only commit for CI numbers). Test mode only: no live key,
+purchase, deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private.
+
+A review of `ee1af63` found two defects; details, alternatives and limits in ADR 0011,
+"Review fix":
+
+| Defect | Fix | Files |
+| --- | --- | --- |
+| A refused void whose re-fetched invoice was still `open` and unpaid was stored as handled (`kept: void refused, status open`, HTTP 200), so Stripe never redelivered | The webhook re-checks the returned invoice with `_keep_invoice_because`. It is kept if it no longer qualifies (paid, partly paid). If it still qualifies, `VoidNotApplied` (a `ProviderUnavailable`) rolls back and the endpoint answers 503. The gateway logs the refusal's code | `billing/webhooks.py`, `billing/gateway.py`, `billing/views.py` (log text) |
+| The billing page said "voids the unpaid renewal invoice, so nothing is owed" for every `payment_failed` cancellation | `webhooks.renewal_voided` checks for the `billing.renewal_invoice_voided` audit event of the row's subscription. With it: "has voided … nothing is owed"; without it: "was not voided", status in the Customer Portal. The past-due timeline states the condition instead of a promise | `billing/webhooks.py`, `billing/views.py`, `templates/billing/overview.html`, `billing/entitlements.py` (docstring) |
+
+Kept unchanged: the payment rule and its scope, the 7-day grace period, the sandbox results
+(the README now notes that the page text of that run has since changed; the run had the
+audit event, so the page would now show the confirmed variant). The test-clock run was not
+repeated; the new branches cannot be triggered on demand in the sandbox.
+
+Tests (`test_billing.py`): `FakeStripe` now has `changed_while_voiding` (a full or partial
+payment just before the void) and `refused` (Stripe refuses while the invoice is unchanged).
+New in `FailedRenewalVoidTests`: a refused void of a still-qualifying invoice (503, nothing
+stored, row rolled back, no void claim on the page, redelivery voids it), a partial payment
+that wins the race (kept, neutral page), a void of another subscription not claimed, and a
+past-due timeline without a promise. The paid-race test now also checks the page.
+`GatewayVoidRefusalTests` (new, 2 tests) go through the real `StripeGateway` and endpoint
+with only the SDK's `SubscriptionService`/`InvoiceService` mocked. In the first, Stripe
+refuses, the invoice is still open and unpaid, the endpoint answers 503 with no stored
+event, and the redelivery of the same event id is then processed. In the second, a refusal
+after a full or partial payment is final (200, kept). Negative control: with the previous
+`webhooks.py`, `views.py` and template restored, 8 of these 16 tests failed.
+
+Local checks, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02, final
+tree): all 11 steps ok. Engine/runner/ML 376 OK, 9 skipped (unchanged); web tests on
+SQLite **150 OK, 7 skipped** (3 PostgreSQL-only row-lock tests, 3 paid, 1 free); before:
+144 / 7. A first run failed lint, format and types (a long line, unwrapped lines, a missing
+annotation in the new tests); fixed before the final run.
+
 ## Failed renewal voided after Stripe's final action (2026-11-02, ninth session)
 
 Status: **done and verified in the sandbox.** Test mode only: no live key, purchase,

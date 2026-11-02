@@ -16,7 +16,7 @@ from unittest import mock, skipUnless
 import stripe
 from django.conf import settings
 from django.db import connection
-from django.test import TestCase, TransactionTestCase, override_settings
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -80,9 +80,10 @@ def subscription(
 class FakeStripe:
     """Subscriptions and invoices as Stripe's API returns them now (a ``StripeApi``).
 
-    ``void_invoice`` behaves like ``StripeGateway.void_invoice``: an invoice that is no
-    longer open is returned unchanged. ``paid_while_voiding`` simulates a customer whose
-    payment reaches Stripe just before our void does.
+    ``void_invoice`` behaves like ``StripeGateway.void_invoice``: a refused void returns the
+    invoice as it is. ``changed_while_voiding`` simulates a payment that reaches Stripe just
+    before our void does; Stripe then refuses to void an invoice that is no longer open, and
+    every invoice in ``refused`` (for a reason the invoice does not show).
     """
 
     def __init__(self) -> None:
@@ -90,7 +91,8 @@ class FakeStripe:
         self.invoices: dict[str, dict[str, Any]] = {}
         self.retrieved: list[str] = []
         self.voided: list[str] = []
-        self.paid_while_voiding: set[str] = set()
+        self.changed_while_voiding: dict[str, dict[str, Any]] = {}
+        self.refused: set[str] = set()
 
     def put(self, obj: dict[str, Any]) -> dict[str, Any]:
         store = self.invoices if obj.get("object") == "invoice" else self.subscriptions
@@ -108,9 +110,8 @@ class FakeStripe:
 
     def void_invoice(self, invoice_id: str) -> dict[str, Any]:
         found = self.invoices[invoice_id]
-        if invoice_id in self.paid_while_voiding:
-            found.update(status="paid", amount_paid=found["amount_due"], amount_remaining=0)
-        if found["status"] == "open":
+        found.update(self.changed_while_voiding.pop(invoice_id, {}))
+        if found["status"] == "open" and invoice_id not in self.refused:
             found.update(status="void", amount_remaining=0)
             self.voided.append(invoice_id)
         return copy.deepcopy(found)
@@ -158,12 +159,17 @@ class StripeWebhookCase(TestCase):
             self.addCleanup(patcher.stop)
 
     def deliver(self, payload: dict[str, Any], *, secret: str = WEBHOOK_SECRET) -> Any:
-        body = json.dumps(payload)
-        header = stripe.WebhookSignature.generate_signature_header(body, secret)
-        return self.client.post(
-            reverse("stripe_webhook"), data=body, content_type="application/json",
-            HTTP_STRIPE_SIGNATURE=header,
-        )  # fmt: skip
+        return deliver(self.client, payload, secret=secret)
+
+
+def deliver(client: Client, payload: dict[str, Any], *, secret: str = WEBHOOK_SECRET) -> Any:
+    """POST ``payload`` to the webhook endpoint with a valid Stripe signature."""
+    body = json.dumps(payload)
+    header = stripe.WebhookSignature.generate_signature_header(body, secret)
+    return client.post(
+        reverse("stripe_webhook"), data=body, content_type="application/json",
+        HTTP_STRIPE_SIGNATURE=header,
+    )  # fmt: skip
 
 
 class WebhookTests(StripeWebhookCase):
@@ -519,13 +525,51 @@ class FailedRenewalVoidTests(StripeWebhookCase):
             organization=self.org, action="billing.renewal_invoice_voided").count(), 1)  # fmt: skip
 
     def test_a_payment_that_reaches_stripe_first_is_kept(self) -> None:
-        self.stripe.paid_while_voiding.add("in_renew")
+        self.stripe.changed_while_voiding["in_renew"] = {
+            "status": "paid", "amount_paid": 4900, "amount_remaining": 0}  # fmt: skip
         with self.assertLogs("accessguard_web.billing.webhooks", "WARNING") as logs:
             response = self.cancel()
         self.assertIn("invoice in_renew kept: void refused, status paid", response.content.decode())
         self.assertEqual((self.invoice_status(), self.stripe.voided), ("paid", []))
         self.assertIn("may need a refund", logs.output[0])
         self.assertEqual(entitlements_for(self.org).plan.id, PlanId.FREE)
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertContains(page, "The renewal invoice was not voided")
+        self.assertNotContains(page, "nothing is owed")
+        self.assertNotContains(page, "refund")
+
+    def test_a_partial_payment_that_reaches_stripe_first_is_kept(self) -> None:
+        # Stripe refused the void; the invoice is still open, but no longer unpaid.
+        self.stripe.changed_while_voiding["in_renew"] = {
+            "amount_paid": 1000, "amount_remaining": 3900}  # fmt: skip
+        self.stripe.refused.add("in_renew")
+        response = self.cancel()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("invoice in_renew kept: void refused, partly paid", response.content.decode())
+        self.assertEqual((self.invoice_status(), self.stripe.voided), ("open", []))
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertContains(page, "The renewal invoice was not voided")
+        self.assertNotContains(page, "nothing is owed")
+
+    def test_a_refused_void_of_an_invoice_that_still_qualifies_is_retried(self) -> None:
+        self.stripe.refused.add("in_renew")
+        response = self.cancel()
+        self.assertEqual(response.status_code, 503)
+        self.assertFalse(StripeEvent.objects.filter(event_id="evt_deleted").exists())
+        self.assertFalse(
+            AuditEvent.objects.filter(action="billing.renewal_invoice_voided").exists()
+        )
+        row = Subscription.objects.get(organization=self.org)
+        self.assertEqual(row.status, SubscriptionStatus.PAST_DUE, "rolled back with the event")
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertNotContains(page, "nothing is owed")
+        self.assertNotContains(page, "has voided")
+        # Stripe redelivers the same event once the void goes through.
+        self.stripe.refused.clear()
+        response = self.cancel()
+        self.assertEqual(response.content.decode(),
+                         "subscription canceled (free); voided renewal invoice in_renew")  # fmt: skip
+        self.assertEqual((self.invoice_status(), self.stripe.voided), ("void", ["in_renew"]))
 
     def test_unreachable_stripe_api_while_voiding_makes_stripe_retry(self) -> None:
         for failing in ("invoice", "void_invoice"):
@@ -593,7 +637,7 @@ class FailedRenewalVoidTests(StripeWebhookCase):
         client = login(self.owner)
         page = client.get(reverse("billing:overview"))
         self.assertContains(page, "renewal payment still failed after Stripe")
-        self.assertContains(page, "voids the unpaid renewal invoice")
+        self.assertContains(page, "has voided the unpaid renewal invoice, so nothing is owed")
         self.assertContains(page, "Choose Team")
         session = mock.Mock(url="https://checkout.stripe.com/c/pay/cs_test_again")
         with (
@@ -609,7 +653,25 @@ class FailedRenewalVoidTests(StripeWebhookCase):
     def test_requested_cancellation_does_not_claim_a_voided_invoice(self) -> None:
         self.cancel(reason="cancellation_requested")
         page = login(self.owner).get(reverse("billing:overview"))
-        self.assertNotContains(page, "voids the unpaid renewal invoice")
+        self.assertNotContains(page, "voided")
+        self.assertNotContains(page, "nothing is owed")
+
+    def test_page_claims_only_a_void_of_the_followed_subscription(self) -> None:
+        # in_renew was kept (partly paid); a void recorded for another subscription of the
+        # organisation must not be shown as this subscription's result.
+        self.stripe.put(renewal_invoice("in_renew", "sub_123", self.org.pk, amount_paid=1000))
+        self.cancel()
+        AuditEvent.objects.create(organization=self.org, action="billing.renewal_invoice_voided",
+                                  detail={"invoice": "in_old", "subscription": "sub_old"})  # fmt: skip
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertContains(page, "The renewal invoice was not voided")
+        self.assertNotContains(page, "nothing is owed")
+
+    def test_past_due_timeline_does_not_promise_a_void(self) -> None:
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertContains(page, "Failed payment: what happens next")
+        self.assertContains(page, "If the renewal invoice is then still open with nothing paid")
+        self.assertNotContains(page, "nothing is owed")
 
 
 class GracePeriodDisplayTests(StripeWebhookCase):
@@ -877,6 +939,82 @@ class GatewayInvoiceTests(TestCase):
         missing = stripe.InvalidRequestError("No such invoice", "id", code="resource_missing")  # type: ignore[no-untyped-call]
         with mock.patch(f"{INVOICE_SERVICE}.retrieve", side_effect=missing):
             self.assertIsNone(self.gateway.invoice("in_missing"))
+
+
+@override_settings(STRIPE=STRIPE_TEST)
+class GatewayVoidRefusalTests(TestCase):
+    """A refused void through the real ``StripeGateway`` and endpoint; only the SDK is mocked."""
+
+    def setUp(self) -> None:
+        self.org, _ = make_org("Refused")
+        Subscription.objects.filter(organization=self.org).update(
+            status=SubscriptionStatus.PAST_DUE, plan=PlanId.TEAM, stripe_customer_id="cus_123",
+            stripe_subscription_id="sub_123", past_due_since=timezone.now(),
+        )  # fmt: skip
+        cancelled = cancelled_for_nonpayment(self.org.pk, "in_renew")
+        self.payload = event("evt_deleted", "customer.subscription.deleted", cancelled)
+        for target, value in (
+            (f"{SUBSCRIPTION_SERVICE}.retrieve", stripe_object(cancelled)),
+            (f"{INVOICE_SERVICE}.retrieve", self.invoice_object()),
+        ):
+            patcher = mock.patch(target, return_value=value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def invoice_object(self, **change: Any) -> stripe.Invoice:
+        values = renewal_invoice("in_renew", "sub_123", self.org.pk, **change)
+        return stripe.Invoice.construct_from(values, "sk_test_dummy")
+
+    def test_a_refused_void_that_leaves_the_invoice_open_and_unpaid_is_retried(self) -> None:
+        # Stripe refuses for a reason the invoice does not show: it is still open and unpaid.
+        refused = stripe.InvalidRequestError("This invoice cannot be voided", None)  # type: ignore[no-untyped-call]
+        with (
+            mock.patch(f"{INVOICE_SERVICE}.void_invoice", side_effect=refused),
+            self.assertLogs("accessguard_web.billing", "WARNING") as logs,
+        ):
+            response = deliver(self.client, self.payload)
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("Stripe refused to void invoice in_renew", logs.output[0])
+        self.assertIn("VoidNotApplied", logs.output[-1])
+        self.assertFalse(StripeEvent.objects.filter(event_id="evt_deleted").exists())
+        self.assertFalse(
+            AuditEvent.objects.filter(action="billing.renewal_invoice_voided").exists()
+        )
+        self.assertEqual(Subscription.objects.get(organization=self.org).status,
+                         SubscriptionStatus.PAST_DUE)  # fmt: skip
+        # Stripe's redelivery of the same event is processed once the void goes through.
+        with mock.patch(f"{INVOICE_SERVICE}.void_invoice",
+                        return_value=self.invoice_object(status="void")) as void:  # fmt: skip
+            response = deliver(self.client, self.payload)
+        void.assert_called_once_with("in_renew")
+        self.assertEqual(response.content.decode(),
+                         "subscription canceled (free); voided renewal invoice in_renew")  # fmt: skip
+        self.assertEqual(StripeEvent.objects.get(event_id="evt_deleted").outcome,
+                         response.content.decode())  # fmt: skip
+        self.assertTrue(AuditEvent.objects.filter(action="billing.renewal_invoice_voided").exists())
+
+    def test_a_refused_void_of_a_paid_or_partly_paid_invoice_is_final(self) -> None:
+        refused = stripe.InvalidRequestError("This invoice can no longer be voided", None)  # type: ignore[no-untyped-call]
+        variants: dict[str, dict[str, Any]] = {
+            "status paid": {"status": "paid", "amount_paid": 4900, "amount_remaining": 0},
+            "partly paid": {"amount_paid": 1000, "amount_remaining": 3900},
+        }
+        for number, (expected, change) in enumerate(variants.items()):
+            with (
+                self.subTest(expected),
+                mock.patch(f"{INVOICE_SERVICE}.void_invoice", side_effect=refused),
+                # Open and unpaid when checked, changed by the time Stripe answers the void.
+                mock.patch(f"{INVOICE_SERVICE}.retrieve", side_effect=[
+                    self.invoice_object(), self.invoice_object(**change)]),
+            ):  # fmt: skip
+                response = deliver(self.client, {**self.payload, "id": f"evt_{number}"})
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(f"invoice in_renew kept: void refused, {expected}",
+                          response.content.decode())  # fmt: skip
+            self.assertTrue(StripeEvent.objects.filter(event_id=f"evt_{number}").exists())
+        self.assertFalse(
+            AuditEvent.objects.filter(action="billing.renewal_invoice_voided").exists()
+        )
 
 
 class GatewaySafetyTests(TestCase):

@@ -22,8 +22,9 @@ neither the payload nor its timestamp says what is true now
   renewal could not be collected (``cancellation_details.reason == "payment_failed"``), that
   subscription's open renewal invoice is voided, so it can no longer be paid for a plan
   that has ended. See ``_void_failed_renewal`` for the exact scope.
-* **Retry on failure:** if Stripe's API cannot be reached, nothing is stored and the
-  endpoint answers 503, so Stripe delivers the event again.
+* **Retry on failure:** if Stripe's API cannot be reached, or refuses a void although the
+  invoice still qualifies for it, nothing is stored and the endpoint answers 503, so Stripe
+  delivers the event again.
 * **Safe by default:** unknown event types are acknowledged and recorded, never applied.
 """
 
@@ -37,8 +38,8 @@ from typing import Any, Protocol
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from accessguard_web.accounts.models import Organization, record
-from accessguard_web.billing.gateway import ENDED_STATUSES, plan_for_price
+from accessguard_web.accounts.models import AuditEvent, Organization, record
+from accessguard_web.billing.gateway import ENDED_STATUSES, ProviderUnavailable, plan_for_price
 from accessguard_web.billing.models import StripeEvent, Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PLANS, PlanId
 
@@ -56,6 +57,10 @@ class StripeApi(Protocol):
     def invoice(self, invoice_id: str) -> dict[str, Any] | None: ...
 
     def void_invoice(self, invoice_id: str) -> dict[str, Any]: ...
+
+
+class VoidNotApplied(ProviderUnavailable):
+    """Stripe refused a void, but the invoice still qualifies: the event must be retried."""
 
 
 SUBSCRIPTION_EVENTS = frozenset(
@@ -78,6 +83,8 @@ PAID_UP = frozenset({SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING})
 # Stripe sets this cancellation reason itself when its payment retries are exhausted;
 # a cancellation through the API, Dashboard or Customer Portal says cancellation_requested.
 PAYMENT_FAILED = "payment_failed"
+# Audit action written only after Stripe confirmed the void (the invoice came back void).
+RENEWAL_VOIDED = "billing.renewal_invoice_voided"
 
 
 @dataclass(frozen=True)
@@ -92,7 +99,8 @@ class Reference:
 def process_event(event: dict[str, Any], stripe_api: StripeApi) -> str:
     """Apply ``event`` once. Returns a short outcome for logs and tests.
 
-    Raises ``ProviderUnavailable`` (from ``stripe_api``) with nothing stored.
+    Raises ``ProviderUnavailable`` (from ``stripe_api``, or ``VoidNotApplied``) with nothing
+    stored.
     """
     event_id, event_type = str(event.get("id", "")), str(event.get("type", ""))
     created = int(event.get("created") or 0)
@@ -237,8 +245,10 @@ def _void_failed_renewal(
     invoice) is kept. Returns ``None`` when the rule does not apply, else what happened.
 
     Safe to repeat: every later event of the subscription finds the invoice already void.
-    If the customer pays at the same moment, Stripe applies only one of the two; a refused
-    void returns the invoice as it is (paid), and nothing else changes.
+    If the customer pays at the same moment, Stripe applies only one of the two. A refused
+    void counts only when Stripe's invoice shows why (paid, partly paid, ...): it is then
+    kept. A refusal that leaves it qualifying raises ``VoidNotApplied``, so the event is not
+    stored and Stripe redelivers it.
     """
     reason = (current.get("cancellation_details") or {}).get("reason")
     if current.get("status") != SubscriptionStatus.CANCELED or reason != PAYMENT_FAILED:
@@ -251,10 +261,13 @@ def _void_failed_renewal(
     if kept is None:
         invoice = stripe_api.void_invoice(invoice_id)
         if invoice.get("status") == "void":
-            record(row.organization, None, "billing.renewal_invoice_voided", "stripe",
+            record(row.organization, None, RENEWAL_VOIDED, "stripe",
                    invoice=invoice_id, subscription=str(current.get("id")))  # fmt: skip
             return f"voided renewal invoice {invoice_id}"
-        kept = f"void refused, status {invoice.get('status')}"
+        refused_because = _keep_invoice_because(invoice, current)
+        if refused_because is None:
+            raise VoidNotApplied(f"void of {invoice_id} refused, invoice still open and unpaid")
+        kept = f"void refused, {refused_because}"
     if invoice is not None and invoice.get("status") == "paid":
         logger.warning(
             "renewal invoice %s of the cancelled subscription %s was paid although the plan "
@@ -278,6 +291,18 @@ def _keep_invoice_because(invoice: dict[str, Any] | None, current: dict[str, Any
     if invoice.get("amount_paid"):
         return "partly paid"
     return None
+
+
+def renewal_voided(row: Subscription) -> bool:
+    """Whether Stripe confirmed voiding the renewal invoice of the row's subscription.
+
+    Read from the audit event written in the same transaction as the void, so the billing
+    page can claim the void only once it happened, and only for this subscription.
+    """
+    return bool(row.stripe_subscription_id) and AuditEvent.objects.filter(
+        organization_id=row.organization_id, action=RENEWAL_VOIDED,
+        detail__subscription=row.stripe_subscription_id,
+    ).exists()  # fmt: skip
 
 
 def _timestamp(value: object) -> datetime | None:
