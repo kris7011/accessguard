@@ -2,11 +2,78 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Package 7: real-model run recorded (2026-11-02, sixth session)
+
+Status: **package 7 accepted for the synthetic scenarios.** The owner ran the paid test
+locally on 2026-10-30; this session checked the evidence file and updated the records. No
+model call, purchase, deployment or merge in this session. Branch
+`feature/v1-commercial-beta`, draft PR #1, repository private.
+
+### Result
+
+- Owner's console output: `Ran 10 tests in 36.004s`, `OK`, no skips; model
+  `claude-opus-5-5`; three model requests with HTTP 200.
+- `.local/ai-live/runs.jsonl` (checked without repeating the run): exactly three lines,
+  2026-10-30 13:52:53-13:53:13 UTC, provider `anthropic`, one attempt each (no fallback).
+
+| Test | Outcome | Input | Output | Latency | USD (estimate) |
+| --- | --- | --- | --- | --- | --- |
+| setup (`setup-v1`) | `ok` | 1,049 | 125 | 4,329 ms | 0.00670 |
+| explanation (`explain-v1`) | `ok` | 1,146 | 913 | 13,548 ms | 0.02284 |
+| cut-off (`explain-v1`, `max_tokens=16`) | `failed`, "cut off before it was complete", test passed | 1,049 | 16 | 3,934 ms | 0.00452 |
+| total | | 3,244 | 1,054 | | 0.03406 |
+
+The sums match the console totals. The estimate is list price times tokens; it has not
+been compared with the Console's cost page.
+
+### What is now verified, and what is not
+
+Criterion by criterion in docs/milestones/V1.md ("Package 7 criteria after the real-model
+run"). In short, verified with the real model for one synthetic OpenAPI document and the
+finding `orbit-billing@ben`: both flows through the app's adapter with structured output,
+validation, review before anything changes, AI-draft labelling, no secret or canary sent,
+usage record for `ok` and cut-off. Quota and opt-in are decided before any provider call
+and were already covered by tests.
+
+Not shown by this run: general model quality or usefulness beyond these scenarios,
+consistency across runs, a real refusal, a real API timeout, the Ollama provider, ongoing ML
+improvement.
+
+### Documentation changes
+
+- `docs/ai-live-verification.md`: result section, status; the PowerShell procedure replaced
+  by the one that worked (separate `Read-Host -AsSecureString`, `PSCredential` for the
+  hand-over, a key check before the tests start, clean-up in `finally`). The cause of the
+  earlier empty key entries was not established and is not stated. The new step 2 was
+  dry-checked in Windows PowerShell 5.1 with the test command replaced (dummy values; no
+  API call).
+- `docs/milestones/V1.md`: 11 of 12 accepted; package 7 row and criteria table.
+- `docs/PROJECT_WALKTHROUGH.md`, `docs/launch-checklist.md`: the "pending/blocked" AI
+  statements and the CI push item corrected.
+
+### Checks (documentation-only change)
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh` on 2026-11-02: all 11 steps ok; 357
+engine/runner/ML tests OK (2 opt-in skipped), 111 web tests OK (6 skipped: 2
+PostgreSQL-only, 3 paid, 1 free, as no opt-in was set); detect-secrets exit 0.
+
+### CI on `71c4d3d` (usage of refused and cut-off answers)
+
+Run 41056167999: all six jobs passed.
+
+### Pending (owner)
+
+1. Compare the estimate with the Console's cost page (optional) and disable or delete the
+   API key if it is not needed again.
+2. A DPA with the AI provider before AI assistance is enabled for customers
+   (launch checklist).
+
 ## Package 7: AI assistant verification (2026-10-30, fifth session)
 
-Status: **real-model run PENDING** (no `ANTHROPIC_API_KEY`; paid calls need an approved
-budget). Everything that needs no paid call is done. No paid call, purchase, deployment or
-merge. Branch `feature/v1-commercial-beta`, draft PR #1.
+Status: superseded by the sixth session above (the real-model run is done). At the time:
+real-model run pending (no `ANTHROPIC_API_KEY`; paid calls need an approved budget).
+Everything that needed no paid call was done. No paid call, purchase, deployment or merge.
+Branch `feature/v1-commercial-beta`, draft PR #1.
 
 ### CI on `c58a853` (billing hardening)
 

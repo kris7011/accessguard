@@ -125,9 +125,12 @@ Mocks are used only at external boundaries: Stripe Checkout/Portal calls, the An
 call, and fake assistant providers. `tests/test_assistant_flows.py` runs both assistant
 flows through the pages, the provider port and the usage record, with a recording fake by
 default and with the real Claude API when opted in (`ACCESSGUARD_AI_LIVE=paid`,
-[ai-live-verification.md](ai-live-verification.md)). Run without cost so far: the fake
-flows, a timeout through the real SDK, and a real `401` for an invalid key. **The paid
-real-model run is pending** (no API key yet). A refused or cut-off answer is stored with
+[ai-live-verification.md](ai-live-verification.md)). Run without cost: the fake flows, a
+timeout through the real SDK, and a real `401` for an invalid key. **One paid real-model
+run passed on 2026-10-30** (`claude-opus-5-5`, three calls, about USD 0.03 estimated): both
+synthetic scenarios answered, validated and recorded, and a deliberately cut-off answer
+reported as a failure. It shows the integration works for these scenarios, not general
+answer quality. A refused or cut-off answer is stored with
 its model and tokens; with a refusal fallback, `AssistantRun` holds the attempt that
 produced the answer, and the adapter's `Attempt` list (from `usage.iterations`) gives every
 attempt to the live run's evidence file (tested with a mocked SDK response).
@@ -165,11 +168,12 @@ no advantage.
 
 ## A.10 Known limitations (V1)
 
-- Not deployed to a server. Docker and PostgreSQL ran locally only; AI providers have not
-  been exercised for real. Stripe ran only in a temporary test sandbox, never in live mode.
+- Not deployed to a server. Docker and PostgreSQL ran locally only. The Claude API ran in
+  one opt-in test run; the local Ollama provider has not been exercised for V1 tasks.
+  Stripe ran only in a temporary test sandbox, never in live mode.
 - No e-mail verification; login throttling per installation; English UI only.
-- Assistant quality is unmeasured (no eval set); no real model call made for V1 tasks yet
-  (the opt-in test is prepared and waits for an approved budget).
+- Assistant quality is unmeasured (no eval set): the one real-model run covers two
+  synthetic scenarios once, not other APIs, real customer code or repeatability.
 - Legal texts are not written; VAT handling not decided.
 - The engine's limits (GET only, declared endpoints, exact JSON matching) apply unchanged.
 

@@ -1,6 +1,6 @@
 # Launch checklist (paid beta)
 
-Status per item, updated 2026-10-30:
+Status per item, updated 2026-11-02:
 
 - **done**: verified on the development machine (tests or a recorded run; mocks do not count).
 - **ready**: prepared and locally checked as far as possible; the last step needs an external
@@ -19,7 +19,7 @@ Status per item, updated 2026-10-30:
 | Findings: evidence, guidance, triage, retest with positive controls, history | done |
 | Runner from the distribution package: clean venv, no repository on the path, full customer journey | done: wheel on CPython 3.12.7 and source archive on 3.13.13, `ops/dev/customer_acceptance.py` PASS |
 | In-app install instructions | done: wheel install, warning against the unpublished PyPI name (`0ccdd87`) |
-| AI assistants with a real model | **blocked: needs `ANTHROPIC_API_KEY`** (about 5 calls, well under $1 at Opus 5.5 list prices), or a machine with more free memory for the local model. Fake providers only so far |
+| AI assistants with a real model | done for the synthetic scenarios: one opt-in run against the Claude API on 2026-10-30 (`claude-opus-5-5`, 3 calls, USD 0.034 estimated, 10 tests OK; docs/ai-live-verification.md). Answer quality beyond those scenarios is not measured; the local Ollama provider is not exercised |
 | Browser check desktop + phone (Chrome) | done (previous session; templates changed since only in the runner install text) |
 | Reserve the name and publish the runner (`pip install accessguard`) | ready: wheel and sdist build and install. **Needs a PyPI account and approval.** The names `accessguard` and `accessguard-runner` were free on PyPI on 2026-10-30 |
 
@@ -37,7 +37,7 @@ Status per item, updated 2026-10-30:
 | Alert on `scheduler: ERROR` lines / missing daily dump | ready (documented; needs the monitoring choice) |
 | Error monitoring (`SENTRY_DSN`) and admin e-mail | ready (needs an account or self-hosted GlitchTip) |
 | SMTP for password reset | **blocked: needs an SMTP provider** offering STARTTLS on 587 (implicit TLS on 465 is not supported by the settings). Not tested beyond the console backend |
-| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | **needs approval to push** (GitHub remote below) |
+| Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: CI runs on draft PR #1 (private repository); all six jobs green on `71c4d3d` |
 
 ## Payments
 
