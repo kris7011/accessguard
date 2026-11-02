@@ -78,28 +78,68 @@ def subscription(
 
 
 class FakeStripe:
-    """Subscriptions as Stripe's API returns them now, for ``StripeGateway.subscription``."""
+    """Subscriptions and invoices as Stripe's API returns them now (a ``StripeApi``).
+
+    ``void_invoice`` behaves like ``StripeGateway.void_invoice``: an invoice that is no
+    longer open is returned unchanged. ``paid_while_voiding`` simulates a customer whose
+    payment reaches Stripe just before our void does.
+    """
 
     def __init__(self) -> None:
         self.subscriptions: dict[str, dict[str, Any]] = {}
+        self.invoices: dict[str, dict[str, Any]] = {}
         self.retrieved: list[str] = []
+        self.voided: list[str] = []
+        self.paid_while_voiding: set[str] = set()
 
     def put(self, obj: dict[str, Any]) -> dict[str, Any]:
-        self.subscriptions[obj["id"]] = copy.deepcopy(obj)
+        store = self.invoices if obj.get("object") == "invoice" else self.subscriptions
+        store[obj["id"]] = copy.deepcopy(obj)
         return obj
 
-    def retrieve(self, _gateway: object, subscription_id: str) -> dict[str, Any] | None:
+    def subscription(self, subscription_id: str) -> dict[str, Any] | None:
         self.retrieved.append(subscription_id)
         found = self.subscriptions.get(subscription_id)
         return copy.deepcopy(found) if found else None
 
+    def invoice(self, invoice_id: str) -> dict[str, Any] | None:
+        found = self.invoices.get(invoice_id)
+        return copy.deepcopy(found) if found else None
 
-def invoice(invoice_id: str, subscription_id: str, org_id: int) -> dict[str, Any]:
+    def void_invoice(self, invoice_id: str) -> dict[str, Any]:
+        found = self.invoices[invoice_id]
+        if invoice_id in self.paid_while_voiding:
+            found.update(status="paid", amount_paid=found["amount_due"], amount_remaining=0)
+        if found["status"] == "open":
+            found.update(status="void", amount_remaining=0)
+            self.voided.append(invoice_id)
+        return copy.deepcopy(found)
+
+
+def invoice(invoice_id: str, subscription_id: str, org_id: int, **extra: Any) -> dict[str, Any]:
     # Invoice shape of API 2026-09-30: the subscription is under parent.subscription_details.
     return {"id": invoice_id, "object": "invoice", "customer": "cus_123",
             "parent": {"type": "subscription_details", "subscription_details": {
                 "subscription": subscription_id,
-                "metadata": {"organization_id": str(org_id)}}}}  # fmt: skip
+                "metadata": {"organization_id": str(org_id)}}}, **extra}  # fmt: skip
+
+
+def renewal_invoice(
+    invoice_id: str, subscription_id: str, org_id: int, **extra: Any
+) -> dict[str, Any]:
+    """An unpaid renewal after its last failed attempt, as observed in the sandbox."""
+    return invoice(invoice_id, subscription_id, org_id, **{
+        "status": "open", "billing_reason": "subscription_cycle", "amount_due": 4900,
+        "amount_paid": 0, "amount_remaining": 4900, "attempt_count": 9, **extra})  # fmt: skip
+
+
+def cancelled_for_nonpayment(
+    org_id: int, latest_invoice: str, reason: str | None = "payment_failed", **extra: Any
+) -> dict[str, Any]:
+    """Stripe's subscription after its final action; ``reason`` as Stripe sets it."""
+    details = {"reason": reason, "comment": None, "feedback": None}
+    return subscription(org_id, "canceled", cancellation_details=details,
+                        latest_invoice=latest_invoice, **extra)  # fmt: skip
 
 
 @override_settings(STRIPE=STRIPE_TEST)
@@ -108,11 +148,14 @@ class StripeWebhookCase(TestCase):
 
     def setUp(self) -> None:
         self.stripe = FakeStripe()
-        patcher = mock.patch.object(
-            StripeGateway, "subscription", autospec=True, side_effect=self.stripe.retrieve
-        )
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for name in ("subscription", "invoice", "void_invoice"):
+            fake = getattr(self.stripe, name)
+            patcher = mock.patch.object(
+                StripeGateway, name, autospec=True,
+                side_effect=lambda _gateway, object_id, fake=fake: fake(object_id),
+            )  # fmt: skip
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def deliver(self, payload: dict[str, Any], *, secret: str = WEBHOOK_SECRET) -> Any:
         body = json.dumps(payload)
@@ -393,6 +436,234 @@ class WebhookOrderingTests(StripeWebhookCase):
         self.assertEqual(self.state()[0], PlanId.TEAM)
 
 
+class FailedRenewalVoidTests(StripeWebhookCase):
+    """After Stripe's final action on a failed renewal, that renewal invoice is voided.
+
+    Scope: only a cancellation Stripe made because the renewal could not be collected
+    (``cancellation_details.reason == "payment_failed"``), only that subscription's latest
+    invoice, only while it is an open, unpaid ``subscription_cycle`` invoice of the same
+    subscription and customer. Shapes follow the sandbox run of 2026-11-02 (``retry-b``):
+    ``customer.subscription.deleted`` with the renewal invoice left ``open`` after 9 attempts.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.org, self.owner = make_org("Lapsed")
+        self.deliver(event("evt_created", "customer.subscription.created",
+                           self.stripe.put(subscription(self.org.pk, "active"))))  # fmt: skip
+        self.stripe.put(subscription(self.org.pk, "past_due", latest_invoice="in_renew"))
+        self.stripe.put(renewal_invoice("in_renew", "sub_123", self.org.pk))
+        self.deliver(event("evt_failed", "invoice.payment_failed",
+                           invoice("in_renew", "sub_123", self.org.pk)))  # fmt: skip
+
+    def cancel(self, event_id: str = "evt_deleted", **extra: Any) -> Any:
+        """Stripe's final action, delivered as ``customer.subscription.deleted``."""
+        cancelled = self.stripe.put(cancelled_for_nonpayment(self.org.pk, "in_renew", **extra))
+        return self.deliver(event(event_id, "customer.subscription.deleted", cancelled))
+
+    def invoice_status(self, invoice_id: str = "in_renew") -> str:
+        return str(self.stripe.invoices[invoice_id]["status"])
+
+    def test_final_cancellation_voids_the_unpaid_renewal_invoice(self) -> None:
+        response = self.cancel()
+        self.assertEqual(response.content.decode(),
+                         "subscription canceled (free); voided renewal invoice in_renew")  # fmt: skip
+        self.assertEqual((self.invoice_status(), self.stripe.voided), ("void", ["in_renew"]))
+        row = Subscription.objects.get(organization=self.org)
+        self.assertEqual((row.status, row.plan, row.cancellation_reason),
+                         (SubscriptionStatus.CANCELED, PlanId.FREE, "payment_failed"))  # fmt: skip
+        audit = AuditEvent.objects.get(organization=self.org,
+                                       action="billing.renewal_invoice_voided")  # fmt: skip
+        self.assertEqual(audit.detail, {"invoice": "in_renew", "subscription": "sub_123"})
+
+    def test_customer_requested_cancellation_keeps_its_invoices(self) -> None:
+        for number, reason in enumerate(("cancellation_requested", "payment_disputed", None)):
+            with self.subTest(reason=reason):
+                response = self.cancel(f"evt_deleted_{number}", reason=reason)
+                self.assertNotIn("invoice", response.content.decode())
+                self.assertEqual((self.invoice_status(), self.stripe.voided), ("open", []))
+
+    def test_paid_and_other_invoices_are_never_voided(self) -> None:
+        variants: dict[str, dict[str, Any]] = {
+            "status paid": {"status": "paid", "amount_paid": 4900, "amount_remaining": 0},
+            "status uncollectible": {"status": "uncollectible"},
+            "status draft": {"status": "draft"},
+            "not a renewal (subscription_create)": {"billing_reason": "subscription_create"},
+            "not a renewal (subscription_update)": {"billing_reason": "subscription_update"},
+            "partly paid": {"amount_paid": 1000, "amount_remaining": 3900},
+            "another customer's invoice": {"customer": "cus_other"},
+        }
+        for number, (expected, change) in enumerate(variants.items()):
+            with self.subTest(expected):
+                self.stripe.put(renewal_invoice("in_renew", "sub_123", self.org.pk, **change))
+                response = self.cancel(f"evt_deleted_{number}")
+                self.assertIn(f"invoice in_renew kept: {expected}", response.content.decode())
+                self.assertEqual(self.stripe.voided, [])
+        # The subscription's latest invoice names another subscription.
+        self.stripe.put(renewal_invoice("in_renew", "sub_other", self.org.pk))
+        response = self.cancel("evt_deleted_other")
+        self.assertIn("kept: another subscription's invoice", response.content.decode())
+        self.assertEqual(self.stripe.voided, [])
+
+    def test_repeated_and_late_events_void_the_invoice_once(self) -> None:
+        self.cancel()
+        self.assertEqual(self.cancel().content.decode(), "duplicate")
+        # The last attempt's payment_failed arrived after the deletion (observed in the sandbox).
+        late = self.deliver(event("evt_failed_9", "invoice.payment_failed",
+                                  invoice("in_renew", "sub_123", self.org.pk)))  # fmt: skip
+        self.assertEqual(late.content.decode(),
+                         "unchanged: subscription canceled (free); "
+                         "invoice in_renew kept: status void")  # fmt: skip
+        self.assertEqual(self.stripe.voided, ["in_renew"])
+        self.assertEqual(AuditEvent.objects.filter(
+            organization=self.org, action="billing.renewal_invoice_voided").count(), 1)  # fmt: skip
+
+    def test_a_payment_that_reaches_stripe_first_is_kept(self) -> None:
+        self.stripe.paid_while_voiding.add("in_renew")
+        with self.assertLogs("accessguard_web.billing.webhooks", "WARNING") as logs:
+            response = self.cancel()
+        self.assertIn("invoice in_renew kept: void refused, status paid", response.content.decode())
+        self.assertEqual((self.invoice_status(), self.stripe.voided), ("paid", []))
+        self.assertIn("may need a refund", logs.output[0])
+        self.assertEqual(entitlements_for(self.org).plan.id, PlanId.FREE)
+
+    def test_unreachable_stripe_api_while_voiding_makes_stripe_retry(self) -> None:
+        for failing in ("invoice", "void_invoice"):
+            with (
+                self.subTest(failing),
+                mock.patch.object(StripeGateway, failing, side_effect=ProviderUnavailable),
+            ):
+                self.assertEqual(self.cancel().status_code, 503)
+            self.assertFalse(StripeEvent.objects.filter(event_id="evt_deleted").exists())
+            row = Subscription.objects.get(organization=self.org)
+            self.assertEqual(row.status, SubscriptionStatus.PAST_DUE, "rolled back with the event")
+            self.assertEqual(self.invoice_status(), "open")
+        self.assertEqual(self.cancel().status_code, 200)
+        self.assertEqual(self.invoice_status(), "void")
+        self.assertEqual(Subscription.objects.get(organization=self.org).status,
+                         SubscriptionStatus.CANCELED)  # fmt: skip
+
+    def test_late_cancellation_of_an_earlier_subscription_voids_only_its_own_invoice(
+        self,
+    ) -> None:
+        # Stripe cancelled sub_123, but its deletion was delayed; meanwhile the customer
+        # subscribed again through Checkout and paid.
+        self.stripe.put(cancelled_for_nonpayment(self.org.pk, "in_renew"))
+        new = self.stripe.put(subscription(self.org.pk, "active", id="sub_new",
+                                           latest_invoice="in_new"))  # fmt: skip
+        self.stripe.put(renewal_invoice("in_new", "sub_new", self.org.pk,
+                                        billing_reason="subscription_create"))  # fmt: skip
+        self.deliver(event("evt_new", "customer.subscription.created", new))
+        response = self.deliver(event("evt_late_deleted", "customer.subscription.deleted",
+                                      cancelled_for_nonpayment(self.org.pk, "in_renew")))  # fmt: skip
+        self.assertEqual(response.content.decode(),
+                         "ignored: not the organisation's current subscription; "
+                         "voided renewal invoice in_renew")  # fmt: skip
+        self.assertEqual((self.invoice_status(), self.invoice_status("in_new")), ("void", "open"))
+        row = Subscription.objects.get(organization=self.org)
+        self.assertEqual((row.stripe_subscription_id, row.status, row.plan),
+                         ("sub_new", SubscriptionStatus.ACTIVE, PlanId.TEAM))  # fmt: skip
+
+    def test_another_organisations_cancellation_touches_only_its_invoice(self) -> None:
+        other, _ = make_org("Neighbour", "owner@neighbour.test")
+        theirs = {"id": "sub_theirs", "customer": "cus_theirs"}
+        self.stripe.put({**subscription(other.pk, "active"), **theirs})
+        self.deliver(event("evt_theirs", "customer.subscription.created",
+                           {**subscription(other.pk, "active"), **theirs}))  # fmt: skip
+        self.stripe.put(renewal_invoice("in_theirs", "sub_theirs", other.pk,
+                                        customer="cus_theirs"))  # fmt: skip
+        cancelled = {**cancelled_for_nonpayment(other.pk, "in_theirs"), **theirs}
+        self.stripe.put(cancelled)
+        self.deliver(event("evt_theirs_deleted", "customer.subscription.deleted", cancelled))
+        self.assertEqual((self.invoice_status("in_theirs"), self.invoice_status()),
+                         ("void", "open"))  # fmt: skip
+        self.assertEqual(Subscription.objects.get(organization=self.org).status,
+                         SubscriptionStatus.PAST_DUE)  # fmt: skip
+        # Our metadata on another customer's subscription does not let it reach our invoice.
+        forged = {**cancelled_for_nonpayment(self.org.pk, "in_renew"), "id": "sub_forged",
+                  "customer": "cus_theirs"}  # fmt: skip
+        self.stripe.put(forged)
+        response = self.deliver(event("evt_forged", "customer.subscription.deleted", forged))
+        self.assertEqual(response.content.decode(),
+                         "ignored: subscription of another customer or organisation")  # fmt: skip
+        self.assertEqual(self.invoice_status(), "open")
+
+    def test_billing_page_explains_the_end_and_offers_checkout_again(self) -> None:
+        self.cancel()
+        client = login(self.owner)
+        page = client.get(reverse("billing:overview"))
+        self.assertContains(page, "renewal payment still failed after Stripe")
+        self.assertContains(page, "voids the unpaid renewal invoice")
+        self.assertContains(page, "Choose Team")
+        session = mock.Mock(url="https://checkout.stripe.com/c/pay/cs_test_again")
+        with (
+            mock.patch(f"{SUBSCRIPTION_SERVICE}.list", return_value=mock.Mock(
+                data=[stripe_object(cancelled_for_nonpayment(self.org.pk, "in_renew"))])),
+            mock.patch("stripe.checkout._session_service.SessionService.create",
+                       return_value=session) as create,
+        ):  # fmt: skip
+            response = client.post(reverse("billing:checkout", args=["team"]))
+        self.assertEqual(response["Location"], session.url)
+        self.assertEqual(create.call_args.kwargs["params"]["customer"], "cus_123")
+
+    def test_requested_cancellation_does_not_claim_a_voided_invoice(self) -> None:
+        self.cancel(reason="cancellation_requested")
+        page = login(self.owner).get(reverse("billing:overview"))
+        self.assertNotContains(page, "voids the unpaid renewal invoice")
+
+
+class GracePeriodDisplayTests(StripeWebhookCase):
+    """The app's 7-day grace period and Stripe's 14-day retries are shown as separate clocks."""
+
+    def test_banner_and_billing_page_show_both_dates(self) -> None:
+        org, owner = make_org("Overdue")
+        self.deliver(event("evt_1", "customer.subscription.created",
+                           self.stripe.put(subscription(org.pk, "past_due"))))  # fmt: skip
+        since = Subscription.objects.get(organization=org).past_due_since
+        assert since is not None
+        grace_ends = f"{since + timedelta(days=7):%Y-%m-%d}"
+        retries_end = f"{since + timedelta(days=14):%Y-%m-%d}"
+        warning = str(entitlements_for(org).warning)
+        self.assertIn(f"stays active until {grace_ends} (7-day grace period)", warning)
+        self.assertIn(f"retrying the payment until about {retries_end}", warning)
+        page = login(owner).get(reverse("billing:overview"))
+        self.assertContains(page, "Failed payment: what happens next")
+        self.assertContains(page, "7-day grace period")
+        self.assertContains(page, f"Until about {retries_end}")
+        self.assertContains(page, "up to 14 days")
+        plan, after = effective_plan(Subscription.objects.get(organization=org),
+                                     now=since + timedelta(days=8))  # fmt: skip
+        self.assertEqual(plan.id, PlanId.FREE)
+        self.assertIn("grace period has ended", str(after))
+        self.assertIn(f"until about {retries_end}; a successful retry", str(after))
+
+    @override_settings(STRIPE={**STRIPE_TEST, "GRACE_DAYS": 3, "RETRY_DAYS": 21})
+    def test_dates_follow_the_settings(self) -> None:
+        org, _ = make_org("Configured")
+        self.deliver(event("evt_1", "customer.subscription.created",
+                           self.stripe.put(subscription(org.pk, "past_due"))))  # fmt: skip
+        since = Subscription.objects.get(organization=org).past_due_since
+        assert since is not None
+        warning = str(entitlements_for(org).warning)
+        self.assertIn(f"{since + timedelta(days=3):%Y-%m-%d} (3-day grace period)", warning)
+        self.assertIn(f"until about {since + timedelta(days=21):%Y-%m-%d}", warning)
+
+
+class SlowStripe(FakeStripe):
+    """Holds the first subscription fetch until released, to overlap two deliveries."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.fetching, self.release = threading.Event(), threading.Event()
+
+    def subscription(self, subscription_id: str) -> dict[str, Any] | None:
+        snapshot = super().subscription(subscription_id)
+        if not self.fetching.is_set():  # only the first caller is held back
+            self.fetching.set()
+            self.release.wait(10)
+        return snapshot
+
+
 @skipUnless(connection.vendor == "postgresql", "needs row locks (SELECT ... FOR UPDATE)")
 @override_settings(STRIPE=STRIPE_TEST)
 class ConcurrentWebhookTests(TransactionTestCase):
@@ -400,20 +671,13 @@ class ConcurrentWebhookTests(TransactionTestCase):
 
     def setUp(self) -> None:
         self.org, _ = make_org("Concurrent")
-        self.stripe = FakeStripe()
-        self.fetching, self.release = threading.Event(), threading.Event()
-
-    def slow_retrieve(self, subscription_id: str) -> dict[str, Any] | None:
-        snapshot = self.stripe.retrieve(None, subscription_id)
-        if not self.fetching.is_set():  # only the first caller is held back
-            self.fetching.set()
-            self.release.wait(10)
-        return snapshot
+        self.stripe = SlowStripe()
+        self.fetching, self.release = self.stripe.fetching, self.stripe.release
 
     def run_in_thread(self, payload: dict[str, Any], outcomes: list[str]) -> threading.Thread:
         def target() -> None:
             try:
-                outcomes.append(process_event(payload, self.slow_retrieve))
+                outcomes.append(process_event(payload, self.stripe))
             finally:
                 connection.close()
 
@@ -455,8 +719,28 @@ class ConcurrentWebhookTests(TransactionTestCase):
         self.assertEqual(self.stripe.retrieved, ["sub_123"], "Stripe was asked once")
         self.assertEqual(StripeEvent.objects.filter(event_id="evt_same").count(), 1)
 
+    def test_two_events_of_one_cancellation_void_the_invoice_once(self) -> None:
+        self.stripe.put(cancelled_for_nonpayment(self.org.pk, "in_renew"))
+        self.stripe.put(renewal_invoice("in_renew", "sub_123", self.org.pk))
+        outcomes: list[str] = []
+        first = self.run_in_thread(event("evt_deleted", "customer.subscription.deleted",
+                                         cancelled_for_nonpayment(self.org.pk, "in_renew")),
+                                   outcomes)  # fmt: skip
+        self.assertTrue(self.fetching.wait(10))
+        second = self.run_in_thread(event("evt_failed", "invoice.payment_failed",
+                                          invoice("in_renew", "sub_123", self.org.pk)), outcomes)  # fmt: skip
+        second.join(0.5)
+        self.assertTrue(second.is_alive(), "the second delivery waits for the row lock")
+        self.release.set()
+        first.join(10)
+        second.join(10)
+        self.assertEqual(self.stripe.voided, ["in_renew"])
+        self.assertEqual(sum("voided renewal invoice" in o for o in outcomes), 1, outcomes)
+        self.assertEqual(sum("kept: status void" in o for o in outcomes), 1, outcomes)
+
 
 SUBSCRIPTION_SERVICE = "stripe._subscription_service.SubscriptionService"
+INVOICE_SERVICE = "stripe._invoice_service.InvoiceService"
 
 
 def stripe_object(values: dict[str, Any]) -> stripe.Subscription:
@@ -549,6 +833,50 @@ class PlanChangeTests(TestCase):
             )
         checkout.assert_not_called()
         self.assertContains(response, "already has a subscription")
+
+
+class GatewayInvoiceTests(TestCase):
+    """``StripeGateway.invoice`` / ``void_invoice`` against the SDK's invoice service."""
+
+    def setUp(self) -> None:
+        self.gateway = StripeGateway("sk_test_dummy", WEBHOOK_SECRET)  # pragma: allowlist secret
+
+    def invoice_object(self, status: str) -> stripe.Invoice:
+        return stripe.Invoice.construct_from({"id": "in_1", "status": status}, "sk_test_dummy")
+
+    def test_void_returns_the_voided_invoice(self) -> None:
+        with mock.patch(f"{INVOICE_SERVICE}.void_invoice",
+                        return_value=self.invoice_object("void")) as void:  # fmt: skip
+            self.assertEqual(self.gateway.void_invoice("in_1")["status"], "void")
+        void.assert_called_once_with("in_1")
+
+    def test_a_refused_void_returns_the_invoice_as_it_is(self) -> None:
+        refused = stripe.InvalidRequestError("This invoice is already paid", None)  # type: ignore[no-untyped-call]
+        with (
+            mock.patch(f"{INVOICE_SERVICE}.void_invoice", side_effect=refused),
+            mock.patch(f"{INVOICE_SERVICE}.retrieve", return_value=self.invoice_object("paid")),
+        ):
+            self.assertEqual(self.gateway.void_invoice("in_1")["status"], "paid")
+
+    def test_transient_errors_become_provider_unavailable(self) -> None:
+        transient = (stripe.APIConnectionError("down"), stripe.RateLimitError("lock_timeout"))  # type: ignore[no-untyped-call]
+        for error in transient:
+            with self.subTest(type(error).__name__):
+                with (
+                    mock.patch(f"{INVOICE_SERVICE}.void_invoice", side_effect=error),
+                    self.assertRaises(ProviderUnavailable),
+                ):
+                    self.gateway.void_invoice("in_1")
+                with (
+                    mock.patch(f"{INVOICE_SERVICE}.retrieve", side_effect=error),
+                    self.assertRaises(ProviderUnavailable),
+                ):
+                    self.gateway.invoice("in_1")
+
+    def test_unknown_invoice_is_none(self) -> None:
+        missing = stripe.InvalidRequestError("No such invoice", "id", code="resource_missing")  # type: ignore[no-untyped-call]
+        with mock.patch(f"{INVOICE_SERVICE}.retrieve", side_effect=missing):
+            self.assertIsNone(self.gateway.invoice("in_missing"))
 
 
 class GatewaySafetyTests(TestCase):

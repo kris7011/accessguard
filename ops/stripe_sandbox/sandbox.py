@@ -15,6 +15,10 @@ Commands (``<email>`` is an organisation owner in the sandbox database):
     fail-upgrade <email>          upgrade to Business with allow_incomplete and a failing
                                   card: the price applies before payment, status past_due
     end-in <email> <seconds>      schedule the end of the subscription
+    cancel-now <email>            cancel at once through the API (a requested cancellation,
+                                  cancellation_details.reason cancellation_requested)
+    invoices <email>              every invoice of the customer: status, billing reason,
+                                  subscription, amounts and attempts
     events-since <email> <epoch>  the organisation's handled events since then, newest
                                   first (to redeliver them late with ``stripe events resend``)
 
@@ -168,7 +172,7 @@ def app_state(email: str) -> dict[str, Any]:
         "effective_plan": ent.plan.id.value, "plan": row.plan, "status": row.status,
         "subscription": row.stripe_subscription_id, "customer": row.stripe_customer_id,
         "cancel_at": row.cancel_at, "current_period_end": row.current_period_end,
-        "past_due_since": row.past_due_since,
+        "past_due_since": row.past_due_since, "cancellation_reason": row.cancellation_reason,
         "updated_at": row.updated_at, "warning": ent.warning,
     }  # fmt: skip
 
@@ -192,6 +196,7 @@ def stripe_state(c: stripe.StripeClient, subscription_id: str) -> dict[str, Any]
             if isinstance(invoice, stripe.Invoice) else invoice
         ),
         "cancel_at": s.cancel_at,
+        "cancellation_reason": s.cancellation_details.reason if s.cancellation_details else None,
     }  # fmt: skip
 
 
@@ -512,6 +517,28 @@ def end_in(c: stripe.StripeClient, email: str, seconds: int) -> str:
     return f"cancel_at {at}"
 
 
+def cancel_now(c: stripe.StripeClient, email: str) -> str:
+    """Cancel at once through the API, as a requested cancellation (not Stripe's dunning)."""
+    s = c.v1.subscriptions.cancel(app_state(email)["subscription"])
+    assert_test_mode(s)
+    return f"subscription {s.id} {s.status}"
+
+
+def invoices(c: stripe.StripeClient, email: str) -> list[str]:
+    """Every invoice of the organisation's customer: whose it is, why, and its state."""
+    found = c.v1.invoices.list(params={"customer": app_state(email)["customer"], "limit": 100})
+    lines = []
+    for invoice in found.data:
+        assert_test_mode(invoice)
+        details = invoice.parent.subscription_details if invoice.parent else None
+        lines.append(
+            f"{invoice.id} {invoice.status} {invoice.billing_reason} "
+            f"subscription={details.subscription if details else None} due={invoice.amount_due} "
+            f"paid={invoice.amount_paid} attempts={invoice.attempt_count}"
+        )
+    return lines
+
+
 def app_at(email: str, seconds: int) -> str:
     """The app at a controlled time in its grace period, through its own views.
 
@@ -570,6 +597,7 @@ ACTIONS: dict[str, Action] = {
     "fail-renewal": lambda c, a: fail_renewal(c, a.email),
     "fail-upgrade": lambda c, a: fail_upgrade(c, a.email),
     "end-in": lambda c, a: end_in(c, a.email, a.seconds),
+    "cancel-now": lambda c, a: cancel_now(c, a.email),
     "clock-start": lambda c, a: clock_start(c, a.email, a.plan),
     "clock-renew": lambda c, a: clock_renew(c, a.email),
     "clock-next-retry": lambda c, a: clock_next_retry(c, a.email),
@@ -589,7 +617,7 @@ def parse_args() -> argparse.Namespace:
     sub.add_parser("events")
     sub.add_parser("clock-probe")
     for name in ("show", "pay-open", "fail-renewal", "fail-upgrade", "clock-renew",
-                 "clock-next-retry", "clock-delete"):  # fmt: skip
+                 "clock-next-retry", "clock-delete", "cancel-now", "invoices"):  # fmt: skip
         sub.add_parser(name).add_argument("email")
     card = sub.add_parser("card")
     card.add_argument("email")
@@ -625,6 +653,9 @@ def run(c: stripe.StripeClient, args: argparse.Namespace) -> None:
         return
     if args.command == "clock-delete":
         print(clock_delete(c, args.email))
+        return
+    if args.command == "invoices":
+        print("\n".join(invoices(c, args.email)))
         return
     result = ACTIONS[args.command](c, args)
     if result:

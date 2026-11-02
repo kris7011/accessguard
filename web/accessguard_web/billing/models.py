@@ -44,6 +44,11 @@ class Subscription(models.Model):
         null=True, blank=True,
         help_text="When a scheduled cancellation ends the subscription (flexible billing mode).",
     )  # fmt: skip
+    cancellation_reason = models.CharField(
+        max_length=40, blank=True,
+        help_text="Stripe's cancellation_details.reason, e.g. payment_failed or "
+        "cancellation_requested.",
+    )  # fmt: skip
     past_due_since = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 

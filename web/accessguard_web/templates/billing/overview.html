@@ -10,6 +10,18 @@
 <div class="card">
   <h2>Current plan: {{ ent.plan.name }}</h2>
   <p class="muted">Subscription status: {{ ent.subscription.get_status_display }}{% if ent.subscription.current_period_end %} · current period ends {{ ent.subscription.current_period_end|date:"Y-m-d" }}{% endif %}</p>
+  {% if recovery %}
+  <h3>Failed payment: what happens next</h3>
+  <p class="small muted">Two separate clocks: AccessGuard's grace period for your plan, and Stripe's payment retries. Dates in UTC.</p>
+  <ol class="timeline">
+    <li><strong>{{ recovery.failed_since|date:"Y-m-d H:i" }}</strong>: the payment failed (when AccessGuard was told).</li>
+    <li><strong>Until {{ recovery.grace_ends|date:"Y-m-d H:i" }}</strong>: AccessGuard's {{ recovery.grace_days }}-day grace period. Your paid plan stays active; after it, Free limits apply.</li>
+    <li><strong>Until about {{ recovery.retries_end|date:"Y-m-d" }}</strong>: Stripe retries the payment for up to {{ recovery.retry_days }} days. A successful retry, or paying the open invoice, restores your plan at once.</li>
+    <li><strong>If every retry fails</strong>: Stripe cancels the subscription and AccessGuard voids the unpaid renewal invoice, so nothing is owed for it. Your data is kept, and you can subscribe again on this page.</li>
+  </ol>
+  {% elif ended_unpaid %}
+  <div class="banner banner-neutral"><p>Your subscription was cancelled because the renewal payment still failed after Stripe's retries. AccessGuard voids the unpaid renewal invoice, so nothing is owed for it. Your data is kept; choose a plan below to subscribe again.</p></div>
+  {% endif %}
   <div class="table-wrap"><table>
     <thead><tr><th scope="col">Usage</th><th scope="col">Used</th><th scope="col">Included</th></tr></thead>
     <tbody>

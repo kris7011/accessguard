@@ -18,6 +18,10 @@ neither the payload nor its timestamp says what is true now
 * **Paid rights only:** only ``active`` or ``trialing`` can raise the plan. Every other
   state keeps at most the plan the organisation already had, so a failed upgrade payment
   never grants the higher plan during the grace period.
+* **Void the failed renewal:** when Stripe itself has cancelled a subscription because its
+  renewal could not be collected (``cancellation_details.reason == "payment_failed"``), that
+  subscription's open renewal invoice is voided, so it can no longer be paid for a plan
+  that has ended. See ``_void_failed_renewal`` for the exact scope.
 * **Retry on failure:** if Stripe's API cannot be reached, nothing is stored and the
   endpoint answers 503, so Stripe delivers the event again.
 * **Safe by default:** unknown event types are acknowledged and recorded, never applied.
@@ -26,10 +30,9 @@ neither the payload nor its timestamp says what is true now
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -41,7 +44,19 @@ from accessguard_web.billing.plans import PLANS, PlanId
 
 logger = logging.getLogger(__name__)
 
-FetchSubscription = Callable[[str], "dict[str, Any] | None"]
+
+class StripeApi(Protocol):
+    """What the webhook needs from Stripe: current state, and voiding one invoice.
+
+    Every method raises ``ProviderUnavailable`` when Stripe cannot be reached.
+    """
+
+    def subscription(self, subscription_id: str) -> dict[str, Any] | None: ...
+
+    def invoice(self, invoice_id: str) -> dict[str, Any] | None: ...
+
+    def void_invoice(self, invoice_id: str) -> dict[str, Any]: ...
+
 
 SUBSCRIPTION_EVENTS = frozenset(
     {
@@ -60,6 +75,9 @@ HANDLED_EVENTS = SUBSCRIPTION_EVENTS | INVOICE_EVENTS | {CHECKOUT_COMPLETED}
 
 # States in which the plan is paid up; only these may raise it.
 PAID_UP = frozenset({SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING})
+# Stripe sets this cancellation reason itself when its payment retries are exhausted;
+# a cancellation through the API, Dashboard or Customer Portal says cancellation_requested.
+PAYMENT_FAILED = "payment_failed"
 
 
 @dataclass(frozen=True)
@@ -71,10 +89,10 @@ class Reference:
     organization_id: int | None
 
 
-def process_event(event: dict[str, Any], fetch_subscription: FetchSubscription) -> str:
+def process_event(event: dict[str, Any], stripe_api: StripeApi) -> str:
     """Apply ``event`` once. Returns a short outcome for logs and tests.
 
-    Raises ``ProviderUnavailable`` (from ``fetch_subscription``) with nothing stored.
+    Raises ``ProviderUnavailable`` (from ``stripe_api``) with nothing stored.
     """
     event_id, event_type = str(event.get("id", "")), str(event.get("type", ""))
     created = int(event.get("created") or 0)
@@ -89,14 +107,14 @@ def process_event(event: dict[str, Any], fetch_subscription: FetchSubscription) 
                 )
         except IntegrityError:
             return "duplicate"
-        outcome = _apply(event_type, obj, fetch_subscription)
+        outcome = _apply(event_type, obj, stripe_api)
         stored.outcome = outcome[:200]
         stored.save(update_fields=["outcome"])
     logger.info("stripe event %s %s: %s", event_type, event_id, outcome)
     return outcome
 
 
-def _apply(event_type: str, obj: dict[str, Any], fetch: FetchSubscription) -> str:
+def _apply(event_type: str, obj: dict[str, Any], stripe_api: StripeApi) -> str:
     if event_type not in HANDLED_EVENTS:
         return f"ignored: {event_type}"
     reference = _reference(event_type, obj)
@@ -106,13 +124,23 @@ def _apply(event_type: str, obj: dict[str, Any], fetch: FetchSubscription) -> st
     if row is None:
         return "ignored: unknown organisation"
     # Fetched only now, inside the lock: a concurrent delivery waits and then fetches later.
-    current = fetch(reference.subscription_id)
+    current = stripe_api.subscription(reference.subscription_id)
     if current is None:
         return "ignored: subscription unknown at Stripe"
     if not _belongs_to(row, current):
         return "ignored: subscription of another customer or organisation"
+    # Before the check below: a late cancellation of an earlier subscription no longer
+    # changes the row, but it still closes that subscription's own renewal invoice.
+    voided = _void_failed_renewal(row, current, stripe_api)
+    outcome = _follow(event_type, row, current, stripe_api)
+    return f"{outcome}; {voided}" if voided else outcome
+
+
+def _follow(
+    event_type: str, row: Subscription, current: dict[str, Any], stripe_api: StripeApi
+) -> str:
     followed = row.stripe_subscription_id
-    if followed and followed != current.get("id") and not _replaces(followed, current, fetch):
+    if followed and followed != current.get("id") and not _replaces(followed, current, stripe_api):
         return "ignored: not the organisation's current subscription"
     if event_type == CHECKOUT_COMPLETED:
         record(row.organization, None, "billing.checkout_completed", "stripe")
@@ -123,10 +151,8 @@ def _reference(event_type: str, obj: dict[str, Any]) -> Reference:
     if event_type in SUBSCRIPTION_EVENTS:
         subscription_id, metadata = obj.get("id"), obj.get("metadata") or {}
     elif event_type in INVOICE_EVENTS:
-        details = ((obj.get("parent") or {}).get("subscription_details")) or {}
-        # Before API 2025-03-31 the subscription was a top-level invoice field.
-        subscription_id = details.get("subscription") or obj.get("subscription")
-        metadata = details.get("metadata") or {}
+        subscription_id = _invoice_subscription(obj)
+        metadata = _subscription_details(obj).get("metadata") or {}
     else:
         subscription_id = obj.get("subscription")
         metadata = {"organization_id": obj.get("client_reference_id")} | (obj.get("metadata") or {})
@@ -156,6 +182,23 @@ def _locked_row(reference: Reference) -> Subscription | None:
     return Subscription.objects.select_for_update().select_related("organization").get(pk=found.pk)
 
 
+def _subscription_details(invoice: dict[str, Any]) -> dict[str, Any]:
+    return ((invoice.get("parent") or {}).get("subscription_details")) or {}
+
+
+def _invoice_subscription(invoice: dict[str, Any]) -> str:
+    # Before API 2025-03-31 the subscription was a top-level invoice field.
+    found = _subscription_details(invoice).get("subscription") or invoice.get("subscription")
+    return _object_id(found)
+
+
+def _object_id(value: object) -> str:
+    """The id of a Stripe reference, whether expanded or not."""
+    if isinstance(value, dict):
+        return str(value.get("id") or "")
+    return str(value or "")
+
+
 def _belongs_to(row: Subscription, current: dict[str, Any]) -> bool:
     """Tenant check: the Stripe customer and our metadata must both match the organisation."""
     customer = str(current.get("customer") or "")
@@ -167,11 +210,11 @@ def _belongs_to(row: Subscription, current: dict[str, Any]) -> bool:
     return not Subscription.objects.filter(stripe_customer_id=customer).exclude(pk=row.pk).exists()
 
 
-def _replaces(followed_id: str, current: dict[str, Any], fetch: FetchSubscription) -> bool:
+def _replaces(followed_id: str, current: dict[str, Any], stripe_api: StripeApi) -> bool:
     """Whether ``current`` takes over from the subscription the organisation follows."""
     if current.get("status") in ENDED_STATUSES:
         return False
-    followed = fetch(followed_id)
+    followed = stripe_api.subscription(followed_id)
     if followed is None or followed.get("status") in ENDED_STATUSES:
         return True
     logger.warning(
@@ -179,6 +222,62 @@ def _replaces(followed_id: str, current: dict[str, Any], fetch: FetchSubscriptio
         followed_id, current.get("id"), followed_id,
     )  # fmt: skip
     return False
+
+
+def _void_failed_renewal(
+    row: Subscription, current: dict[str, Any], stripe_api: StripeApi
+) -> str | None:
+    """Void the renewal invoice whose failed payment made Stripe cancel the subscription.
+
+    Applies only when Stripe's current state says the subscription is ``canceled`` with
+    reason ``payment_failed``; a cancellation the customer or we requested is left alone.
+    The invoice voided is that subscription's latest invoice, and only while it is an open
+    ``subscription_cycle`` invoice of the same subscription and customer with nothing paid.
+    Every other invoice (paid, partly paid, another subscription's, a first or upgrade
+    invoice) is kept. Returns ``None`` when the rule does not apply, else what happened.
+
+    Safe to repeat: every later event of the subscription finds the invoice already void.
+    If the customer pays at the same moment, Stripe applies only one of the two; a refused
+    void returns the invoice as it is (paid), and nothing else changes.
+    """
+    reason = (current.get("cancellation_details") or {}).get("reason")
+    if current.get("status") != SubscriptionStatus.CANCELED or reason != PAYMENT_FAILED:
+        return None
+    invoice_id = _object_id(current.get("latest_invoice"))
+    if not invoice_id:
+        return "no renewal invoice to void"
+    invoice = stripe_api.invoice(invoice_id)
+    kept = _keep_invoice_because(invoice, current)
+    if kept is None:
+        invoice = stripe_api.void_invoice(invoice_id)
+        if invoice.get("status") == "void":
+            record(row.organization, None, "billing.renewal_invoice_voided", "stripe",
+                   invoice=invoice_id, subscription=str(current.get("id")))  # fmt: skip
+            return f"voided renewal invoice {invoice_id}"
+        kept = f"void refused, status {invoice.get('status')}"
+    if invoice is not None and invoice.get("status") == "paid":
+        logger.warning(
+            "renewal invoice %s of the cancelled subscription %s was paid although the plan "
+            "has ended; the payment may need a refund", invoice_id, current.get("id"),
+        )  # fmt: skip
+    return f"invoice {invoice_id} kept: {kept}"
+
+
+def _keep_invoice_because(invoice: dict[str, Any] | None, current: dict[str, Any]) -> str | None:
+    """Why ``invoice`` must not be voided under the failed-renewal rule, or ``None``."""
+    if invoice is None:
+        return "unknown at Stripe"
+    if invoice.get("status") != "open":
+        return f"status {invoice.get('status')}"
+    if invoice.get("billing_reason") != "subscription_cycle":
+        return f"not a renewal ({invoice.get('billing_reason')})"
+    if _invoice_subscription(invoice) != current.get("id"):
+        return "another subscription's invoice"
+    if _object_id(invoice.get("customer")) != _object_id(current.get("customer")):
+        return "another customer's invoice"
+    if invoice.get("amount_paid"):
+        return "partly paid"
+    return None
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -202,6 +301,7 @@ def _mirror(row: Subscription, current: dict[str, Any]) -> str:
     # Flexible billing mode (the default for new subscriptions) schedules a cancellation
     # with cancel_at, also from the Customer Portal; cancel_at_period_end then stays false.
     row.cancel_at = _timestamp(current.get("cancel_at"))
+    row.cancellation_reason = str((current.get("cancellation_details") or {}).get("reason") or "")
     # Newer API versions report the period on the subscription item.
     row.current_period_end = _timestamp(
         current.get("current_period_end") or first.get("current_period_end")
@@ -223,7 +323,7 @@ def _mirror(row: Subscription, current: dict[str, Any]) -> str:
 
 _MIRRORED = (
     "status", "plan", "stripe_subscription_id", "stripe_customer_id", "cancel_at_period_end",
-    "cancel_at", "current_period_end", "past_due_since",
+    "cancel_at", "cancellation_reason", "current_period_end", "past_due_since",
 )  # fmt: skip
 
 

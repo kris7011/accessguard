@@ -71,6 +71,10 @@ class PaymentGateway(Protocol):
 
     def subscription(self, subscription_id: str) -> dict[str, Any] | None: ...
 
+    def invoice(self, invoice_id: str) -> dict[str, Any] | None: ...
+
+    def void_invoice(self, invoice_id: str) -> dict[str, Any]: ...
+
 
 def price_for(plan: PlanId) -> str:
     prices = {
@@ -191,6 +195,34 @@ class StripeGateway:
         except stripe.StripeError as error:
             raise ProviderUnavailable(type(error).__name__) from None
 
+    def invoice(self, invoice_id: str) -> dict[str, Any] | None:
+        """The invoice as it is now; ``None`` when Stripe does not know it."""
+        try:
+            return self._client.v1.invoices.retrieve(invoice_id).to_dict()
+        except stripe.InvalidRequestError as error:
+            if error.code == "resource_missing":
+                return None
+            raise ProviderUnavailable(type(error).__name__) from None
+        except stripe.StripeError as error:
+            raise ProviderUnavailable(type(error).__name__) from None
+
+    def void_invoice(self, invoice_id: str) -> dict[str, Any]:
+        """Void an open invoice and return it as it is afterwards.
+
+        Stripe refuses to void an invoice that is no longer open, for instance one the
+        customer paid a moment earlier. Such a refusal is an answer, not an outage: the
+        invoice is fetched again and returned as it is, so the caller sees what happened.
+        """
+        try:
+            return self._client.v1.invoices.void_invoice(invoice_id).to_dict()
+        except stripe.InvalidRequestError:
+            current = self.invoice(invoice_id)
+            if current is None:
+                raise ProviderUnavailable("invoice vanished while voiding") from None
+            return current
+        except stripe.StripeError as error:
+            raise ProviderUnavailable(type(error).__name__) from None
+
     def _has_live_subscription(self, customer_id: str) -> bool:
         found = self._client.v1.subscriptions.list(
             params={"customer": customer_id, "status": "all", "limit": 100}
@@ -215,6 +247,12 @@ class UnconfiguredGateway:
         raise InvalidWebhook("Webhooks are not configured in this environment")
 
     def subscription(self, subscription_id: str) -> dict[str, Any] | None:
+        raise ProviderUnavailable(self._reason)
+
+    def invoice(self, invoice_id: str) -> dict[str, Any] | None:
+        raise ProviderUnavailable(self._reason)
+
+    def void_invoice(self, invoice_id: str) -> dict[str, Any]:
         raise ProviderUnavailable(self._reason)
 
 

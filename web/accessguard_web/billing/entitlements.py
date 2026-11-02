@@ -5,8 +5,11 @@ Rules:
 * ``active`` and ``trialing`` give the subscribed plan. A scheduled cancellation
   (``cancel_at``, or ``cancel_at_period_end`` in classic billing mode) only adds a warning;
   the plan ends when Stripe sends ``customer.subscription.deleted``.
-* ``past_due`` keeps the plan for a grace period while Stripe retries the payment, with
-  a visible warning; after the grace period the organisation falls back to Free.
+* ``past_due`` keeps the plan for AccessGuard's grace period (``GRACE_DAYS``, 7) with a
+  visible warning; after it the organisation falls back to Free. Stripe's payment retries
+  run on separately and longer (``RETRY_DAYS``, 14 in the Dashboard), so a customer can be
+  on Free while Stripe still retries; a successful retry restores the plan. If every retry
+  fails, Stripe cancels the subscription and the webhook voids the unpaid renewal invoice.
 * Every other status (none, incomplete, unpaid, canceled, ...) gives Free. Existing data
   is kept; only new work is limited.
 """
@@ -22,6 +25,26 @@ from accessguard_web import conf
 from accessguard_web.accounts.models import Organization
 from accessguard_web.billing.models import Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PLANS, Plan, PlanId
+
+
+@dataclass(frozen=True)
+class PaymentRecovery:
+    """The two separate clocks after a failed payment.
+
+    Both count from ``past_due_since``: when AccessGuard first saw the subscription
+    ``past_due``, which in production is seconds after the failed charge. The grace period is
+    AccessGuard's own rule; the retry end is Stripe's, approximate (Smart Retries choose the
+    exact times) and taken from the ``RETRY_DAYS`` setting, which mirrors the Dashboard.
+    """
+
+    failed_since: datetime
+    grace_days: int
+    grace_ends: datetime
+    retry_days: int
+    retries_end: datetime
+
+    def in_grace(self, now: datetime) -> bool:
+        return now <= self.grace_ends
 
 
 @dataclass(frozen=True)
@@ -44,6 +67,23 @@ def subscription_for(organization: Organization) -> Subscription:
     return subscription
 
 
+def payment_recovery(
+    subscription: Subscription, now: datetime | None = None
+) -> PaymentRecovery | None:
+    """The grace period and Stripe's retry window while a payment is overdue, else ``None``."""
+    if subscription.status != SubscriptionStatus.PAST_DUE:
+        return None
+    since = subscription.past_due_since or now or timezone.now()
+    grace_days, retry_days = conf.stripe()["GRACE_DAYS"], conf.stripe()["RETRY_DAYS"]
+    return PaymentRecovery(
+        failed_since=since,
+        grace_days=grace_days,
+        grace_ends=since + timedelta(days=grace_days),
+        retry_days=retry_days,
+        retries_end=since + timedelta(days=retry_days),
+    )
+
+
 def effective_plan(
     subscription: Subscription, now: datetime | None = None
 ) -> tuple[Plan, str | None]:
@@ -61,18 +101,19 @@ def effective_plan(
                 "you then return to Free."
             )
         return paid, warning
-    if status == SubscriptionStatus.PAST_DUE:
-        grace = timedelta(days=conf.stripe()["GRACE_DAYS"])
-        since = subscription.past_due_since or now
-        if now - since <= grace:
-            ends = since + grace
+    recovery = payment_recovery(subscription, now)
+    if recovery is not None:
+        retries = f"Stripe keeps retrying the payment until about {recovery.retries_end:%Y-%m-%d}"
+        if recovery.in_grace(now):
             return paid, (
-                "The last payment failed. Please update your payment method; your "
-                f"{paid.name} plan stays active until {ends:%Y-%m-%d} while the payment is retried."
+                f"The last payment failed. Your {paid.name} plan stays active until "
+                f"{recovery.grace_ends:%Y-%m-%d} ({recovery.grace_days}-day grace period). "
+                f"{retries}. Please update your payment method."
             )
         return PLANS[PlanId.FREE], (
-            "Payments failed and the grace period has ended, so Free limits apply. "
-            "Update your payment method to restore your plan."
+            f"The payment failed and the {recovery.grace_days}-day grace period has ended, so "
+            f"Free limits apply. {retries}; a successful retry or payment restores your "
+            f"{paid.name} plan. Please update your payment method."
         )
     if status == SubscriptionStatus.UNPAID:
         return PLANS[PlanId.FREE], "Your subscription is unpaid, so Free limits apply."

@@ -15,7 +15,7 @@ from accessguard_web import conf
 from accessguard_web.accounts.models import Membership, Role, record
 from accessguard_web.accounts.tenancy import current_org, current_user, membership_required
 from accessguard_web.assistant.models import AssistantRun
-from accessguard_web.billing.entitlements import entitlements_for, month_start
+from accessguard_web.billing.entitlements import entitlements_for, month_start, payment_recovery
 from accessguard_web.billing.gateway import (
     ENDED_STATUSES,
     BillingNotConfigured,
@@ -28,7 +28,7 @@ from accessguard_web.billing.gateway import (
 )
 from accessguard_web.billing.models import Subscription, SubscriptionStatus
 from accessguard_web.billing.plans import PLANS, PlanId
-from accessguard_web.billing.webhooks import process_event
+from accessguard_web.billing.webhooks import PAYMENT_FAILED, process_event
 from accessguard_web.projects.models import Project
 from accessguard_web.scans.models import Runner, Scan
 
@@ -69,6 +69,9 @@ def overview(request: HttpRequest) -> HttpResponse:
             "is_owner": request.membership.has_role(Role.OWNER),  # type: ignore[attr-defined]
             "ent": ent,
             "has_subscription": _has_subscription(ent.subscription),
+            "recovery": payment_recovery(ent.subscription),
+            "ended_unpaid": ent.subscription.status == SubscriptionStatus.CANCELED
+            and ent.subscription.cancellation_reason == PAYMENT_FAILED,
         },
     )
 
@@ -166,7 +169,7 @@ def webhook(request: HttpRequest) -> HttpResponse:
         logger.warning("rejected a Stripe webhook with an invalid signature")
         return HttpResponse(status=400)
     try:
-        outcome = process_event(event, provider.subscription)
+        outcome = process_event(event, provider)
     except ProviderUnavailable as error:
         # Nothing was stored, so Stripe's automatic retry delivers the event again.
         logger.warning("stripe event %s not applied, API unavailable: %s", event.get("id"), error)

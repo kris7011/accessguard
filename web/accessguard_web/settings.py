@@ -257,6 +257,10 @@ STRIPE: dict[str, Any] = {
     "ALLOW_LIVE": env_bool("ACCESSGUARD_ALLOW_LIVE_PAYMENTS"),
     # Days a past_due subscription keeps its plan while Stripe retries the payment.
     "GRACE_DAYS": int(env("ACCESSGUARD_PAYMENT_GRACE_DAYS", "7")),
+    # Days Stripe keeps retrying a failed payment before it cancels the subscription. Shown
+    # to customers only; it must match the Dashboard (Billing > Revenue recovery > Retries),
+    # which the API cannot read. KRL sandbox, checked 2026-11-02: 8 retries within 2 weeks.
+    "RETRY_DAYS": int(env("ACCESSGUARD_STRIPE_RETRY_DAYS", "14")),
 }
 
 ASSISTANT: dict[str, Any] = {
