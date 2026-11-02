@@ -63,6 +63,12 @@ Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02): a
 ok. Engine/runner/ML 376 OK, 9 skipped (unchanged); web tests on SQLite **144 OK, 7 skipped**
 (3 PostgreSQL-only row-lock tests, 3 paid, 1 free); before: 127 / 6.
 
+**CI on `dfd01c3`** (run 41448382426): all six jobs passed. Engine tests 376, 2 skipped on
+Ubuntu 3.11 and 3.13, 9 skipped on Windows 3.13; web tests on PostgreSQL **144, 4 skipped**
+(3 paid, 1 free), so all three row-lock tests ran, including
+`test_two_events_of_one_cancellation_void_the_invoice_once`. This handoff and the
+walkthrough's test table were then updated with these numbers (documentation-only commit).
+
 ### Machine and sandbox state
 
 - Sandbox database migrated to `0004`; backup before the run:

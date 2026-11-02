@@ -123,10 +123,10 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
 
 ## A.7 Testing
 
-| Suite | Command | Result (CI on `2411dfe`, 2026-11-02; local Windows run in brackets) |
+| Suite | Command | Result (CI on `dfd01c3`, 2026-11-02; local Windows run in brackets) |
 | --- | --- | --- |
 | Engine, runner, sample app, ML (unittest) | `bash ops/verify.sh tests` | 376 run, 2 skipped on Ubuntu (opt-in real-model tests), 9 on Windows (plus POSIX-only tests) |
-| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 127 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 6 skipped, adding the 2 PostgreSQL-only row-lock tests) |
+| Web (Django) incl. two end-to-end journeys over real HTTP with a real runner, browser-faithful setup-form tests and the Stripe sandbox driver's parsing | `bash ops/verify.sh web-tests` | 144 run on PostgreSQL 17, 4 skipped (opt-in AI tests) (local SQLite: 7 skipped, adding the 3 PostgreSQL-only row-lock tests) |
 | Deployment checks with production settings | `bash ops/verify.sh deploy-check` | passed |
 | Browser (Chrome via Playwright), desktop + phone | `ops/dev/browser_check.py` | 0 problems |
 | Customer acceptance: runner installed from the wheel / source archive in a clean venv, forms driven over HTTP, scan → triage → fix → retest | `ops/dev/customer_acceptance.py` | PASS (CPython 3.12.7 wheel, 3.13.13 sdist) |
