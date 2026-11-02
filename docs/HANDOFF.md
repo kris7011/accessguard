@@ -92,7 +92,8 @@ machine), the real restic image and repository, SMTP, any server.
 11 steps ok: lint, format, mypy strict; engine/runner/ML tests OK (3 skipped, as before:
 2 opt-in real-model, 1 POSIX-only); web tests OK (6 skipped, as before); migrations; deploy
 check; pip-audit; detect-secrets with the new files staged; build; demo. Final counts after
-the move below: 376 engine/runner/ML tests (6 new), 127 web tests (5 new).
+the changes below: 376 engine/runner/ML tests (6 new; on Windows 9 skipped, as the 6
+backup-loop tests are POSIX-only), 127 web tests (5 new).
 
 CI on `177bf0a` (run 41416449371): both Ubuntu engine jobs failed, `ModuleNotFoundError: No
 module named 'stripe'`. The engine jobs install no third-party packages; the new driver test
@@ -100,6 +101,13 @@ imported `sandbox.py`, which needs `stripe`. Moved to the web tests
 (`test_stripe_sandbox_driver.py`), which run in CI with the web dependencies. Re-checked
 locally: engine tests with the bare system Python 3.13 (no `stripe`) 376 OK; lint, format,
 types, tests, web tests and secrets ok. The off-site backup tests passed on Ubuntu in that run.
+
+The Windows engine job of the same run, and again of `0410c04` (run 41418440644), hung in
+the unit tests until cancelled ("Terminate orphan process: bash"): on the runner, Git's `sh`
+launcher left its `bash` child looping when the stubbed `sleep` ended the script, so the
+subprocess pipes never closed. Locally (Git Bash's `sh`) the tests had passed. The script
+runs only in a Linux container, so `test_offsite_backup.py` now skips on Windows; the two
+Ubuntu jobs run it.
 
 ### Machine and sandbox state
 

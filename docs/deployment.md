@@ -173,7 +173,8 @@ requires it.
   `restic` and `wget` (no dump, old dump, fresh dump, failing backup, no heartbeat URL).
   Since 2026-11-02 also `tests/unit/test_offsite_backup.py` (runs the script under `sh`
   with stubbed `date`, `find`, `restic`, `wget`, `sleep`): weekday, Sunday check passed,
-  Sunday check failed (no heartbeat), failed backup, no recent dump, before 02:00 UTC.
+  Sunday check failed (no heartbeat), failed backup, no recent dump, before 02:00 UTC
+  (POSIX only: runs in the Ubuntu CI jobs, skipped on Windows).
   The real restic image and repository were not run.
 - `ops/deploy/check_env.py`: unit tests (`tests/unit/test_deploy_env_check.py`).
 - Client address behind one proxy and the password-reset flow and limits: web tests.

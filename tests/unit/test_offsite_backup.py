@@ -2,12 +2,13 @@
 
 The real script runs under ``sh``; ``date``, ``find``, ``restic``, ``wget`` and ``sleep`` are
 replaced by stubs on ``PATH`` that record their calls. The ``sleep`` stub ends the loop after
-its first pass.
+its first pass. POSIX only (see the skip below).
 """
 
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,7 +32,9 @@ esac""",
 }
 
 
-@unittest.skipIf(SH is None, "needs a POSIX sh")
+# The script runs in a Linux container. On Windows, Git's sh launcher leaves its bash child
+# running when the loop is stopped, which hung CI; the Linux jobs run these tests.
+@unittest.skipIf(SH is None or sys.platform == "win32", "needs a POSIX system with sh")
 class OffsiteBackupLoopTests(unittest.TestCase):
     def run_once(self, **fake: str) -> tuple[list[str], str]:
         with tempfile.TemporaryDirectory() as tmp:
