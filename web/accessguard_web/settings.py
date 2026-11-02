@@ -49,6 +49,10 @@ if not SECRET_KEY:
 ALLOWED_HOSTS = env_list("ACCESSGUARD_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]")
 CSRF_TRUSTED_ORIGINS = env_list("ACCESSGUARD_CSRF_TRUSTED_ORIGINS")
 PUBLIC_BASE_URL = env("ACCESSGUARD_PUBLIC_URL", "http://127.0.0.1:8000").rstrip("/")
+# Reverse proxies in front of the app that set X-Forwarded-For (1 for the Caddy service in
+# docker-compose.prod.yml). 0 trusts no forwarded address; sign-in and password-reset limits
+# then key on the direct peer, which behind a proxy is the proxy for every visitor.
+ACCESSGUARD_TRUSTED_PROXY_HOPS = int(env("ACCESSGUARD_TRUSTED_PROXY_HOPS", "0"))
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -236,6 +240,9 @@ ACCESSGUARD: dict[str, Any] = {
     "QUEUE_WARNING_SECONDS": int(env("ACCESSGUARD_QUEUE_WARNING_SECONDS", "60")),
     "MAX_REPORT_BYTES": 4_000_000,
     "ADMIN_PATH": env("ACCESSGUARD_ADMIN_PATH", "ops-admin/"),
+    # A checked runner wheel on this server, offered to signed-in members for download
+    # (scans/distribution.py). Empty: the pages tell customers to use the file we sent them.
+    "RUNNER_WHEEL": env("ACCESSGUARD_RUNNER_WHEEL"),
 }
 
 STRIPE: dict[str, Any] = {

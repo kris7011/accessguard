@@ -38,7 +38,7 @@ The control plane never connects to customer systems; only the runner does (ADR 
 | `web/accessguard_web/` | Control plane: Django 6.1, server-rendered templates, one small script, whitenoise, gunicorn, psycopg, stripe, anthropic (optional), sentry-sdk (optional) | implemented, tested on SQLite and (locally, in compose) PostgreSQL 17 |
 | `sampleapp/accessguard_sampleapp/` | Synthetic projects API with its own auth, flawed and fixed variants, answer key | implemented, tested |
 | `ml/accessguard_ml/` | Datasets, training, evaluation, registry | implemented, tested |
-| `ops/` | verify scripts, CI helpers, dev stack, browser check, docker entry scripts, economics model | implemented; Docker images built and run locally |
+| `ops/` | verify scripts, CI helpers, dev stack, browser check, docker entry scripts, deployment checks (`ops/deploy/`), Stripe sandbox drivers, economics model | implemented; Docker images built and run locally; deployment files prepared, not run on a server |
 
 Dependencies are hash-locked (`web/requirements.txt`, `requirements-dev.txt`,
 `requirements-e2e.txt`), audited with pip-audit; mypy strict with django-stubs.
@@ -61,7 +61,11 @@ Dependencies are hash-locked (`web/requirements.txt`, `requirements-dev.txt`,
 ## A.4 Authentication and authorization
 
 - **People:** Django auth with e-mail login (`accounts/models.py: User`), password validators
-  (min 12 characters), throttled sign-in (`ThrottledLoginView`), password reset by e-mail.
+  (min 12 characters), throttled sign-in (`ThrottledLoginView`), password reset by e-mail
+  with a per-address and per-IP limit (`ThrottledPasswordResetView`; over the limit the same
+  page appears and nothing is sent). Both limits key on `accounts/views.py: _client_ip`,
+  which behind `ACCESSGUARD_TRUSTED_PROXY_HOPS` proxies takes that entry from the right of
+  `X-Forwarded-For` (the left part can be forged by the client).
 - **Tenancy:** every product record has an `organization`; `accounts/tenancy.py` resolves the
   current membership per request and `get_owned` loads records only within it (other tenants'
   ids answer 404). Roles: viewer (read), admin (configure, approve, triage, runners), owner
@@ -156,11 +160,18 @@ tests that build the POST data from the rendered page (`test_project_setup.py`).
 ## A.8 Local development, deployment, backup
 
 See [install.md](install.md), [operations.md](operations.md) and
-[launch-checklist.md](launch-checklist.md).
+[launch-checklist.md](launch-checklist.md). Public deployment (prepared, not carried out):
+[deployment.md](deployment.md) with `docker-compose.prod.yml` (Caddy for TLS, the app
+reachable only through it, restic copies of the daily dumps to off-site storage with a
+heartbeat alert, log rotation) and `ops/deploy/check_env.py` (checks a production `.env`
+by name, never printing values). Hosting decision basis and the self-serve beta plan:
+[beta-operations-plan.md](beta-operations-plan.md), ADR 0014 (proposed). The runner wheel
+is offered for download in the app (`scans/distribution.py`), so PyPI is optional.
 
 ## A.9 Design decisions
 
-ADR 0009 (local runner), 0010 (Django), 0011 (Stripe), 0012 (assistants), 0013 (ML). The
+ADR 0009 (local runner), 0010 (Django), 0011 (Stripe), 0012 (assistants), 0013 (ML),
+0014 (single-server beta hosting, proposed). The
 central trade-offs: credentials stay with the customer at the price of an installed runner;
 server-rendered pages keep the UI simple and testable at the price of rich interactivity;
 deterministic verdicts and full coverage over AI prioritisation, because the evaluation found
@@ -168,7 +179,8 @@ no advantage.
 
 ## A.10 Known limitations (V1)
 
-- Not deployed to a server. Docker and PostgreSQL ran locally only. The Claude API ran in
+- Not deployed to a server. Docker and PostgreSQL ran locally only; the production overlay
+  (TLS proxy, off-site backups) is prepared and config-checked, not run. The Claude API ran in
   one opt-in test run; the local Ollama provider has not been exercised for V1 tasks.
   Stripe ran only in a temporary test sandbox, never in live mode.
 - No e-mail verification; login throttling per installation; English UI only.
@@ -330,8 +342,9 @@ in M1 and five in the pre-M2 hardening) were all detected by the suite; they are
 
 ## 9. Local development and deployment
 
-See README. There is no deployment: AccessGuard runs locally. CI is defined in
-`.github/workflows/test.yml` (not yet run on GitHub).
+See README. At the time of milestone 1 there was no deployment and CI had not run. Since
+V1, CI runs on GitHub for the draft pull request, and a single-server deployment is
+prepared but not carried out (docs/deployment.md).
 
 ## 10. Backup and restore
 
@@ -410,7 +423,8 @@ model planner), 0007 (bounded adaptive agent), 0008 (selection-strategy evaluati
   deadline or cancellation intervened) stays `not_retested`. The evaluation reports
   `confirmed_true_positives` separately.
 - The dev lock file was resolved on Windows/CPython 3.13 without environment markers.
-- CI has not been run on GitHub; Python 3.11, Linux and macOS are not verified locally.
+- CI runs on GitHub (Ubuntu with Python 3.11 and 3.13, Windows with 3.13); macOS is not
+  tested, and Python 3.11 and Linux only in CI, not on the development machine.
 
 ## 13. Ownership and AI assistance
 

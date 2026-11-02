@@ -3,14 +3,18 @@
 For the person running the AccessGuard control plane. Items marked *(tested)* were run on the
 development machine; *(tested in Docker)* means the compose stack (PostgreSQL 17.11, images on
 Debian 13) on Docker 29.8 / WSL2 on 2026-10-30. Nothing here has run on a production server yet.
+The step-by-step deployment of a public server (TLS proxy, secrets, e-mail, off-site
+backups, alerts) is in [deployment.md](deployment.md); the hosting choice in
+[beta-operations-plan.md](beta-operations-plan.md).
 
 ## Architecture in production
 
 ```text
-browser ──https──► reverse proxy ──► web (gunicorn, Django) ──► PostgreSQL
-customer runner ──https──► reverse proxy ──► web /api/runner/v1 (bearer token)
-Stripe ──https──► web /webhooks/stripe/ (signature verified)
+browser ──https──► proxy (Caddy) ──► web (gunicorn, Django) ──► PostgreSQL
+customer runner ──https──► proxy ──► web /api/runner/v1 (bearer token)
+Stripe ──https──► proxy ──► web /webhooks/stripe/ (signature verified)
 scheduler: sweep_scans (1 min), purge_expired_data + backup_database (daily)
+offsite-backup: restic copy of the dumps to off-site storage (daily), heartbeat ping
 demo container: sample API + platform demo runner (private network to web)
 ```
 
@@ -25,6 +29,7 @@ The control plane never connects to customer targets (ADR 0009).
 | Logs | JSON lines on stdout with `request_id`; credentials redacted by a logging filter *(tested)* |
 | Errors | Set `SENTRY_DSN` (Sentry or self-hosted GlitchTip); PII off, events scrubbed. Without it, `ADMINS` get error e-mails |
 | Runner health | Runners page shows online/offline; queued scans show a warning after 60 s |
+| Backups | `offsite-backup` pings `ACCESSGUARD_BACKUP_HEARTBEAT_URL` after each successful off-site copy; alert when the ping stops (prepared; loop checked with stubs) |
 
 Every response carries `X-Request-Id`; ask customers for it in support cases.
 
@@ -55,8 +60,11 @@ purged. Processed Stripe event ids are kept 90 days.
   version: the images ship `postgresql-client` 17 (Debian 13) for the PostgreSQL 17 server in
   `docker-compose.yml`. Upgrading the server to 18 requires a matching client first.
   *(tested in Docker: scheduled and manual backups, and the restore drill below)*
-- Copy backups off the server (object storage or another machine); keep at least 14 daily
-  copies; encrypt them at rest.
+- **Off-site:** the `offsite-backup` service of `docker-compose.prod.yml` encrypts the
+  `backups` volume with restic and copies it to SFTP or S3-compatible storage daily
+  (14 daily, 8 weekly, 6 monthly snapshots; `restic check` on Sundays). It refuses to run
+  when the newest dump is older than 26 hours. Set-up and the restore drill from off-site
+  storage: deployment.md, section 6. *(prepared; not run against a real repository)*
 
 Restore drill (do it once before launch and then quarterly):
 
@@ -87,8 +95,9 @@ scan's report matched the source database. Not yet done on a production server.
 
 1. Run `bash ops/verify.sh` (all gates) on the release commit; CI must be green.
 2. Back up the database.
-3. Build and start: `docker compose up -d --build web scheduler demo`. The web container runs
-   `migrate` before starting gunicorn. Migrations are additive in V1; review any migration
+3. Build and start: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build`
+   on a public server (`docker compose up -d --build web scheduler demo` locally). The web
+   container runs `migrate` before starting gunicorn. Migrations are additive in V1; review any migration
    that drops or rewrites data before deploying it.
 4. Check `/readyz`, sign in, run the demo scan.
 5. Roll back by redeploying the previous image tag and, only if a migration requires it,
@@ -106,11 +115,17 @@ scan's report matched the source database. Not yet done on a production server.
 
 ## Known operational limits (V1)
 
-- Login throttling uses the database cache; it is per installation, not global.
+- Login throttling uses the database cache; it is per installation, not global. Behind the
+  proxy it keys on the visitor's address (`ACCESSGUARD_TRUSTED_PROXY_HOPS=1`, the entry the
+  proxy added to `X-Forwarded-For`); with the default 0 every visitor behind a proxy would
+  share one limit. *(tested)*
+- Password-reset e-mails are limited to 3 per address and 10 per IP address per hour; over
+  the limit the same "sent" page appears and nothing is sent. *(tested)*
 - One web container is enough for the beta; scale gunicorn workers first, then containers.
 - No email verification of new accounts.
 - SMTP always uses STARTTLS (`EMAIL_USE_TLS = True`, port 587 by default); providers that only
-  offer implicit TLS on port 465 are not supported by the settings yet. Real e-mail delivery
+  offer implicit TLS on port 465 are not supported by the settings yet. Port 587 is also the
+  one cloud hosts that block outbound 25 and 465 (Hetzner Cloud, for example) leave open. Real e-mail delivery
   has not been tested (no SMTP account; only the console backend).
 - Machine size: the compose stack itself is small (images 293 MB web, 121 MB demo), but the
   development laptop (7.3 GB RAM, about 2 GB free commit memory with an editor and a browser

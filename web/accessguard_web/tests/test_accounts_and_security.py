@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import ast
 import logging
+import re
 from pathlib import Path
+from typing import Any
 
+from django.core import mail
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import Client, RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from accessguard_web.accounts.models import Invitation, Membership, Organization, User
+from accessguard_web.accounts.views import (
+    RESET_LIMIT_PER_ADDRESS,
+    RESET_LIMIT_PER_IP,
+    _client_ip,
+)
 from accessguard_web.billing.models import Subscription
 from accessguard_web.observability import JsonFormatter, RedactionFilter, redact
 from accessguard_web.projects.forms import IdentityForm, TargetForm
@@ -70,6 +78,100 @@ class LoginThrottleTests(TestCase):
         )
         self.assertContains(response, "Too many failed sign-in attempts")
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    @override_settings(ACCESSGUARD_TRUSTED_PROXY_HOPS=1)
+    def test_behind_a_proxy_the_limit_follows_the_visitor_not_the_proxy(self) -> None:
+        make_user("other@example.test")
+        for attempt in range(10):
+            self.client.post(
+                reverse("accounts:login"),
+                {
+                    "username": f"nobody{attempt}@example.test",
+                    "password": "wrong",  # pragma: allowlist secret
+                },
+                REMOTE_ADDR="172.18.0.5",
+                HTTP_X_FORWARDED_FOR="203.0.113.7",
+            )
+        locked = self.client.post(
+            reverse("accounts:login"),
+            {"username": "user@example.test", "password": PASSWORD},
+            REMOTE_ADDR="172.18.0.5",
+            HTTP_X_FORWARDED_FOR="198.51.100.1, 203.0.113.7",  # a forged left entry is ignored
+        )
+        self.assertContains(locked, "Too many failed sign-in attempts")
+        other = Client().post(
+            reverse("accounts:login"),
+            {"username": "other@example.test", "password": PASSWORD},
+            REMOTE_ADDR="172.18.0.5",
+            HTTP_X_FORWARDED_FOR="198.51.100.20",
+        )
+        self.assertEqual(other.status_code, 302, "another visitor behind the same proxy signs in")
+
+
+class ClientAddressTests(SimpleTestCase):
+    def address(self, forwarded: str | None) -> str:
+        request = RequestFactory().get("/", REMOTE_ADDR="172.18.0.5")
+        if forwarded is not None:
+            request.META["HTTP_X_FORWARDED_FOR"] = forwarded
+        return _client_ip(request)
+
+    def test_without_trusted_proxies_the_forwarded_header_is_ignored(self) -> None:
+        self.assertEqual(self.address("203.0.113.7"), "172.18.0.5")
+
+    @override_settings(ACCESSGUARD_TRUSTED_PROXY_HOPS=1)
+    def test_one_trusted_proxy_uses_the_entry_it_added(self) -> None:
+        self.assertEqual(self.address("198.51.100.1, 203.0.113.7"), "203.0.113.7")
+        self.assertEqual(self.address(None), "172.18.0.5", "no header: the direct peer")
+
+    @override_settings(ACCESSGUARD_TRUSTED_PROXY_HOPS=2)
+    def test_too_few_entries_fall_back_to_the_peer(self) -> None:
+        self.assertEqual(self.address("203.0.113.7"), "172.18.0.5")
+        self.assertEqual(self.address("198.51.100.1, 203.0.113.7, 10.0.0.2"), "203.0.113.7")
+
+
+class PasswordResetTests(TestCase):
+    def setUp(self) -> None:
+        cache.clear()
+        self.user = make_user("user@example.test")
+
+    def request_reset(self, email: str = "user@example.test", *, secure: bool = False) -> Any:
+        return self.client.post(reverse("accounts:password_reset"), {"email": email}, secure=secure)
+
+    def test_the_e_mailed_https_link_sets_a_new_password_once(self) -> None:
+        response = self.request_reset(secure=True)
+        self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["user@example.test"])
+        link = re.search(r"https://testserver(/\S*/reset/\S+/)", str(mail.outbox[0].body))
+        assert link is not None, mail.outbox[0].body
+        form = self.client.get(link.group(1), secure=True, follow=True)
+        new_password = "a fresh reset password 73"  # pragma: allowlist secret
+        self.client.post(
+            form.redirect_chain[-1][0],
+            {"new_password1": new_password, "new_password2": new_password},
+            secure=True,
+        )
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password(new_password))
+        reused = self.client.get(link.group(1), secure=True, follow=True)
+        self.assertNotContains(reused, "new_password1", msg_prefix="the link works once")
+
+    def test_unknown_addresses_get_the_same_page_and_no_e_mail(self) -> None:
+        response = self.request_reset("nobody@example.test")
+        self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        self.assertEqual(mail.outbox, [])
+
+    def test_reset_e_mails_are_limited_per_address_and_per_ip(self) -> None:
+        for _ in range(RESET_LIMIT_PER_ADDRESS + 2):
+            response = self.request_reset()
+            self.assertRedirects(response, reverse("accounts:password_reset_done"))
+        self.assertEqual(len(mail.outbox), RESET_LIMIT_PER_ADDRESS)
+        for number in range(RESET_LIMIT_PER_IP):
+            make_user(f"u{number}@example.test")
+            self.request_reset(f"u{number}@example.test")
+        self.assertEqual(
+            len(mail.outbox), RESET_LIMIT_PER_IP, "the address limit counted towards the IP"
+        )
 
 
 class InvitationTests(TestCase):

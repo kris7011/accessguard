@@ -1,4 +1,7 @@
-# Launch checklist (paid beta)
+# Launch checklist (self-serve beta)
+
+The plan, the hosting decision basis and the open items by kind (technical, owner,
+legal, optional): [beta-operations-plan.md](beta-operations-plan.md).
 
 Status per item, updated 2026-11-02:
 
@@ -19,9 +22,11 @@ Status per item, updated 2026-11-02:
 | Findings: evidence, guidance, triage, retest with positive controls, history | done |
 | Runner from the distribution package: clean venv, no repository on the path, full customer journey | done: wheel on CPython 3.12.7 and source archive on 3.13.13, `ops/dev/customer_acceptance.py` PASS |
 | In-app install instructions | done: wheel install, warning against the unpublished PyPI name (`0ccdd87`) |
+| Self-serve runner download (checked wheel served by the app with its SHA-256, members only) | done in code and tests (2026-11-02); needs the wheel placed on the server (`ACCESSGUARD_RUNNER_WHEEL`) |
+| Support contact on the site | **open: needs the owner's support address** |
 | AI assistants with a real model | done for the synthetic scenarios: one opt-in run against the Claude API on 2026-10-30 (`claude-opus-5-5`, 3 calls, USD 0.034 estimated, 10 tests OK; docs/ai-live-verification.md). Answer quality beyond those scenarios is not measured; the local Ollama provider is not exercised |
-| Browser check desktop + phone (Chrome) | done (previous session; templates changed since only in the runner install text) |
-| Reserve the name and publish the runner (`pip install accessguard`) | ready: wheel and sdist build and install. **Needs a PyPI account and approval.** The names `accessguard` and `accessguard-runner` were free on PyPI on 2026-10-30 |
+| Browser check desktop + phone (Chrome) | done earlier; templates changed since in the runner install text and the runner download (2026-11-02, covered by web tests, not re-checked in a browser) |
+| Publish the runner on PyPI (`pip install accessguard`) | **optional distribution choice**; the beta uses the in-app download. Wheel and sdist build and install; publishing needs a PyPI account and approval. The names `accessguard` and `accessguard-runner` were free on PyPI on 2026-10-30 |
 
 ## Infrastructure
 
@@ -30,13 +35,15 @@ Status per item, updated 2026-11-02:
 | Build and run `docker compose` | done locally (Docker 29.8 / WSL2, PostgreSQL 17.11): migrations, readiness, static files, demo runner, external runner, scheduler, persistence. Three defects fixed (`5ca94fc`) |
 | Web tests on PostgreSQL | done locally (78/78 against the compose database) |
 | Backup and restore drill on PostgreSQL | done locally (restore into a separate database, exact match); **repeat on the server** |
-| Hosting account and domain (any Docker host or VPS; no vendor lock-in) | **blocked: needs the owner** |
-| Pin the base images by digest; build on the server | ready (python digest recorded in docs/install.md; record the postgres digest on the server) |
-| TLS reverse proxy, HSTS (preload only once the domain is final) | ready (not exercised) |
-| Off-server copies of the daily backups | ready (procedure in docs/operations.md) |
-| Alert on `scheduler: ERROR` lines / missing daily dump | ready (documented; needs the monitoring choice) |
+| Hosting account and domain (any Docker host or VPS; no vendor lock-in) | **blocked: needs the owner**; recommendation and prices in beta-operations-plan.md (Hetzner CX23 + Storage Box, about €10/month excl. VAT); runbook docs/deployment.md |
+| Pin the base images by digest; build on the server | done in the files (2026-11-02): Python (the digest built locally on 2026-10-30), PostgreSQL 17.11, Caddy 2.11.6, restic 0.19.1; CI builds the app images. Building on the server: ready |
+| TLS reverse proxy, HSTS (preload only once the domain is final) | ready: Caddy in `docker-compose.prod.yml` (merged config checked); not exercised without a domain |
+| Visitor address behind the proxy (sign-in and reset limits) | done: `ACCESSGUARD_TRUSTED_PROXY_HOPS`, web tests |
+| Production `.env` check | done: `ops/deploy/check_env.py` (names only), unit tests |
+| Off-server copies of the daily backups | ready: encrypted restic copies with retention (`offsite-backup` service); loop logic checked with stubs; needs the storage account and a restore drill from it |
+| Alert on a missing daily dump or off-site copy | ready: heartbeat ping after each successful off-site copy, skipped when the newest dump is older than 26 h; needs the heartbeat service choice |
 | Error monitoring (`SENTRY_DSN`) and admin e-mail | ready (needs an account or self-hosted GlitchTip) |
-| SMTP for password reset | **blocked: needs an SMTP provider** offering STARTTLS on 587 (implicit TLS on 465 is not supported by the settings). Not tested beyond the console backend |
+| SMTP for password reset | **blocked: needs an SMTP provider** offering STARTTLS on 587 (implicit TLS on 465 is not supported by the settings). Reset flow and its e-mail limit tested with Django's test mail backend; real delivery not tested |
 | Push the branch and let CI run (engine matrix incl. Python 3.11 and Linux, web on PostgreSQL, images) | done: CI runs on draft PR #1 (private repository); all six jobs green on `71c4d3d` |
 
 ## Payments
@@ -44,7 +51,8 @@ Status per item, updated 2026-11-02:
 | Item | Status |
 | --- | --- |
 | Stripe test account: products/prices for Team and Business, webhook endpoint, Customer Portal | **done in a temporary claimable sandbox** (2026-10-30, expires 2026-11-06): prices, portal configuration, `stripe listen`. A permanent test account (or the claimed sandbox) and a webhook endpoint on the server remain |
-| Run a test-mode purchase, failed payment (card `4000 0000 0000 0341`), cancellation | **done in the sandbox** (docs/HANDOFF.md); a renewal failure with test clocks needs a claimed sandbox |
+| Run a test-mode purchase, failed payment (card `4000 0000 0000 0341`), cancellation | **done in the sandbox** (docs/HANDOFF.md) |
+| Renewal, its failure, Stripe's retries and final action (test clocks) | ready: `sandbox.py clock-*` and the run plan in ops/stripe_sandbox/README.md. **Blocked: the claimable sandbox refuses test clocks**; needs the claimed sandbox or a sandbox in the owner's account (paid phase only) |
 | VAT: Stripe Tax or a merchant of record; Danish CVR registration for the business | **open: owner + accountant** |
 | Switch to live keys | **needs explicit approval**; only after the test-mode run and legal texts |
 
@@ -64,4 +72,4 @@ Status per item, updated 2026-11-02:
 | Landing, pricing, example report, help pages | done |
 | Ad drafts and product texts | done (docs/business/); **publishing needs approval** |
 | Economics model with explicit assumptions | done (docs/business/economics.md) |
-| First 5-10 design-partner conversations (validate price and value) | open |
+| Self-serve beta without mandatory calls: activation metrics, support address, optional survey | open (plan in beta-operations-plan.md, section 3) |

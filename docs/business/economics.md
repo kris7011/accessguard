@@ -18,12 +18,12 @@ Reproduce: `python ops/business/economics.py` (assumptions in `ops/business/assu
 
 | Assumption | Value | Check against |
 | --- | --- | --- |
-| Prices | Team €49, Business €199 per month | Interviews with 5-10 design partners; competitor price pages |
+| Prices | Team €49, Business €199 per month | Conversion in the paid beta phase; feedback customers give voluntarily (survey, support e-mail); competitor price pages |
 | Plan mix | 20 % Business | First 20 paying customers |
 | Payment fees | 1.5 % + €0.25 per charge | Current Stripe pricing for your country and card mix |
 | AI use | 30 assistant requests per paying customer and month, 3k input / 1k output tokens | `AssistantRun` usage records |
 | AI price | $4 / $20 per million input/output tokens (Claude Opus 5.5 list price), €0.92 per $ | Anthropic pricing page at the time of use |
-| Hosting | €60 fixed + €0.5 per customer | Actual invoices (a single VPS and managed PostgreSQL are enough for the beta) |
+| Hosting | €60 fixed + €0.5 per customer | Actual invoices. Conservative: the recommended beta set-up was quoted at about €10/month excl. VAT on 2026-11-02 (docs/beta-operations-plan.md); not changed here until invoices exist |
 | Support | €4 per customer and month (owner's time valued conservatively) | Time tracking |
 | Fixed costs | €80 tools + €150 accounting and legal | Actual invoices |
 | Acquisition | €300 per new paying customer | Ad spend and conversion per channel |
@@ -55,6 +55,8 @@ AI cost per paying customer and month: **€0.88**.
 
 ## Next measurements
 
-1. Willingness to pay: 5-10 design-partner calls (with consent) using the live demo.
-2. Activation: share of sign-ups that run the demo, connect a runner and complete a scan.
+1. Activation (self-serve, no mandatory calls): share of sign-ups that run the demo,
+   download and connect a runner and complete a scan of their own.
+2. Willingness to pay: conversion once paid plans are switched on; optional feedback calls
+   only when a customer asks for one.
 3. Conversion and churn from the first paying cohort; replace the assumptions file.

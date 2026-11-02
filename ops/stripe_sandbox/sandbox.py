@@ -18,6 +18,17 @@ Commands (``<email>`` is an organisation owner in the sandbox database):
     events-since <email> <epoch>  the organisation's handled events since then, newest
                                   first (to redeliver them late with ``stripe events resend``)
 
+Test clocks (renewals and Stripe's retry schedule; need a sandbox that allows test clocks):
+
+    clock-probe                   create and delete an empty test clock: are clocks allowed?
+    clock-start <email> <plan>    a subscription on a new test clock (customer with our
+                                  metadata, working card); creates the local owner if missing
+    clock-renew <email>           advance past the period end and the hour Stripe keeps the
+                                  renewal invoice in draft, so it is finalised and charged
+    clock-next-retry <email>      advance just past the open invoice's next payment attempt
+    clock-advance <email> <hours> advance by a number of hours
+    clock-delete <email>          delete the clock with its customer and subscription
+
 Safety: nothing runs without ``ACCESSGUARD_STRIPE_SANDBOX=1``; only test-mode keys are
 accepted (``is_test_key``); every Stripe object touched must say ``livemode: false``; the
 app database must be the separate sandbox database, never ``.local/dev.sqlite3``. The key
@@ -28,8 +39,10 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +63,13 @@ PLANS = {
 }
 # Stripe's documented test payment methods.
 CARD_OK, CARD_FAILS = "pm_card_visa", "pm_card_chargeCustomerFail"
+# Stripe keeps a renewal invoice in draft for about an hour before it finalises and charges it.
+DRAFT_SECONDS = 60 * 60
+# Margin past a point in simulated time, so the event at that point has happened.
+CLOCK_MARGIN_SECONDS = 5 * 60
+CLOCK_TIMEOUT_SECONDS = 180
+# Stripe's error messages can quote a masked key ("rkcs_test_51***...cZIB"); never print it.
+_KEY_IN_TEXT = re.compile(r"'?(?<![A-Za-z0-9_])[a-z]+_(?:test|live)_[A-Za-z0-9*]+'?")
 
 
 def require_opt_in() -> None:
@@ -143,7 +163,8 @@ def stripe_state(c: stripe.StripeClient, subscription_id: str) -> dict[str, Any]
             else None
         ),
         "latest_invoice": (
-            f"{invoice.id} {invoice.status} {invoice.billing_reason} {invoice.amount_due}"
+            f"{invoice.id} {invoice.status} {invoice.billing_reason} {invoice.amount_due} "
+            f"attempts={invoice.attempt_count} next_attempt={invoice.next_payment_attempt}"
             if isinstance(invoice, stripe.Invoice) else invoice
         ),
         "cancel_at": s.cancel_at,
@@ -270,7 +291,133 @@ def fail_upgrade(c: stripe.StripeClient, email: str) -> str:
     return f"latest invoice {s.latest_invoice}"
 
 
-def main() -> None:
+def renewal_steps(period_end: int) -> list[int]:
+    """Simulated times for a renewal: just past the period end, then past the draft hour."""
+    return [period_end + CLOCK_MARGIN_SECONDS, period_end + DRAFT_SECONDS + CLOCK_MARGIN_SECONDS]
+
+
+def clock_probe(c: stripe.StripeClient) -> str:
+    clock = c.v1.test_helpers.test_clocks.create(
+        params={"frozen_time": int(time.time()), "name": "accessguard probe"}
+    )
+    assert_test_mode(clock)
+    c.v1.test_helpers.test_clocks.delete(clock.id)
+    return f"test clocks are available (created and deleted {clock.id})"
+
+
+def ensure_owner(email: str) -> Organization:
+    """The organisation of a local test owner, created in the sandbox database if missing."""
+    from accessguard_web.accounts.models import Membership, User  # noqa: PLC0415
+    from accessguard_web.accounts.views import create_organization  # noqa: PLC0415
+
+    if not Membership.objects.filter(user__email=email).exists():
+        user = User.objects.create_user(email, PASSWORD)
+        create_organization(user, f"Clock {email.split('@', maxsplit=1)[0]}")
+    return organization(email)
+
+
+def clock_start(c: stripe.StripeClient, email: str, plan: str) -> str:
+    org = ensure_owner(email)
+    if app_state(email)["subscription"]:
+        raise SystemExit("Refusing: this organisation already has a subscription; use a new e-mail")
+    metadata = {"organization_id": str(org.pk)}
+    clock = c.v1.test_helpers.test_clocks.create(
+        params={"frozen_time": int(time.time()), "name": f"accessguard {email}"}
+    )
+    customer = c.v1.customers.create(
+        params={"email": email, "test_clock": clock.id, "metadata": metadata}
+    )
+    pm = c.v1.payment_methods.attach(CARD_OK, params={"customer": customer.id})
+    c.v1.customers.update(
+        customer.id, params={"invoice_settings": {"default_payment_method": pm.id}}
+    )
+    s = c.v1.subscriptions.create(params={
+        "customer": customer.id, "items": [{"price": read_env()[PLANS[plan][2]]}],
+        "default_payment_method": pm.id, "metadata": metadata,
+    })  # fmt: skip
+    assert_test_mode(clock, customer, pm, s)
+    deadline = time.monotonic() + 60
+    while app_state(email)["subscription"] != s.id:
+        if time.monotonic() > deadline:
+            return f"{clock.id} {s.id} {s.status}: not in the app yet; is stripe listen running?"
+        time.sleep(2)
+    return f"clock {clock.id}, subscription {s.id} {s.status}"
+
+
+def subscription_clock(c: stripe.StripeClient, email: str) -> tuple[stripe.Subscription, str]:
+    state = app_state(email)
+    s = c.v1.subscriptions.retrieve(state["subscription"], params={"expand": ["latest_invoice"]})
+    customer = c.v1.customers.retrieve(state["customer"])
+    assert_test_mode(s, customer)
+    if not customer.test_clock:
+        raise SystemExit("Refusing: this customer is not on a test clock (see clock-start)")
+    return s, str(customer.test_clock)
+
+
+def advance_clock(c: stripe.StripeClient, clock_id: str, frozen_time: int) -> str:
+    clocks = c.v1.test_helpers.test_clocks
+    clocks.advance(clock_id, params={"frozen_time": frozen_time})
+    deadline = time.monotonic() + CLOCK_TIMEOUT_SECONDS
+    while (clock := clocks.retrieve(clock_id)).status != "ready":
+        if clock.status == "internal_failure":
+            raise SystemExit(f"Stripe could not advance {clock_id}: {clock.status_details}")
+        if time.monotonic() > deadline:
+            raise SystemExit(f"{clock_id} is still {clock.status} after {CLOCK_TIMEOUT_SECONDS} s")
+        time.sleep(2)
+    return f"clock {clock_id} at {clock.frozen_time}"
+
+
+def clock_renew(c: stripe.StripeClient, email: str) -> str:
+    s, clock_id = subscription_clock(c, email)
+    period_end = s["items"].data[0].current_period_end
+    return "\n".join(advance_clock(c, clock_id, at) for at in renewal_steps(period_end))
+
+
+def clock_next_retry(c: stripe.StripeClient, email: str) -> str:
+    s, clock_id = subscription_clock(c, email)
+    invoice = s.latest_invoice
+    if not isinstance(invoice, stripe.Invoice) or not invoice.next_payment_attempt:
+        return "no payment attempt is scheduled (paid, or the retries are exhausted)"
+    return advance_clock(c, clock_id, invoice.next_payment_attempt + CLOCK_MARGIN_SECONDS)
+
+
+def clock_advance(c: stripe.StripeClient, email: str, hours: int) -> str:
+    _, clock_id = subscription_clock(c, email)
+    now = c.v1.test_helpers.test_clocks.retrieve(clock_id).frozen_time
+    return advance_clock(c, clock_id, now + hours * 3600)
+
+
+def end_in(c: stripe.StripeClient, email: str, seconds: int) -> str:
+    at = int(time.time()) + seconds
+    c.v1.subscriptions.update(
+        app_state(email)["subscription"], params={"cancel_at": at, "proration_behavior": "none"}
+    )
+    return f"cancel_at {at}"
+
+
+def clock_delete(c: stripe.StripeClient, email: str) -> str:
+    _, clock_id = subscription_clock(c, email)
+    c.v1.test_helpers.test_clocks.delete(clock_id)
+    return f"deleted {clock_id} with its customer and subscription"
+
+
+Action = Callable[[stripe.StripeClient, argparse.Namespace], str]
+# Commands on one organisation; each prints its result and then both views of the subscription.
+ACTIONS: dict[str, Action] = {
+    "show": lambda c, a: "",
+    "card": lambda c, a: set_card(c, a.email, CARD_FAILS if a.outcome == "fail" else CARD_OK),
+    "pay-open": lambda c, a: pay_open(c, a.email),
+    "fail-renewal": lambda c, a: fail_renewal(c, a.email),
+    "fail-upgrade": lambda c, a: fail_upgrade(c, a.email),
+    "end-in": lambda c, a: end_in(c, a.email, a.seconds),
+    "clock-start": lambda c, a: clock_start(c, a.email, a.plan),
+    "clock-renew": lambda c, a: clock_renew(c, a.email),
+    "clock-next-retry": lambda c, a: clock_next_retry(c, a.email),
+    "clock-advance": lambda c, a: clock_advance(c, a.email, a.hours),
+}
+
+
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
     setup_cmd = sub.add_parser("setup")
@@ -279,7 +426,9 @@ def main() -> None:
         choices=["always_invoice", "create_prorations", "none"],
     )  # fmt: skip
     sub.add_parser("events")
-    for name in ("show", "pay-open", "fail-renewal", "fail-upgrade"):
+    sub.add_parser("clock-probe")
+    for name in ("show", "pay-open", "fail-renewal", "fail-upgrade", "clock-renew",
+                 "clock-next-retry", "clock-delete"):  # fmt: skip
         sub.add_parser(name).add_argument("email")
     card = sub.add_parser("card")
     card.add_argument("email")
@@ -290,44 +439,49 @@ def main() -> None:
     since = sub.add_parser("events-since")
     since.add_argument("email")
     since.add_argument("epoch", type=int)
-    args = parser.parse_args()
+    start = sub.add_parser("clock-start")
+    start.add_argument("email")
+    start.add_argument("plan", choices=sorted(PLANS))
+    forward = sub.add_parser("clock-advance")
+    forward.add_argument("email")
+    forward.add_argument("hours", type=int)
+    return parser.parse_args()
 
+
+def run(c: stripe.StripeClient, args: argparse.Namespace) -> None:
+    if args.command == "setup":
+        setup(c, args.portal_proration)
+        return
+    if args.command == "clock-probe":
+        print(clock_probe(c))
+        return
+    django_setup()
+    if args.command == "events-since":
+        print("\n".join(events_since(c, args.email, args.epoch)))
+        return
+    if args.command == "clock-delete":
+        print(clock_delete(c, args.email))
+        return
+    result = ACTIONS[args.command](c, args)
+    if result:
+        print(result)
+    state = app_state(args.email)
+    print("stripe:", stripe_state(c, state["subscription"]))
+    print("app:   ", state)
+    found = c.v1.subscriptions.list(params={"customer": state["customer"], "status": "all"})
+    print("subscriptions of the customer at Stripe:", [f"{s.id} {s.status}" for s in found.data])
+
+
+def main() -> None:
+    args = parse_args()
     if args.command == "events":
         print(",".join(handled_events()))
         return
     c = client()
-    if args.command == "setup":
-        setup(c, args.portal_proration)
-        return
-    django_setup()
     try:
-        if args.command == "events-since":
-            print("\n".join(events_since(c, args.email, args.epoch)))
-            return
-        if args.command == "card":
-            print(set_card(c, args.email, CARD_FAILS if args.outcome == "fail" else CARD_OK))
-        elif args.command == "pay-open":
-            print(pay_open(c, args.email))
-        elif args.command == "fail-renewal":
-            print(fail_renewal(c, args.email))
-        elif args.command == "fail-upgrade":
-            print(fail_upgrade(c, args.email))
-        elif args.command == "end-in":
-            at = int(time.time()) + args.seconds
-            c.v1.subscriptions.update(
-                app_state(args.email)["subscription"],
-                params={"cancel_at": at, "proration_behavior": "none"},
-            )
-            print("cancel_at", at)
-        state = app_state(args.email)
-        print("stripe:", stripe_state(c, state["subscription"]))
-        print("app:   ", state)
-        found = c.v1.subscriptions.list(params={"customer": state["customer"], "status": "all"})
-        print(
-            "subscriptions of the customer at Stripe:", [f"{s.id} {s.status}" for s in found.data]
-        )
+        run(c, args)
     except stripe.StripeError as error:
-        reason = error.user_message or str(error)
+        reason = _KEY_IN_TEXT.sub("<key>", error.user_message or str(error))
         raise SystemExit(f"stripe refused: {type(error).__name__} {error.code}: {reason}") from None
 
 

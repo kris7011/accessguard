@@ -10,7 +10,7 @@ urlpatterns = [
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path(
         "password-reset/",
-        auth_views.PasswordResetView.as_view(
+        views.ThrottledPasswordResetView.as_view(
             template_name="accounts/password_reset.html",
             email_template_name="accounts/password_reset_email.txt",
             success_url=reverse_lazy("accounts:password_reset_done"),

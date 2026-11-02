@@ -14,14 +14,14 @@ with evidence, fix guidance, triage and retests.
 | Part | Path | Status |
 | --- | --- | --- |
 | Engine + runner CLI (stdlib only) | `src/accessguard/` | implemented, tested |
-| Web control plane (Django 6.1) | `web/accessguard_web/` | implemented, tested (78 tests incl. end-to-end over HTTP; also run on PostgreSQL 17) |
+| Web control plane (Django 6.1) | `web/accessguard_web/` | implemented, tested (web tests incl. end-to-end over HTTP; run on SQLite locally and on PostgreSQL 17 in CI) |
 | Separate integration app (flawed/fixed) | `sampleapp/` | implemented, tested |
 | ML foundation (datasets, training, gated registry) | `ml/accessguard_ml/` | implemented, tested; **no model active** |
 | Development lab and M2 evaluation fixtures | `lab/`, `evaluations/` | unchanged from M2 |
-| Runner distribution (wheel / source archive) | `pyproject.toml`, `ops/dev/customer_acceptance.py` | built and installed in clean venvs; full customer journey passes; **not published to PyPI** |
-| Deployment: Dockerfile, compose | `Dockerfile`, `docker-compose.yml` | built and run locally (Docker 29.8, PostgreSQL 17); **not deployed to a server** |
-| CI | `.github/workflows/` | written; **never run** (nothing pushed) |
-| Billing (Stripe) and AI assistants | `web/accessguard_web/billing/`, `.../assistant/` | implemented, tested with signed fixtures and fake providers only; **no real Stripe payment and no real AI call made** |
+| Runner distribution (wheel / source archive) | `pyproject.toml`, `ops/dev/customer_acceptance.py`, `scans/distribution.py` | built and installed in clean venvs; full customer journey passes; downloadable from the app when the server provides the wheel; **not published to PyPI** (optional) |
+| Deployment: Dockerfile, compose, production overlay | `Dockerfile`, `docker-compose.yml`, `docker-compose.prod.yml`, `ops/deploy/` | base stack built and run locally (Docker 29.8, PostgreSQL 17); production overlay (TLS proxy, off-site backups) prepared and config-checked; **not deployed to a server** ([docs/deployment.md](docs/deployment.md)) |
+| CI | `.github/workflows/` | runs on the draft pull request (private repository): lint, types, security scans, build; engine tests on Ubuntu 3.11/3.13 and Windows 3.13; web tests on PostgreSQL; image builds |
+| Billing (Stripe) and AI assistants | `web/accessguard_web/billing/`, `.../assistant/` | implemented and tested; billing also run against a Stripe test sandbox (test payments only, no live payment); the assistants verified for their synthetic scenarios in one real Claude API run |
 
 ## Run the whole product locally
 

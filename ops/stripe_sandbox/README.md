@@ -90,13 +90,65 @@ view and the customer's subscriptions at Stripe.
 | Cancellation | `sandbox_browser.py portal-cancel <email>`; `sandbox.py end-in <email> 60` | warning with the end date; Free after `customer.subscription.deleted` |
 | Re-subscription | `sandbox_browser.py buy <same slug> team` after the end | Checkout allowed (no live subscription at Stripe); same customer, new subscription; the app follows the new one |
 
-## Not covered (needs a Stripe account with test clocks)
+## Renewals and payment retries with test clocks (prepared, not run)
 
-- A natural renewal at the end of a billing period, and its failure. `fail-renewal`
-  bills a new period by resetting the billing cycle anchor; with flexible billing mode a
-  credit for the unused period can make that invoice EUR 0, so it is not a substitute.
-- Stripe's own retry schedule (Smart Retries) and its final action (cancel, `unpaid`).
-- A webhook endpoint on a public server (only `stripe listen` to localhost).
+A natural renewal, its failure, Stripe's retry schedule and its final action need **test
+clocks**. The claimable sandbox used on 2026-10-30 cannot create them: on 2026-11-02
+`sandbox.py clock-probe` got `PermissionError` from Stripe, "This is a claimable sandbox key
+with limited permissions. Use the claim URL provided when the sandbox was created to get a
+full API key". Test clocks run only in sandboxes and test mode; nothing here moves money.
+
+### Owner steps (manual; the assistant does none of them)
+
+1. **Get a test environment with a full key**, before the claimable sandbox expires
+   (**2026-11-06**): either claim it with the claim URL in the git-ignored
+   `.local/stripe/sandbox-create.out` (claiming moves it into a Stripe account you choose
+   or create, and accepts Stripe's terms), or create a sandbox in your own Stripe account.
+   Choosing or creating the account is your decision.
+2. **Log the separate CLI configuration in to it**, not the default one:
+   `stripe --config .local/stripe/config.toml login` (choose the sandbox, not live mode) or
+   `stripe --config .local/stripe/config.toml login --api-key <test key>`, entered locally.
+3. **Put the test secret key into `.local/stripe/stripe.env`** (`STRIPE_SECRET_KEY`;
+   `sk_test_` or `rk_test_`; keep `stripe.env.bak` as it is). In a new sandbox, run
+   `sandbox.py setup` again: it writes new price and portal ids.
+4. **Choose the retry settings** in that sandbox's Dashboard, **Billing > Revenue recovery
+   > Retries**. For a reproducible run use a custom schedule (for example retries 1, 3 and
+   5 days after the previous attempt) and **cancel the subscription** after the last one;
+   Smart Retries picks its own times (recommended default: 8 tries within 2 weeks), which
+   `clock-next-retry` follows as well. Record what was chosen.
+5. `sandbox.py clock-probe` must print "test clocks are available".
+
+### Run (three terminals as above; the app on `.local/stripe-e2e.sqlite3`)
+
+| Step | Command | Expected (Stripe / app) |
+| --- | --- | --- |
+| Start | `clock-start clock1@example.test team` | clock at real now; subscription `active`, Team; app Team after the webhook |
+| Renewal paid | `clock-renew clock1@example.test` | invoice `subscription_cycle` paid, new period; app Team, `current_period_end` one month later, no warning |
+| Renewal fails | `clock-start clock2@example.test team`, `card clock2@example.test fail`, `clock-renew clock2@example.test` | invoice open, `attempts=1`, `next_attempt` set, subscription `past_due`; app Team **with the grace warning** |
+| Each retry | `clock-next-retry clock2@example.test` (repeat) | `invoice.payment_failed` with a higher `attempt_count`; app unchanged |
+| Final action | `clock-next-retry` until "no payment attempt is scheduled" | with "cancel": `customer.subscription.deleted`, app **Free**; with "mark unpaid": `unpaid`, app Free; with "leave past due": app keeps the grace rules |
+| Recovery | `clock-start clock3@example.test team`, `card … fail`, `clock-renew …`, then `card clock3@example.test ok`, `clock-next-retry …` | the retry is charged to the new card, `invoice.paid`, `active`; app Team, warning gone |
+| Clean up | `clock-delete <email>` for each | the clock with its customer and subscription is deleted |
+
+`show <email>` prints both views at any point; `events-since` lists the events. Each
+command prints Stripe's state (invoice status, attempt count, next attempt) and the app's.
+
+**Known difference to expect.** The app starts its grace period
+(`ACCESSGUARD_PAYMENT_GRACE_DAYS`, 7) from its own clock when it first sees `past_due`
+(`webhooks._mirror`), not from the test clock. Advancing the clock by weeks therefore does
+not end the app's grace period; only Stripe's final action does. In production both clocks
+are the same. The grace expiry itself is covered by `test_billing.py`.
+
+Limits from Stripe's documentation (checked 2026-11-02): up to three customers per clock
+and three subscriptions per customer; a clock advances at most two billing intervals at a
+time; clocks are deleted after 30 days; a renewal invoice stays in draft for about an hour
+before it is finalised and charged (`clock-renew` advances past that hour).
+
+## Not covered
+
+- A webhook endpoint on a public server (only `stripe listen` to localhost); see
+  docs/deployment.md, section 5.
+- Renewals, retries and the final action until the test-clock run above has been done.
 
 ## Clean up
 

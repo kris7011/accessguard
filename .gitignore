@@ -13,3 +13,5 @@ web/db.sqlite3
 web/staticfiles/
 .env.*
 !.env.example
+# Server-side secrets (SSH key for the off-site backup repository)
+.secrets/

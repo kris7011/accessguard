@@ -2,6 +2,59 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Package 10: operations and self-serve beta prepared (2026-11-02, seventh session)
+
+Status: **prepared, not deployed.** No purchase, account, server, deployment, publication,
+merge, live payment or model call. One Stripe call in test mode (`clock-probe`, refused).
+Docker was not started (machine memory limits). Package 7 stays accepted for its synthetic
+scenarios. Branch `feature/v1-commercial-beta`, draft PR #1, repository private.
+
+### Decision basis
+
+`docs/beta-operations-plan.md`: two EU options with official prices of 2026-11-02
+(Hetzner CX23 + Storage Box ≈ €10.22/month excl. VAT; Scaleway DEV1-S + managed PostgreSQL
+≈ €24.52), assumptions, recommendation (Hetzner), open items as technical gaps, owner
+decisions, legal clarifications and optional improvements, the self-serve beta plan and
+the list of missing information. ADR 0014 (proposed). Hetzner's plan pages showed the
+plans as "currently unavailable" on that day: check when ordering. Scaleway's pricing
+pages refuse automated access; prices come from its public product catalogue API.
+
+### Technical changes
+
+| Change | Why | Tests |
+| --- | --- | --- |
+| `_client_ip` honours `ACCESSGUARD_TRUSTED_PROXY_HOPS` (rightmost N-th `X-Forwarded-For` entry) | behind the proxy every visitor would have shared the proxy's sign-in limit | `ClientAddressTests`, `test_behind_a_proxy_the_limit_follows_the_visitor_not_the_proxy` |
+| `ThrottledPasswordResetView`: 3 e-mails per address, 10 per IP per hour, same page | the form was unlimited (inbox flooding, SMTP quota); reset flow had no test | `PasswordResetTests` (https link end to end, unknown address, limits) |
+| Runner download in the app (`scans/distribution.py`, `ACCESSGUARD_RUNNER_WHEEL`), SHA-256 on the Runners and help pages, members only | self-serve install without us sending files; PyPI optional | `test_runner_download.py` |
+| `docker-compose.prod.yml`, `ops/deploy/Caddyfile`, `ops/docker/offsite_backup.sh` | TLS, no public app port, encrypted off-site backups with heartbeat, log rotation | `docker compose config` (merged); backup loop with stubbed restic/wget |
+| `ops/deploy/check_env.py` | production `.env` check by name (placeholders, domain consistency, proxy hop, SMTP 587, test-mode Stripe unless approved, all-or-nothing Stripe for a free beta, backups) | `tests/unit/test_deploy_env_check.py` (13; 1 POSIX-only) |
+| Images pinned by digest: Python (built locally 2026-10-30), PostgreSQL 17.11 (also in CI), Caddy 2.11.6, restic 0.19.1 | reproducible builds; launch-checklist item | CI image build |
+| `sandbox.py clock-probe/-start/-renew/-next-retry/-advance/-delete`; Stripe error text scrubbed of key fragments | renewal, retries and final action with test clocks | `clock-probe` against the claimable sandbox: `PermissionError`, as documented; key fragment no longer printed |
+
+Docs: `docs/deployment.md` (runbook), `ops/stripe_sandbox/README.md` (test-clock run plan
+and expected results, owner steps), operations, install, launch checklist, threat model
+(T31, T37, T38), V1, README, walkthrough, economics; stale CI statements corrected
+(README, V1 packages 1/10/12, walkthrough, notes in M1/M2).
+
+### Checks
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh` (2026-11-02): all 11 steps ok; 370
+engine/runner/ML tests OK (3 skipped: 2 opt-in real-model, 1 POSIX-only file-mode test);
+122 web tests OK (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free); mypy strict 223 files;
+detect-secrets exit 0 (re-run with the new files staged). CI on `afb5074` (previous
+commit): run 41404904459, all six jobs passed.
+
+Not run: the Caddyfile, certificate issuance, the real restic image and repository, the
+Sunday `restic check` branch, SMTP delivery, the test-clock scenarios, any server.
+
+### Pending (owner)
+
+1. Stripe: claim the sandbox before **2026-11-06** or create one in your account; log in
+   the separate CLI config; choose retry settings; then run the test-clock plan.
+2. Decide hosting, domain, SMTP, backup target and alert services
+   (docs/beta-operations-plan.md, section 5), and approve ordering and deployment.
+3. Support address for the site; free or paid beta; legal texts.
+
 ## Package 7: real-model run recorded (2026-11-02, sixth session)
 
 Status: **package 7 accepted for the synthetic scenarios.** The owner ran the paid test

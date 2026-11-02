@@ -1,0 +1,67 @@
+# Production overlay for one server: TLS reverse proxy, encrypted off-site backups, rotated
+# container logs, and no host port for the web container (only the proxy is public).
+#
+#   python3 ops/deploy/check_env.py .env          # names only, never values
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Step by step, including DNS, firewall and the first restore drill: docs/deployment.md.
+# Images are pinned by digest; update them deliberately (docs/deployment.md, "Updates").
+
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}
+
+services:
+  proxy:
+    image: caddy:2.11.6-alpine@sha256:d44355d3c2149dc580ce2cac735955d1c08d3d00882c30489c241aa51a5c10d9
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      ACCESSGUARD_DOMAIN: ${ACCESSGUARD_DOMAIN:?set ACCESSGUARD_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./ops/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [web]
+    logging: *logging
+
+  web:
+    # Reached only through the proxy on the compose network.
+    ports: !reset []
+    # The checked runner wheel customers download (ACCESSGUARD_RUNNER_WHEEL=/dist/<file>).
+    volumes: ["./dist:/dist:ro"]
+    logging: *logging
+
+  db:
+    logging: *logging
+
+  scheduler:
+    logging: *logging
+
+  demo:
+    logging: *logging
+
+  offsite-backup:
+    image: restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+    restart: unless-stopped
+    entrypoint: ["sh", "/ops/offsite_backup.sh"]
+    # Only what restic needs; the app's own secrets stay out of this container.
+    environment:
+      RESTIC_REPOSITORY: ${RESTIC_REPOSITORY:?set RESTIC_REPOSITORY in .env}
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:?set RESTIC_PASSWORD in .env}
+      AWS_ACCESS_KEY_ID: ${RESTIC_S3_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${RESTIC_S3_SECRET_ACCESS_KEY:-}
+      ACCESSGUARD_BACKUP_HEARTBEAT_URL: ${ACCESSGUARD_BACKUP_HEARTBEAT_URL:-}
+    volumes:
+      - ./ops/docker/offsite_backup.sh:/ops/offsite_backup.sh:ro
+      - backups:/backups:ro
+      - restic-cache:/root/.cache/restic
+      # SSH key, known_hosts and config for an SFTP repository (owned by root, mode 600).
+      - ./.secrets/ssh:/root/.ssh:ro
+    logging: *logging
+
+volumes:
+  caddy-data:
+  caddy-config:
+  restic-cache:

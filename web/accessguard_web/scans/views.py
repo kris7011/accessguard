@@ -33,6 +33,7 @@ from accessguard_web.billing.entitlements import LimitExceeded, require_capacity
 from accessguard_web.projects.config import evaluate
 from accessguard_web.projects.models import Project
 from accessguard_web.scans import services
+from accessguard_web.scans.distribution import runner_wheel
 from accessguard_web.scans.guidance import guidance_for, suspicion_note
 from accessguard_web.scans.models import Finding, FindingStatus, Runner, Scan, ScanStatus
 from accessguard_web.scans.presenters import banner_for, progress_view, report_view
@@ -246,6 +247,7 @@ def _runners_page(request: HttpRequest, new_token: str | None = None) -> HttpRes
             "new_token": new_token,
             "public_url": request.build_absolute_uri("/").rstrip("/"),
             "projects": Project.objects.filter(organization=org, is_demo=False),
+            "runner_wheel": runner_wheel(),
         },
     )
     if new_token:
@@ -256,6 +258,17 @@ def _runners_page(request: HttpRequest, new_token: str | None = None) -> HttpRes
 @membership_required(Role.ADMIN)
 def runners(request: HttpRequest) -> HttpResponse:
     return _runners_page(request)
+
+
+@membership_required()
+def runner_download(request: HttpRequest) -> HttpResponse:
+    wheel = runner_wheel()
+    if wheel is None:
+        raise Http404("No runner download is configured on this server")
+    # The wheel is small (the engine only, no dependencies), so it is sent in one piece.
+    response = HttpResponse(wheel.path.read_bytes(), content_type="application/zip")
+    response["Content-Disposition"] = f'attachment; filename="{wheel.name}"'
+    return response
 
 
 @require_POST

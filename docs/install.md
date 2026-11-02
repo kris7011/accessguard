@@ -6,10 +6,12 @@ Three ways to run AccessGuard, from quickest to production-like.
 | --- | --- |
 | 1. Local product in one command | **tested** (CPython 3.13.13) |
 | 2. Docker compose with PostgreSQL | **tested locally** on Docker 29.8 / WSL2: build, migrations, readiness, static files, demo runner, a customer runner against it, scheduled backups, restore into a separate database, 78 web tests on PostgreSQL 17. **Not run on a server** |
-| 3. Runner in the customer's environment | **tested** from the built wheel (CPython 3.12.7) and from the source archive (CPython 3.13.13), each in a clean venv. Python 3.11 (the declared minimum), Linux and macOS not tested |
+| 3. Runner in the customer's environment | **tested** from the built wheel (CPython 3.12.7) and from the source archive (CPython 3.13.13), each in a clean venv on Windows. The engine's tests run in CI on Ubuntu (Python 3.11 and 3.13) and Windows (3.13); installing the wheel on Linux or macOS has not been tried |
 
-The runner is **not on PyPI** yet. Until it is published, customers install the wheel file
-we send them. Do not tell anyone to run `pip install accessguard` before the release: the
+The runner is **not on PyPI** yet; publishing it there is an optional distribution choice.
+During the beta, customers download the checked wheel from the app's Runners page, with its
+SHA-256 shown next to the link (`ACCESSGUARD_RUNNER_WHEEL`, section 3), or install a wheel we
+send them. Do not tell anyone to run `pip install accessguard` before the release: the
 name is not registered to us on PyPI, so pip would install whatever someone else publishes
 under it.
 
@@ -48,18 +50,20 @@ Services: `db` (PostgreSQL 17), `web` (gunicorn on 127.0.0.1:8000; runs `migrate
 starts), `scheduler` (starts after `web` is healthy; lost-scan sweep every minute, retention
 purge and a database backup daily into the `backups` volume), `demo` (sample API and demo
 runner). Every service restarts unless stopped, so the stack comes back after a host reboot
-once the Docker daemon runs. Put a TLS-terminating reverse proxy in front of `web` (for
-example Caddy: `reverse_proxy 127.0.0.1:8000`) and keep `ACCESSGUARD_BEHIND_PROXY=true`. The
-admin console is at `ACCESSGUARD_ADMIN_PATH`.
+once the Docker daemon runs. For a public server add the production overlay
+`docker-compose.prod.yml` (Caddy for TLS, no public port on `web`, encrypted off-site
+backups, log rotation) and follow [deployment.md](deployment.md); it needs
+`ACCESSGUARD_BEHIND_PROXY=true` and `ACCESSGUARD_TRUSTED_PROXY_HOPS=1`. The admin console is
+at `ACCESSGUARD_ADMIN_PATH`.
 
 The images are built from `python:3.13-slim-trixie` (Debian 13, whose `postgresql-client` 17
 matches the server; see docs/operations.md). Only the paths in `.dockerignore`'s allowlist
-enter the build: no `.env`, local databases, caches or tests. Before production, pin the base
-images by digest. The digests resolved on 2026-10-30 were:
-
-- `python:3.13-slim-trixie@sha256:2d44738ebf4ce5f63b9d9ea871e9c7cfdc0426f7b0c97cac915fd88ded1d86bb`
-- `postgres:17-bookworm`: not recorded (the tag was pulled by compose); run
-  `docker image inspect postgres:17-bookworm --format '{{index .RepoDigests 0}}'` on the server
+enter the build: no `.env`, local databases, caches or tests. The base images are pinned by
+digest (2026-11-02): `python:3.13-slim-trixie@sha256:2d44738e…` in the Dockerfile (the one
+built and run locally on 2026-10-30; still the tag's current digest on 2026-11-02) and
+`postgres:17.11-bookworm@sha256:839fbb5a…` in `docker-compose.yml` and CI (read from Docker
+Hub; the local run on 2026-10-30 also reported PostgreSQL 17.11, but its digest was not
+recorded). Updating them: deployment.md, "Updates".
 
 **What the local compose verification covered (2026-10-30)**, with an override that only
 pointed `env_file` at a throwaway env file and published the database on 127.0.0.1 for tests:
@@ -123,8 +127,11 @@ the names, never the values, of the variables it loaded.
 ```
 
 This writes `dist/accessguard-<version>-py3-none-any.whl` (the runner has no third-party
-dependencies) and `dist/accessguard-<version>.tar.gz`. Send the customer the wheel and its
-SHA-256 (`sha256sum dist/*.whl`, PowerShell: `Get-FileHash`).
+dependencies) and `dist/accessguard-<version>.tar.gz`. After the acceptance check below,
+copy the wheel to the server's `dist/` folder and set `ACCESSGUARD_RUNNER_WHEEL` to it:
+signed-in members then download it from the Runners page and the help page, which show
+its SHA-256. Without that setting, send the customer the wheel and its SHA-256
+(`sha256sum dist/*.whl`, PowerShell: `Get-FileHash`).
 
 **The customer installs it** into its own virtual environment:
 

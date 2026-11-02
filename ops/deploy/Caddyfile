@@ -1,0 +1,13 @@
+# TLS reverse proxy for docker-compose.prod.yml. Caddy obtains and renews the certificate
+# itself (ACME, Let's Encrypt by default) once DNS points at the server and ports 80 and 443
+# are open, and redirects http to https. HSTS and the other security headers come from Django.
+{
+	email {$ACME_EMAIL}
+}
+
+{$ACCESSGUARD_DOMAIN} {
+	encode zstd gzip
+	# Caddy discards X-Forwarded-For from clients and sets its own, so Django can trust exactly
+	# one hop (ACCESSGUARD_TRUSTED_PROXY_HOPS=1).
+	reverse_proxy web:8000
+}

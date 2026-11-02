@@ -13,6 +13,7 @@ from django.shortcuts import redirect, render
 from django.templatetags.static import static
 
 from accessguard_web.billing.plans import PLANS
+from accessguard_web.scans.distribution import runner_wheel
 from accessguard_web.scans.models import Scan, ScanKind, ScanStatus
 from accessguard_web.scans.presenters import report_view
 
@@ -65,7 +66,12 @@ def help_page(request: HttpRequest, slug: str = "getting-started") -> HttpRespon
     return render(
         request,
         f"pages/help/{slug}.html",
-        {"help_pages": HELP_PAGES, "slug": slug, "title": HELP_PAGES[slug]},
+        {
+            "help_pages": HELP_PAGES,
+            "slug": slug,
+            "title": HELP_PAGES[slug],
+            "runner_wheel": runner_wheel() if slug == "runner" else None,
+        },
     )
 
 

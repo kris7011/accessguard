@@ -15,7 +15,12 @@
 <div class="card">
   <h2>Set up a runner</h2>
   <ol>
-    <li>Install the wheel file you received from us into a virtual environment (Python 3.11 or newer, no other dependencies): <pre>python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl</pre><span class="small muted">The runner is not on PyPI during the beta; do not use <span class="mono">pip install accessguard</span> until we announce it. <a href="{% url 'pages:help_page' 'runner' %}">Installation details</a>.</span></li>
+    {% if runner_wheel %}
+    <li><a href="{% url 'scans:runner_download' %}">Download {{ runner_wheel.name }}</a>, check its SHA-256 (<span class="mono">{{ runner_wheel.sha256 }}</span>) and install it into a virtual environment (Python 3.11 or newer, no other dependencies): <pre>sha256sum {{ runner_wheel.name }}   # PowerShell: Get-FileHash {{ runner_wheel.name }}
+python -m pip install ./{{ runner_wheel.name }}</pre>
+    {% else %}
+    <li>Install the wheel file you received from us into a virtual environment (Python 3.11 or newer, no other dependencies): <pre>python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl</pre>
+    {% endif %}<span class="small muted">The runner is not on PyPI during the beta; do not use <span class="mono">pip install accessguard</span> until we announce it. <a href="{% url 'pages:help_page' 'runner' %}">Installation details</a>.</span></li>
     <li>Create a token below and set it: <pre>export ACCESSGUARD_RUNNER_TOKEN=agr_…   # PowerShell: $env:ACCESSGUARD_RUNNER_TOKEN = "agr_…"</pre></li>
     <li>Write <span class="mono">runner.toml</span> next to a credentials file (JSON, test user id → credential; keep it out of git):
 <pre id="runner-config">[control_plane]

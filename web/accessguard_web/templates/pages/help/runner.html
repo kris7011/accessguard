@@ -3,11 +3,20 @@
 <p>The runner is the part of AccessGuard that sends requests to your test environment. It runs on your side, so test credentials and response content never leave your environment, and AccessGuard's servers never connect to your systems.</p>
 <h2>Install</h2>
 <p>Python 3.11 or newer. The runner has no third-party dependencies.</p>
+{% if runner_wheel %}
+<p>During the beta the runner is not on PyPI. <a href="{% url 'scans:runner_download' %}">Download {{ runner_wheel.name }}</a> (signed-in members), check that its SHA-256 is <span class="mono">{{ runner_wheel.sha256 }}</span>, and install it into its own virtual environment:</p>
+<pre>sha256sum {{ runner_wheel.name }}      # PowerShell: Get-FileHash {{ runner_wheel.name }}
+python -m venv .venv
+.venv/bin/python -m pip install ./{{ runner_wheel.name }}
+# Windows: .venv\Scripts\python -m pip install .\{{ runner_wheel.name }}
+.venv/bin/accessguard --version</pre>
+{% else %}
 <p>During the beta the runner is not on PyPI. Install the wheel file you received from us (<span class="mono">accessguard-&lt;version&gt;-py3-none-any.whl</span>) into its own virtual environment:</p>
 <pre>python -m venv .venv
 .venv/bin/python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl
 # Windows: .venv\Scripts\python -m pip install .\accessguard-&lt;version&gt;-py3-none-any.whl
 .venv/bin/accessguard --version</pre>
+{% endif %}
 <p class="small muted">Do not run <span class="mono">pip install accessguard</span> before we announce the PyPI release: until then that name is not ours on PyPI, and pip would install whatever package someone else publishes under it.</p>
 <h2>Configure</h2>
 <p>Create a runner token on the Runners page and store it in the environment variable named in the configuration. Then write <span class="mono">runner.toml</span>:</p>

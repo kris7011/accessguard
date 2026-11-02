@@ -15,5 +15,6 @@ urlpatterns = [
     path("findings/<int:finding_id>/explain/", views.explain, name="explain"),
     path("runners/", views.runners, name="runners"),
     path("runners/new/", views.runner_create, name="runner_create"),
+    path("runners/download/", views.runner_download, name="runner_download"),
     path("runners/<int:runner_id>/revoke/", views.runner_revoke, name="runner_revoke"),
 ]

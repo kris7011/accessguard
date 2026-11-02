@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import login
-from django.contrib.auth.forms import AuthenticationForm
-from django.contrib.auth.views import LoginView
+from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm
+from django.contrib.auth.views import LoginView, PasswordResetView
 from django.core.cache import cache
 from django.db import transaction
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -47,6 +49,11 @@ from accessguard_web.projects.demo import create_demo_project
 
 LOGIN_FAILURE_LIMIT = 10
 LOGIN_WINDOW_SECONDS = 15 * 60
+RESET_LIMIT_PER_ADDRESS = 3
+RESET_LIMIT_PER_IP = 10
+RESET_WINDOW_SECONDS = 60 * 60
+
+logger = logging.getLogger(__name__)
 
 
 @transaction.atomic
@@ -78,6 +85,17 @@ def signup(request: HttpRequest) -> HttpResponse:
 
 
 def _client_ip(request: HttpRequest) -> str:
+    """The visitor's address; behind N trusted proxies, the Nth X-Forwarded-For entry from the end.
+
+    Each trusted proxy adds the address it received the request from, so entries further
+    left come from the client and are ignored (they can be forged).
+    """
+    hops = settings.ACCESSGUARD_TRUSTED_PROXY_HOPS
+    if hops > 0:
+        header = str(request.META.get("HTTP_X_FORWARDED_FOR", ""))
+        forwarded = [part.strip() for part in header.split(",") if part.strip()]
+        if len(forwarded) >= hops:
+            return forwarded[-hops]
     return str(request.META.get("REMOTE_ADDR", ""))
 
 
@@ -110,6 +128,29 @@ class ThrottledLoginView(LoginView):
 
     def form_valid(self, form: AuthenticationForm) -> HttpResponse:
         cache.delete_many(self._keys())
+        return super().form_valid(form)
+
+
+class ThrottledPasswordResetView(PasswordResetView):
+    """Django's password-reset view plus a per-address and per-IP limit on reset e-mails.
+
+    Over a limit nothing is sent, but the same "sent" page is shown, so the response tells
+    neither whether the address has an account nor that a limit was reached. Keeps the form
+    from flooding an inbox or using up the SMTP provider's quota.
+    """
+
+    def form_valid(self, form: PasswordResetForm) -> HttpResponse:
+        email = str(form.cleaned_data["email"]).lower()[:254]
+        limits = {
+            f"reset:ip:{_client_ip(self.request)}": RESET_LIMIT_PER_IP,
+            f"reset:user:{hash_token(email)}": RESET_LIMIT_PER_ADDRESS,
+        }
+        if any((cache.get(key) or 0) >= limit for key, limit in limits.items()):
+            logger.warning("password reset e-mail not sent: limit reached")
+            return HttpResponseRedirect(self.get_success_url())
+        for key in limits:
+            cache.add(key, 0, RESET_WINDOW_SECONDS)
+            cache.incr(key)
         return super().form_valid(form)
 
 
