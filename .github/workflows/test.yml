@@ -2,7 +2,7 @@ name: CI
 
 # Feature branches are checked through their pull request only; an unfiltered `push` trigger
 # would run the whole matrix twice per push (refs/heads/* and refs/pull/*/merge do not share
-# a concurrency group), doubling the Actions minutes billed to a private repository.
+# a concurrency group), doubling Actions usage.
 on:
   push:
     branches: [main]
