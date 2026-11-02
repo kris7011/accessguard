@@ -1,0 +1,13 @@
+{
+  "fixture": "projects",
+  "expected_findings": [
+    "list:plans@auditco-auditor",
+    "list:plans@lyra-owner",
+    "list:plans@lyra-viewer",
+    "list:plans@orion-owner",
+    "list:plans@orion-viewer",
+    "lyra-budget@anonymous",
+    "orion-budget@anonymous"
+  ],
+  "notes": "list_leak on plans: every authenticated listing contains the other workspace plan (the auditor sees both; anonymous listings get 401). anonymous_read on budgets: both budgets are readable without a credential. The auditor budget access is an explicit grant, not a finding."
+}

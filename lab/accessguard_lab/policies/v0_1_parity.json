@@ -1,0 +1,28 @@
+{
+  "schema_version": "1",
+  "id": "v0-1-parity",
+  "description": "Reproduces the v0.1 prototype scenario: two tenants, one document each, own, cross-tenant and anonymous reads.",
+  "session_probe": { "path": "/me", "subject_field": "user" },
+  "identities": [
+    { "id": "acme-member", "tenant": "acme", "role": "member" },
+    { "id": "globex-member", "tenant": "globex", "role": "member" }
+  ],
+  "resources": [
+    {
+      "id": "acme-doc",
+      "category": "document",
+      "path": "/documents/acme-doc",
+      "owner": "acme-member",
+      "protected_fields": ["title", "canary"],
+      "grants": [{ "tenant": "acme", "roles": ["admin", "member"] }]
+    },
+    {
+      "id": "globex-doc",
+      "category": "document",
+      "path": "/documents/globex-doc",
+      "owner": "globex-member",
+      "protected_fields": ["title", "canary"],
+      "grants": [{ "tenant": "globex", "roles": ["admin", "member"] }]
+    }
+  ]
+}

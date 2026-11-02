@@ -1,0 +1,38 @@
+{% extends "app.html" %}{% block title %}Overview{% endblock %}
+{% block content %}
+<div class="row spread"><h1>Overview</h1><a class="btn btn-primary" href="{% url 'projects:new' %}">New project</a></div>
+
+{% if not onboarding_done %}
+<div class="card">
+  <h2>Get started</h2>
+  <ol class="steps">
+    {% for label, done, url in onboarding %}<li class="{% if done %}done{% endif %}">{% if url and not done %}<a href="{{ url }}">{{ label }}</a>{% else %}{{ label }}{% endif %}</li>{% endfor %}
+  </ol>
+</div>
+{% endif %}
+
+<h2>Projects</h2>
+<div class="grid">
+{% for p in projects %}
+  <a class="card card-link" href="{% url 'projects:detail' p.pk %}">
+    <div class="row spread"><strong>{{ p.name }}</strong>{% if p.is_demo %}<span class="chip chip-info">Demo · synthetic</span>{% endif %}</div>
+    <p class="muted small">{{ p.config.target.origin|default:"Target not configured yet" }}</p>
+    {% if p.open_findings %}<span class="chip chip-fail">{{ p.open_findings }} open finding{{ p.open_findings|pluralize }}</span>{% else %}<span class="chip">No open findings</span>{% endif %}
+  </a>
+{% endfor %}
+</div>
+
+<h2>Recent scans</h2>
+{% if recent_scans %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Scan</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Result</th><th scope="col">Started (UTC)</th></tr></thead>
+  <tbody>{% for s in recent_scans %}<tr>
+    <td><a href="{% url 'scans:detail' s.pk %}">#{{ s.pk }}</a> {{ s.get_kind_display }}</td>
+    <td>{{ s.project.name }}</td>
+    <td>{{ s.get_status_display }}</td>
+    <td>{% include "scans/_result_chip.html" with scan=s %}</td>
+    <td class="small">{{ s.created_at|date:"Y-m-d H:i" }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No scans yet. Open the demo project and run its scan to see how results look.</p>{% endif %}
+{% endblock %}

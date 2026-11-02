@@ -1,0 +1,115 @@
+# ADR 0002: Explicit policy, deterministic check matrix and evidence-based verdicts
+
+- Status: accepted (milestone 1)
+- Date: 2026-10-26
+
+## Problem
+
+The prototype hard-coded five cases and a lab-specific `marker` field. The requirements (§7) demand
+an explicit customer policy, support for legitimate sharing, an owner baseline before judging
+cross-access, and a clear distinction between confirmed failure, suspicion, pass, insufficient
+basis, skipped and technical error. Test failures and uncertainty must never look like approval.
+
+## Options
+
+1. Infer intent from tenant membership (anything cross-tenant is a leak): breaks on legitimate
+   sharing and produces false positives.
+2. Hand-written case lists per target: does not scale; coverage depends on the author.
+3. Declarative grants per resource; checks generated as the full identity × resource matrix;
+   verdicts by comparing protected values with the owner's baseline.
+
+## Decision
+
+Option 3.
+
+- **Policy** (`domain/policy.py`): identities (tenant, role); resources with `protected_fields`,
+  an `owner` identity for the baseline and explicit `grants`; collections; a session probe.
+  Construction validates all invariants (owner must be granted, references must exist).
+- **Checks** (`domain/checks.py`): every identity plus anonymous against every resource and
+  collection. Each item check carries its relation (owner, same tenant, shared grant, cross
+  tenant, anonymous) for coverage reporting.
+- **Verdicts** (`domain/evaluation.py`):
+  - Owner baseline must be HTTP 200 JSON containing every protected field (string ≥ 4 chars).
+  - Deny expected: 403/404 (or 401 with a verified session) is PASS; a 2xx response with *all*
+    protected values verbatim is FAIL; some values is SUSPECTED; none is INCONCLUSIVE.
+  - Allow expected: protected content present is PASS; 403/404 is FAIL of type
+    `expected_access_denied` (over-restriction, e.g. a fix that blocks everything).
+  - 3xx, 429, 5xx, other codes and 401 with an invalid session are INCONCLUSIVE; transport
+    failures are ERROR; budget/deadline/stop leads to SKIPPED.
+  - Listings: hidden resources present is FAIL; granted resources missing is INCONCLUSIVE
+    (positive control), because an empty list proves nothing.
+- **Verification:** every FAIL is re-executed separately; if it does not reproduce it becomes
+  SUSPECTED with `not_reproduced`.
+- **Overall status:** `findings` > `needs_review` > `incomplete` > `checks_passed`; green requires
+  at least one check and every check to PASS.
+
+Behaviour change from v0.1: a granted actor receiving 403/404 was INCONCLUSIVE; it is now FAIL
+(`expected_access_denied`) because the owner baseline and session probe make the denial definite.
+
+## Consequences
+
+- No lab-specific field names in the engine; the protected fields come from the policy.
+- Exact string matching keeps false positives low but misses transformed or embedded values.
+- Baselines are fetched once per resource per run; retests reuse them.
+- Policies require a session-probe endpoint that echoes the subject.
+
+## Amendment 2026-10-26: leak evidence takes precedence over the status code
+
+The original rules matched protected values only in 2xx responses, so a 401/403/404 whose body
+echoed the resource was PASS (reproduced with the `denial-body-leak` lab flaw: the run was
+reported as `checks_passed`). Revised rules:
+
+- Protected content is matched for every status code, before the status is interpreted.
+- Actor not granted: complete match → FAIL (`unauthorized_access`), partial → SUSPECTED, both
+  regardless of status and session state. Without content: 403/404 (or 401 with a verified
+  session or the anonymous actor) → PASS; 2xx, 3xx, 429, 5xx and other codes → INCONCLUSIVE.
+- Actor granted: 2xx with all values → PASS; a denial status whose body contains granted content
+  → INCONCLUSIVE (contradictory response); a denial without content → FAIL
+  (`expected_access_denied`).
+- Listings follow the same precedence for hidden resources.
+
+Alternative considered: treat any non-2xx body as untrusted and ignore it. Rejected, because it
+recreates the false PASS. Consequence: error bodies are parsed and compared for every request,
+which is cheap within the 1 MB response limit.
+
+## Amendment 2026-10-26 (2): a body the engine cannot analyse is not evidence of a denial
+
+The first amendment still left a false PASS: only JSON is analysed, so a 401/403/404 whose body
+was HTML, plain text, broken JSON or JSON behind a non-JSON Content-Type yielded no values to
+compare and was PASS even when it carried the protected data. Revised rules:
+
+- The decoder classifies every body (`domain/observation.py`, `BodyFormat`): `json` (declared as
+  JSON and parsed), `empty` (zero bytes), `unsupported` (non-empty, not declared as JSON,
+  including a missing Content-Type) or `invalid_json` (declared as JSON, not parseable). The
+  declared Content-Type decides; bodies are not sniffed.
+- A denial without protected content is PASS only when the body is `json` or `empty`. An empty
+  body counts because zero bytes cannot contain protected data. A whitespace-only body declared
+  as JSON is `invalid_json`, not empty.
+- Actor not granted, `unsupported`/`invalid_json` body: INCONCLUSIVE for a denial status ("leaked
+  protected content cannot be ruled out") and for 2xx, for items and listings alike. Other
+  statuses keep their existing INCONCLUSIVE reason (redirect, 429, 5xx, invalid session).
+- Actor granted: 2xx with an unanalysable body is INCONCLUSIVE (access cannot be verified); a
+  denial status stays FAIL (`expected_access_denied`) and the reason notes that the body was not
+  analysed, because the status alone contradicts the grant.
+- Leak precedence is unchanged: a parsed JSON body with protected values is FAIL/SUSPECTED for
+  every status. The owner baseline still requires a parsed JSON object.
+- Reasons state only the body size and why it could not be analysed, never body content.
+
+Alternatives considered:
+
+1. Search the raw bytes of unsupported bodies for protected values. It would turn some of these
+   INCONCLUSIVE results into findings, but it changes the exact-value matching semantics
+   (substring hits in markup or encoded text) and is a step towards an HTML scanner; deferred to
+   milestone 3, where real targets show which formats matter.
+2. Sniff JSON regardless of Content-Type. Rejected for now: it guesses at what the target meant,
+   and the conservative result (INCONCLUSIVE) is already safe.
+
+Consequence: targets that answer denials with an HTML or plain-text error page get INCONCLUSIVE
+instead of PASS for those checks, so the run is `incomplete` rather than green. That reduces
+conclusive coverage on such targets but never shows uncertainty as approval.
+
+## Revisit when
+
+Real targets (milestone 3) need other authentication schemes, non-JSON responses, pagination,
+field-level rules or a probe-less session check; or when evidence from real APIs shows that exact
+matching misses relevant leaks.

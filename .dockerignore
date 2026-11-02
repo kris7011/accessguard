@@ -1,0 +1,15 @@
+# Build context allowlist: only what the Dockerfile copies. Everything else in a working copy
+# (.env files, .local/ and other SQLite databases, reports/, .venv/, .git/) stays out of images.
+*
+!src/accessguard/
+!web/manage.py
+!web/requirements.txt
+!web/accessguard_web/
+!sampleapp/accessguard_sampleapp/
+!ops/docker/
+
+# Never ship local state, caches or test code even inside the allowed directories.
+**/__pycache__/
+**/*.py[cod]
+**/*.sqlite3*
+web/accessguard_web/tests/

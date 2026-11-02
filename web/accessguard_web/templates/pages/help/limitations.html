@@ -1,0 +1,14 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<p>AccessGuard is a focused tool. Know what a passing result does <strong>not</strong> mean:</p>
+<ul>
+<li>Only GET requests are sent: write operations (POST, PUT, PATCH, DELETE) are not tested.</li>
+<li>Only the users, records, lists and endpoints you declare are tested; there is no crawling or endpoint discovery.</li>
+<li>Pagination, filters and query parameters of lists are not tested.</li>
+<li>Protected values are matched exactly in JSON responses; values in HTML, plain text or transformed form are not detected (such responses are inconclusive, never passed).</li>
+<li>Field-level authorisation beyond the declared protected fields, side channels (timing, error messages, id enumeration) and the strength of your authentication are not tested.</li>
+<li>Injection, XSS, misconfiguration and dependency vulnerabilities are out of scope.</li>
+<li>Results on the synthetic demo say nothing about detection rates on real systems.</li>
+<li>The AI assistant can be wrong. It never decides whether something is a violation or whether it is fixed.</li>
+</ul>
+{% endblock %}

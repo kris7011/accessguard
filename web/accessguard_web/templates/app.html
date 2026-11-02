@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="shell">
+  <nav class="sidebar" aria-label="App">
+    <div class="section">{{ current_org.name }} · {{ entitlements.plan.name }}</div>
+    <a href="{% url 'dashboard' %}" {% if request.resolver_match.url_name == 'dashboard' %}aria-current="page"{% endif %}>Overview</a>
+    <a href="{% url 'scans:findings' %}" {% if 'finding' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Findings</a>
+    <a href="{% url 'scans:runners' %}" {% if 'runner' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Runners</a>
+    <a href="{% url 'billing:overview' %}" {% if request.resolver_match.app_name == 'billing' %}aria-current="page"{% endif %}>Plan &amp; billing</a>
+    <a href="{% url 'accounts:settings' %}" {% if request.resolver_match.url_name == 'settings' %}aria-current="page"{% endif %}>Settings</a>
+    <div class="section">Account</div>
+    {% for m in all_memberships %}{% if m.organization_id != current_org.id %}
+    <form method="post" action="{% url 'accounts:switch' m.organization_id %}">{% csrf_token %}<button class="btn small" type="submit">Switch to {{ m.organization.name }}</button></form>
+    {% endif %}{% endfor %}
+    <a href="{% url 'pages:help' %}">Help</a>
+    <form method="post" action="{% url 'accounts:logout' %}">{% csrf_token %}<button class="btn small" type="submit">Sign out</button></form>
+  </nav>
+  <main id="main" class="content">
+    {% if entitlements.warning %}<div class="banner banner-warn" role="alert"><strong>Billing:</strong> {{ entitlements.warning }} <a href="{% url 'billing:overview' %}">Open billing</a></div>{% endif %}
+    {% include "_messages.html" %}
+    {% block content %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

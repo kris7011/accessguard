@@ -1,0 +1,23 @@
+{
+  "id": "library",
+  "users": [
+    {"id": "maple-librarian", "tenant": "maple", "role": "librarian"},
+    {"id": "maple-member", "tenant": "maple", "role": "member"},
+    {"id": "cedar-librarian", "tenant": "cedar", "role": "librarian"},
+    {"id": "cedar-member", "tenant": "cedar", "role": "member"}
+  ],
+  "resources": [
+    {"id": "maple-loan", "kind": "loans", "tenant": "maple", "roles": ["librarian", "member"], "shared_with": [],
+     "data": {"title": "Maple loan record (synthetic)", "barcode": "EVAL-CANARY-MAPLE-LOAN-2C58"}},
+    {"id": "cedar-loan", "kind": "loans", "tenant": "cedar", "roles": ["librarian", "member"], "shared_with": [],
+     "data": {"title": "Cedar loan record (synthetic)", "barcode": "EVAL-CANARY-CEDAR-LOAN-E713"}},
+    {"id": "maple-ledger", "kind": "ledgers", "tenant": "maple", "roles": ["librarian"], "shared_with": [],
+     "data": {"title": "Maple fines ledger (synthetic)", "barcode": "EVAL-CANARY-MAPLE-LEDGER-91B6"}},
+    {"id": "cedar-ledger", "kind": "ledgers", "tenant": "cedar", "roles": ["librarian"], "shared_with": [],
+     "data": {"title": "Cedar fines ledger (synthetic)", "barcode": "EVAL-CANARY-CEDAR-LEDGER-0FD2"}},
+    {"id": "maple-catalogue", "kind": "catalogues", "tenant": "maple", "roles": ["librarian", "member"],
+     "shared_with": ["cedar"],
+     "data": {"title": "Maple shared catalogue (synthetic)", "barcode": "EVAL-CANARY-MAPLE-CAT-6A3E"}}
+  ],
+  "flaws": []
+}

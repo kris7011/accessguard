@@ -1,0 +1,8 @@
+{% extends "app.html" %}{% block title %}New project{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>New project</h1>
+  <p class="muted">A project is one test environment of your product (for example your staging API). Next you will enter its address, test users and access rules.</p>
+  <form method="post">{% csrf_token %}{{ form.as_div }}<button class="btn btn-primary" type="submit">Create project</button></form>
+</div>
+{% endblock %}

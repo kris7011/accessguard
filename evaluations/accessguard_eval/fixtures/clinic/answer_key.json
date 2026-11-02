@@ -1,0 +1,9 @@
+{
+  "fixture": "clinic",
+  "expected_findings": [
+    "west-record@east-clinician",
+    "west-record@north-clinician",
+    "west-record@south-clinician"
+  ],
+  "notes": "tenant_bypass on west-record only: clinicians of every other clinic can read it (the role check still applies, so clerks are denied). The north-referral share with south is legitimate and must not be reported."
+}

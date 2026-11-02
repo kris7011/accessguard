@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "id": "eval-clinic",
+  "description": "Clinic network: patient records readable by clinicians of the owning clinic; one referral explicitly shared from north to south.",
+  "session_probe": {"path": "/session", "subject_field": "subject"},
+  "identities": [
+    {"id": "north-clinician", "tenant": "north", "role": "clinician"},
+    {"id": "north-clerk", "tenant": "north", "role": "clerk"},
+    {"id": "south-clinician", "tenant": "south", "role": "clinician"},
+    {"id": "south-clerk", "tenant": "south", "role": "clerk"},
+    {"id": "east-clinician", "tenant": "east", "role": "clinician"},
+    {"id": "east-clerk", "tenant": "east", "role": "clerk"},
+    {"id": "west-clinician", "tenant": "west", "role": "clinician"},
+    {"id": "west-clerk", "tenant": "west", "role": "clerk"}
+  ],
+  "resources": [
+    {"id": "north-record", "category": "record", "path": "/api/records/north-record", "owner": "north-clinician",
+     "protected_fields": ["patient", "code"], "grants": [{"tenant": "north", "roles": ["clinician"]}]},
+    {"id": "south-record", "category": "record", "path": "/api/records/south-record", "owner": "south-clinician",
+     "protected_fields": ["patient", "code"], "grants": [{"tenant": "south", "roles": ["clinician"]}]},
+    {"id": "east-record", "category": "record", "path": "/api/records/east-record", "owner": "east-clinician",
+     "protected_fields": ["patient", "code"], "grants": [{"tenant": "east", "roles": ["clinician"]}]},
+    {"id": "west-record", "category": "record", "path": "/api/records/west-record", "owner": "west-clinician",
+     "protected_fields": ["patient", "code"], "grants": [{"tenant": "west", "roles": ["clinician"]}]},
+    {"id": "north-referral", "category": "referral", "path": "/api/referrals/north-referral", "owner": "north-clerk",
+     "protected_fields": ["summary", "reference"],
+     "grants": [
+       {"tenant": "north", "roles": ["clinician", "clerk"]},
+       {"tenant": "south", "roles": ["clinician", "clerk"]}
+     ]}
+  ]
+}

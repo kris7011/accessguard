@@ -1,0 +1,1 @@
+playwright==1.64.1  # optional browser check (uses the locally installed Chrome)

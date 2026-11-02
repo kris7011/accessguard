@@ -1,0 +1,24 @@
+{% extends "app.html" %}{% block title %}Findings{% endblock %}
+{% block content %}
+<h1>Findings</h1>
+<form method="get" class="row card">
+  <div><label for="status">Status</label><select id="status" name="status">
+    <option value="open" {% if status == "open" %}selected{% endif %}>Open and confirmed</option>
+    {% for value, label in statuses %}<option value="{{ value }}" {% if status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    <option value="all" {% if status == "all" %}selected{% endif %}>All</option>
+  </select></div>
+  <div><label for="project">Project</label><select id="project" name="project"><option value="">All projects</option>{% for p in projects %}<option value="{{ p.pk }}" {% if project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
+  <button class="btn" type="submit">Filter</button>
+</form>
+{% if rows %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Finding</th><th scope="col">Project</th><th scope="col">Status</th><th scope="col">Last seen</th></tr></thead>
+  <tbody>{% for f, g in rows %}<tr>
+    <td><a href="{% url 'scans:finding' f.pk %}">{{ g.title }}</a><div class="mono small">{{ f.check_id }}</div></td>
+    <td>{{ f.project.name }}</td>
+    <td><span class="chip {% if f.status == 'resolved' %}chip-pass{% elif f.status == 'rejected' %}chip{% elif f.outcome == 'FAIL' %}chip-fail{% else %}chip-warn{% endif %}">{{ f.get_status_display }}{% if f.status == 'resolved' and f.resolution_verified %} · verified{% endif %}</span></td>
+    <td class="small">{% if f.last_seen_scan_id %}<a href="{% url 'scans:detail' f.last_seen_scan_id %}">scan #{{ f.last_seen_scan_id }}</a>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No findings match this filter.</p>{% endif %}
+{% endblock %}

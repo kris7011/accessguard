@@ -1,0 +1,1480 @@
+{
+  "schema_version": "1.3",
+  "tool": {
+    "name": "accessguard",
+    "version": "0.3.0"
+  },
+  "run": {
+    "id": "3c5df0f6573f406d9c0a02ce1f1eec5b",
+    "started_at": "2026-10-29T14:16:22.446724+00:00",
+    "finished_at": "2026-10-29T14:16:22.535105+00:00",
+    "target": "Sample projects API",
+    "scope": {
+      "origin": "http://127.0.0.1:8800",
+      "zone": "loopback",
+      "path_prefixes": [
+        "/api/v1"
+      ],
+      "constraints": [
+        "loopback destinations only",
+        "GET requests only",
+        "paths under: /api/v1"
+      ]
+    },
+    "selection": {
+      "mode": "all",
+      "selected_checks": 30,
+      "full_matrix_checks": 30
+    },
+    "policy": {
+      "id": "sample-projects-api",
+      "sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6"
+    },
+    "planner": {
+      "kind": "deterministic",
+      "uses_ai": false,
+      "model": null,
+      "prompt_version": null,
+      "latency_ms": null,
+      "seed": null
+    },
+    "agent": null,
+    "limits": {
+      "max_requests": 300,
+      "min_interval_seconds": 0.0,
+      "max_duration_seconds": 120.0,
+      "retest_findings": true,
+      "concurrency": 1
+    },
+    "requests_used": 49,
+    "interrupted": null,
+    "completed": true,
+    "python": "3.13.13",
+    "spec_sha256": "7dbc1547d04ac3a1c4df1246f8854f9f6c58f4d55002791d8ba9180ba5e613ae"
+  },
+  "status": {
+    "overall": "findings",
+    "complete": true,
+    "meaning": "At least one check failed: the observed behaviour contradicts the declared policy."
+  },
+  "summary": {
+    "PASS": 20,
+    "FAIL": 10,
+    "SUSPECTED": 0,
+    "INCONCLUSIVE": 0,
+    "SKIPPED": 0,
+    "ERROR": 0
+  },
+  "coverage": {
+    "planned_checks": 30,
+    "executed_checks": 30,
+    "conclusive_checks": 30,
+    "conclusive_ratio": 1.0,
+    "definition": "conclusive_ratio = (PASS + FAIL) / planned checks",
+    "by_kind": {
+      "item": {
+        "PASS": 19,
+        "FAIL": 6
+      },
+      "list": {
+        "FAIL": 4,
+        "PASS": 1
+      }
+    },
+    "by_relation": {
+      "owner": {
+        "PASS": 5
+      },
+      "same_tenant": {
+        "PASS": 3,
+        "FAIL": 2
+      },
+      "cross_tenant": {
+        "FAIL": 4,
+        "PASS": 4
+      },
+      "anonymous": {
+        "PASS": 5
+      },
+      "shared_grant": {
+        "PASS": 2
+      }
+    }
+  },
+  "sessions": {
+    "ana": {
+      "state": "valid",
+      "reason": "session probe confirmed the subject"
+    },
+    "ben": {
+      "state": "valid",
+      "reason": "session probe confirmed the subject"
+    },
+    "cleo": {
+      "state": "valid",
+      "reason": "session probe confirmed the subject"
+    },
+    "dev": {
+      "state": "valid",
+      "reason": "session probe confirmed the subject"
+    }
+  },
+  "findings": [
+    {
+      "id": "orbit-apollo@cleo",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to project 'orbit-apollo' is granted only to: tenant orbit (roles: owner, viewer). Anonymous access is not granted.",
+      "actor": {
+        "id": "cleo",
+        "tenant": "quasar",
+        "role": "owner"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "orbit-apollo",
+        "category": "project",
+        "owner_tenant": "orbit"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'cleo' (tenant quasar, role owner).",
+        "Send GET /api/v1/projects/prj-orbit-apollo to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.455499+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "orbit-apollo@dev",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to project 'orbit-apollo' is granted only to: tenant orbit (roles: owner, viewer). Anonymous access is not granted.",
+      "actor": {
+        "id": "dev",
+        "tenant": "quasar",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "orbit-apollo",
+        "category": "project",
+        "owner_tenant": "orbit"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'dev' (tenant quasar, role viewer).",
+        "Send GET /api/v1/projects/prj-orbit-apollo to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.456319+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "quasar-nova@ana",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to project 'quasar-nova' is granted only to: tenant quasar (roles: owner, viewer). Anonymous access is not granted.",
+      "actor": {
+        "id": "ana",
+        "tenant": "orbit",
+        "role": "owner"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "quasar-nova",
+        "category": "project",
+        "owner_tenant": "quasar"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'ana' (tenant orbit, role owner).",
+        "Send GET /api/v1/projects/prj-quasar-nova to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.459028+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "quasar-nova@ben",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to project 'quasar-nova' is granted only to: tenant quasar (roles: owner, viewer). Anonymous access is not granted.",
+      "actor": {
+        "id": "ben",
+        "tenant": "orbit",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "quasar-nova",
+        "category": "project",
+        "owner_tenant": "quasar"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'ben' (tenant orbit, role viewer).",
+        "Send GET /api/v1/projects/prj-quasar-nova to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.459838+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "orbit-billing@ben",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to billing 'orbit-billing' is granted only to: tenant orbit (roles: owner). Anonymous access is not granted.",
+      "actor": {
+        "id": "ben",
+        "tenant": "orbit",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "orbit-billing",
+        "category": "billing",
+        "owner_tenant": "orbit"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'orbit-billing' (data.account_ref, data.plan_note), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 121,
+        "body_sha256": "e159c441afb3238a36c9f0fd2fdf584fb558f9e8c8aafe29bc062df34892a4a1",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-billing",
+            "fields": [
+              "data.account_ref",
+              "data.plan_note"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'ben' (tenant orbit, role viewer).",
+        "Send GET /api/v1/orgs/orbit/billing to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'orbit-billing' (data.account_ref, data.plan_note), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.470499+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "quasar-billing@dev",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Read access to billing 'quasar-billing' is granted only to: tenant quasar (roles: owner). Anonymous access is not granted.",
+      "actor": {
+        "id": "dev",
+        "tenant": "quasar",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "resource",
+        "id": "quasar-billing",
+        "category": "billing",
+        "owner_tenant": "quasar"
+      },
+      "expected": "The request is denied (HTTP 401, 403 or 404) without protected content.",
+      "actual": "HTTP 200: the response contained all protected fields of 'quasar-billing' (data.account_ref, data.plan_note), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 119,
+        "body_sha256": "053dd937db2e18bd675f404ed88cb32fba1546b82dde991357e38f8c80cfedf1",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-billing",
+            "fields": [
+              "data.account_ref",
+              "data.plan_note"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'dev' (tenant quasar, role viewer).",
+        "Send GET /api/v1/orgs/quasar/billing to http://127.0.0.1:8800.",
+        "Expected: The request is denied (HTTP 401, 403 or 404) without protected content.",
+        "Observed: HTTP 200: the response contained all protected fields of 'quasar-billing' (data.account_ref, data.plan_note), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.499701+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "list:projects@ana",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Listing /api/v1/projects may only include resources whose grants match the actor; every resource in it follows its own declared rule.",
+      "actor": {
+        "id": "ana",
+        "tenant": "orbit",
+        "role": "owner"
+      },
+      "subject": {
+        "type": "collection",
+        "id": "projects",
+        "category": "collection",
+        "leaked_resources": [
+          {
+            "id": "quasar-nova",
+            "category": "project",
+            "owner_tenant": "quasar"
+          }
+        ]
+      },
+      "expected": "The listing includes ['orbit-apollo', 'quasar-roadmap'] and excludes ['quasar-nova'].",
+      "actual": "HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'ana' (tenant orbit, role owner).",
+        "Send GET /api/v1/projects to http://127.0.0.1:8800.",
+        "Expected: The listing includes ['orbit-apollo', 'quasar-roadmap'] and excludes ['quasar-nova'].",
+        "Observed: HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.501429+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "list:projects@ben",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Listing /api/v1/projects may only include resources whose grants match the actor; every resource in it follows its own declared rule.",
+      "actor": {
+        "id": "ben",
+        "tenant": "orbit",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "collection",
+        "id": "projects",
+        "category": "collection",
+        "leaked_resources": [
+          {
+            "id": "quasar-nova",
+            "category": "project",
+            "owner_tenant": "quasar"
+          }
+        ]
+      },
+      "expected": "The listing includes ['orbit-apollo', 'quasar-roadmap'] and excludes ['quasar-nova'].",
+      "actual": "HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'ben' (tenant orbit, role viewer).",
+        "Send GET /api/v1/projects to http://127.0.0.1:8800.",
+        "Expected: The listing includes ['orbit-apollo', 'quasar-roadmap'] and excludes ['quasar-nova'].",
+        "Observed: HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.502319+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "list:projects@cleo",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Listing /api/v1/projects may only include resources whose grants match the actor; every resource in it follows its own declared rule.",
+      "actor": {
+        "id": "cleo",
+        "tenant": "quasar",
+        "role": "owner"
+      },
+      "subject": {
+        "type": "collection",
+        "id": "projects",
+        "category": "collection",
+        "leaked_resources": [
+          {
+            "id": "orbit-apollo",
+            "category": "project",
+            "owner_tenant": "orbit"
+          }
+        ]
+      },
+      "expected": "The listing includes ['quasar-nova', 'quasar-roadmap'] and excludes ['orbit-apollo'].",
+      "actual": "HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'cleo' (tenant quasar, role owner).",
+        "Send GET /api/v1/projects to http://127.0.0.1:8800.",
+        "Expected: The listing includes ['quasar-nova', 'quasar-roadmap'] and excludes ['orbit-apollo'].",
+        "Observed: HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.503209+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    },
+    {
+      "id": "list:projects@dev",
+      "outcome": "FAIL",
+      "type": "unauthorized_access",
+      "rule": "Listing /api/v1/projects may only include resources whose grants match the actor; every resource in it follows its own declared rule.",
+      "actor": {
+        "id": "dev",
+        "tenant": "quasar",
+        "role": "viewer"
+      },
+      "subject": {
+        "type": "collection",
+        "id": "projects",
+        "category": "collection",
+        "leaked_resources": [
+          {
+            "id": "orbit-apollo",
+            "category": "project",
+            "owner_tenant": "orbit"
+          }
+        ]
+      },
+      "expected": "The listing includes ['quasar-nova', 'quasar-roadmap'] and excludes ['orbit-apollo'].",
+      "actual": "HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "reproduction": [
+        "Use policy 'sample-projects-api' (sha256 1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6).",
+        "Authenticate as test identity 'dev' (tenant quasar, role viewer).",
+        "Send GET /api/v1/projects to http://127.0.0.1:8800.",
+        "Expected: The listing includes ['quasar-nova', 'quasar-roadmap'] and excludes ['orbit-apollo'].",
+        "Observed: HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant."
+      ],
+      "scope": "http://127.0.0.1:8800",
+      "observed_at": "2026-10-29T14:16:22.504067+00:00",
+      "versions": {
+        "tool": "0.3.0",
+        "policy_sha256": "1b38cb5e5c5bc3ed7cfee2d092c6f06b5c5902378a7de0af6e83d3f485ad9da6",
+        "target": "Sample projects API"
+      },
+      "verification": "reproduced"
+    }
+  ],
+  "results": [
+    {
+      "check_id": "orbit-apollo@ana",
+      "kind": "item",
+      "actor": "ana",
+      "resource": "orbit-apollo",
+      "relation": "owner",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.453703+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 6
+    },
+    {
+      "check_id": "orbit-apollo@ben",
+      "kind": "item",
+      "actor": "ben",
+      "resource": "orbit-apollo",
+      "relation": "same_tenant",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.454619+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 7
+    },
+    {
+      "check_id": "orbit-apollo@cleo",
+      "kind": "item",
+      "actor": "cleo",
+      "resource": "orbit-apollo",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.455499+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 8
+    },
+    {
+      "check_id": "orbit-apollo@dev",
+      "kind": "item",
+      "actor": "dev",
+      "resource": "orbit-apollo",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.456319+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 144,
+        "body_sha256": "5ce162f453a82c67c51cd03e732d7433f8bdb9217ac5d86ba9c8df75e7999dcb",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 9
+    },
+    {
+      "check_id": "orbit-apollo@anonymous",
+      "kind": "item",
+      "actor": "anonymous",
+      "resource": "orbit-apollo",
+      "relation": "anonymous",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 401 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.457234+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-orbit-apollo",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 10
+    },
+    {
+      "check_id": "quasar-nova@ana",
+      "kind": "item",
+      "actor": "ana",
+      "resource": "quasar-nova",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.459028+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 12
+    },
+    {
+      "check_id": "quasar-nova@ben",
+      "kind": "item",
+      "actor": "ben",
+      "resource": "quasar-nova",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.459838+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 13
+    },
+    {
+      "check_id": "quasar-nova@cleo",
+      "kind": "item",
+      "actor": "cleo",
+      "resource": "quasar-nova",
+      "relation": "owner",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.460675+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 14
+    },
+    {
+      "check_id": "quasar-nova@dev",
+      "kind": "item",
+      "actor": "dev",
+      "resource": "quasar-nova",
+      "relation": "same_tenant",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.461572+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 146,
+        "body_sha256": "e030765fc13c74c3834ad72f9bc536a734984ded212e5bdaa636450c4846e9e9",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 15
+    },
+    {
+      "check_id": "quasar-nova@anonymous",
+      "kind": "item",
+      "actor": "anonymous",
+      "resource": "quasar-nova",
+      "relation": "anonymous",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 401 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.462403+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-nova",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 16
+    },
+    {
+      "check_id": "quasar-roadmap@ana",
+      "kind": "item",
+      "actor": "ana",
+      "resource": "quasar-roadmap",
+      "relation": "shared_grant",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.464286+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-roadmap",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 158,
+        "body_sha256": "795d1887af70c9f8893d0883e9be4ff10681ce15b643a55db3ed84cbc365a582",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 18
+    },
+    {
+      "check_id": "quasar-roadmap@ben",
+      "kind": "item",
+      "actor": "ben",
+      "resource": "quasar-roadmap",
+      "relation": "shared_grant",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.465177+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-roadmap",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 158,
+        "body_sha256": "795d1887af70c9f8893d0883e9be4ff10681ce15b643a55db3ed84cbc365a582",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 19
+    },
+    {
+      "check_id": "quasar-roadmap@cleo",
+      "kind": "item",
+      "actor": "cleo",
+      "resource": "quasar-roadmap",
+      "relation": "owner",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.465989+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-roadmap",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 158,
+        "body_sha256": "795d1887af70c9f8893d0883e9be4ff10681ce15b643a55db3ed84cbc365a582",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 20
+    },
+    {
+      "check_id": "quasar-roadmap@dev",
+      "kind": "item",
+      "actor": "dev",
+      "resource": "quasar-roadmap",
+      "relation": "same_tenant",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.466798+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-roadmap",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 158,
+        "body_sha256": "795d1887af70c9f8893d0883e9be4ff10681ce15b643a55db3ed84cbc365a582",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 21
+    },
+    {
+      "check_id": "quasar-roadmap@anonymous",
+      "kind": "item",
+      "actor": "anonymous",
+      "resource": "quasar-roadmap",
+      "relation": "anonymous",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 401 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.467675+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects/prj-quasar-roadmap",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 22
+    },
+    {
+      "check_id": "orbit-billing@ana",
+      "kind": "item",
+      "actor": "ana",
+      "resource": "orbit-billing",
+      "relation": "owner",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.469540+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 121,
+        "body_sha256": "e159c441afb3238a36c9f0fd2fdf584fb558f9e8c8aafe29bc062df34892a4a1",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 24
+    },
+    {
+      "check_id": "orbit-billing@ben",
+      "kind": "item",
+      "actor": "ben",
+      "resource": "orbit-billing",
+      "relation": "same_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'orbit-billing' (data.account_ref, data.plan_note), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.470499+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 121,
+        "body_sha256": "e159c441afb3238a36c9f0fd2fdf584fb558f9e8c8aafe29bc062df34892a4a1",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-billing",
+            "fields": [
+              "data.account_ref",
+              "data.plan_note"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 25
+    },
+    {
+      "check_id": "orbit-billing@cleo",
+      "kind": "item",
+      "actor": "cleo",
+      "resource": "orbit-billing",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 404 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.471404+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 404,
+        "content_type": "application/json",
+        "size_bytes": 69,
+        "body_sha256": "aa80a4fd0415a2b14cc1104590dc2818f675d32da99588e1bcb068f6328eda6b",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 26
+    },
+    {
+      "check_id": "orbit-billing@dev",
+      "kind": "item",
+      "actor": "dev",
+      "resource": "orbit-billing",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 404 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.472233+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 404,
+        "content_type": "application/json",
+        "size_bytes": 69,
+        "body_sha256": "aa80a4fd0415a2b14cc1104590dc2818f675d32da99588e1bcb068f6328eda6b",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 27
+    },
+    {
+      "check_id": "orbit-billing@anonymous",
+      "kind": "item",
+      "actor": "anonymous",
+      "resource": "orbit-billing",
+      "relation": "anonymous",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 401 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.473097+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/orbit/billing",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 28
+    },
+    {
+      "check_id": "quasar-billing@ana",
+      "kind": "item",
+      "actor": "ana",
+      "resource": "quasar-billing",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 404 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.496861+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 404,
+        "content_type": "application/json",
+        "size_bytes": 69,
+        "body_sha256": "aa80a4fd0415a2b14cc1104590dc2818f675d32da99588e1bcb068f6328eda6b",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 30
+    },
+    {
+      "check_id": "quasar-billing@ben",
+      "kind": "item",
+      "actor": "ben",
+      "resource": "quasar-billing",
+      "relation": "cross_tenant",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 404 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.497862+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 404,
+        "content_type": "application/json",
+        "size_bytes": 69,
+        "body_sha256": "aa80a4fd0415a2b14cc1104590dc2818f675d32da99588e1bcb068f6328eda6b",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 31
+    },
+    {
+      "check_id": "quasar-billing@cleo",
+      "kind": "item",
+      "actor": "cleo",
+      "resource": "quasar-billing",
+      "relation": "owner",
+      "expectation": "allow",
+      "outcome": "PASS",
+      "reason": "HTTP 200 with the expected protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.498751+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 119,
+        "body_sha256": "053dd937db2e18bd675f404ed88cb32fba1546b82dde991357e38f8c80cfedf1",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 32
+    },
+    {
+      "check_id": "quasar-billing@dev",
+      "kind": "item",
+      "actor": "dev",
+      "resource": "quasar-billing",
+      "relation": "same_tenant",
+      "expectation": "deny",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the response contained all protected fields of 'quasar-billing' (data.account_ref, data.plan_note), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.499701+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 119,
+        "body_sha256": "053dd937db2e18bd675f404ed88cb32fba1546b82dde991357e38f8c80cfedf1",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-billing",
+            "fields": [
+              "data.account_ref",
+              "data.plan_note"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 33
+    },
+    {
+      "check_id": "quasar-billing@anonymous",
+      "kind": "item",
+      "actor": "anonymous",
+      "resource": "quasar-billing",
+      "relation": "anonymous",
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Access denied with HTTP 401 without protected content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.500574+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/orgs/quasar/billing",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 34
+    },
+    {
+      "check_id": "list:projects@ana",
+      "kind": "list",
+      "actor": "ana",
+      "collection": "projects",
+      "visible": [
+        "orbit-apollo",
+        "quasar-roadmap"
+      ],
+      "hidden": [
+        "quasar-nova"
+      ],
+      "expectation": "allow",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.501429+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 35
+    },
+    {
+      "check_id": "list:projects@ben",
+      "kind": "list",
+      "actor": "ben",
+      "collection": "projects",
+      "visible": [
+        "orbit-apollo",
+        "quasar-roadmap"
+      ],
+      "hidden": [
+        "quasar-nova"
+      ],
+      "expectation": "allow",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the listing contained all protected fields of 'quasar-nova' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.502319+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "quasar-nova",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 36
+    },
+    {
+      "check_id": "list:projects@cleo",
+      "kind": "list",
+      "actor": "cleo",
+      "collection": "projects",
+      "visible": [
+        "quasar-nova",
+        "quasar-roadmap"
+      ],
+      "hidden": [
+        "orbit-apollo"
+      ],
+      "expectation": "allow",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.503209+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 37
+    },
+    {
+      "check_id": "list:projects@dev",
+      "kind": "list",
+      "actor": "dev",
+      "collection": "projects",
+      "visible": [
+        "quasar-nova",
+        "quasar-roadmap"
+      ],
+      "hidden": [
+        "orbit-apollo"
+      ],
+      "expectation": "allow",
+      "outcome": "FAIL",
+      "reason": "HTTP 200: the listing contained all protected fields of 'orbit-apollo' (data.name, data.budget_code), which the policy does not grant",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.504067+00:00",
+      "finding_type": "unauthorized_access",
+      "verification": "reproduced",
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 200,
+        "content_type": "application/json",
+        "size_bytes": 457,
+        "body_sha256": "24ccc5ec8879ea0628673f6458303851e251471b84221d730c14905abf9228c7",
+        "matched_protected_fields": [
+          {
+            "resource": "orbit-apollo",
+            "fields": [
+              "data.name",
+              "data.budget_code"
+            ],
+            "complete": true
+          }
+        ]
+      },
+      "requests_used_after": 38
+    },
+    {
+      "check_id": "list:projects@anonymous",
+      "kind": "list",
+      "actor": "anonymous",
+      "collection": "projects",
+      "visible": [],
+      "hidden": [
+        "orbit-apollo",
+        "quasar-nova",
+        "quasar-roadmap"
+      ],
+      "expectation": "deny",
+      "outcome": "PASS",
+      "reason": "Listing denied with HTTP 401 without hidden content",
+      "executed": true,
+      "observed_at": "2026-10-29T14:16:22.504906+00:00",
+      "finding_type": null,
+      "verification": null,
+      "evidence": {
+        "request": "GET /api/v1/projects",
+        "status": 401,
+        "content_type": "application/json",
+        "size_bytes": 89,
+        "body_sha256": "4f8babac72afb7f89a615726bf8817bf87c6f00a42dcdf5650759fd7f1410885",
+        "matched_protected_fields": []
+      },
+      "requests_used_after": 39
+    }
+  ],
+  "not_tested": [
+    "Write operations (POST, PUT, PATCH, DELETE): only GET requests are sent.",
+    "Endpoints, resources and identities that are not declared in the policy.",
+    "Pagination, filtering and query parameters on listings.",
+    "Protected values that appear only as substrings or in transformed form (exact JSON string matching only).",
+    "Response bodies that are not JSON (HTML, plain text, unknown Content-Type) or are invalid JSON: they are not analysed for protected data, so such responses are INCONCLUSIVE rather than PASS.",
+    "Field-level authorization beyond the declared protected fields.",
+    "Side channels such as timing, error-message differences and identifier enumeration.",
+    "Authentication strength and session management of the target itself."
+  ],
+  "disclaimer": "Results cover only the declared policy, identities and checks against the named target. A passing check is not a guarantee of security."
+}

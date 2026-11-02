@@ -1,0 +1,36 @@
+{% extends "app.html" %}{% block title %}Endpoints and rules · {{ project.name }}{% endblock %}
+{% block content %}
+{% include "projects/_setup_nav.html" with step="rules" %}
+<div class="card">
+  <h1>Endpoints and access rules</h1>
+  <p class="muted">Add one record per endpoint you want to protect, using real ids from your test data. For each record, say who may read it. Everyone else (other tenants, other roles, anonymous) must be denied; AccessGuard checks every combination.</p>
+  {% if templates %}
+  <details open><summary>Endpoints imported from OpenAPI ({{ templates|length }})</summary>
+    <ul>{% for index, t in templates %}<li><span class="mono">{{ t.path }}</span> · {{ t.category }}{% if t.suggested_by_ai %} <span class="chip chip-info">AI suggestion</span>{% endif %} — <a href="?template={{ index }}">use as a new record</a></li>{% endfor %}</ul>
+    <p class="small muted">Using a template adds a row below; replace the {placeholders} in its path with an id from your test data.</p>
+  </details>
+  {% endif %}
+  <form method="post" novalidate>{% csrf_token %}
+    <h2>Lists (optional)</h2>
+    <p class="small muted">List endpoints whose items are records below. A list must show a user exactly the records they may read.</p>
+    {{ collections.management_form }}{{ collections.non_form_errors }}
+    {% for form in collections %}
+    <fieldset class="formset-row"><legend class="small muted">List {{ forloop.counter }}</legend>{{ form.non_field_errors }}
+      <div class="cols">{% for field in form %}{% if field.name != "DELETE" %}<div>{{ field.label_tag }}{{ field }}<span class="helptext">{{ field.help_text }}</span>{{ field.errors }}</div>{% endif %}{% endfor %}</div>
+      {% if form.initial %}<div class="checkbox-row">{{ form.DELETE }} <label for="{{ form.DELETE.id_for_label }}">Remove</label></div>{% endif %}
+    </fieldset>
+    {% endfor %}
+
+    <h2>Records</h2>
+    {{ resources.management_form }}{{ resources.non_form_errors }}
+    {% for form in resources %}
+    <fieldset class="formset-row"><legend class="small muted">Record {{ forloop.counter }}</legend>{{ form.non_field_errors }}
+      <div class="cols">{% for field in form %}{% if field.name != "DELETE" and field.name != "access" %}<div>{{ field.label_tag }}{{ field }}<span class="helptext">{{ field.help_text }}</span>{{ field.errors }}</div>{% endif %}{% endfor %}</div>
+      <div><span class="small"><strong>{{ form.access.label }}</strong></span>{{ form.access }}<span class="helptext">{{ form.access.help_text }}</span>{{ form.access.errors }}</div>
+      {% if form.initial.id %}<div class="checkbox-row">{{ form.DELETE }} <label for="{{ form.DELETE.id_for_label }}">Remove</label></div>{% endif %}
+    </fieldset>
+    {% endfor %}
+    {% if not project.is_demo %}<button class="btn btn-primary" type="submit">Save and continue</button>{% endif %}
+  </form>
+</div>
+{% endblock %}

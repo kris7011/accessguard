@@ -1,0 +1,1282 @@
+# Handoff status
+
+Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
+
+## Commercial launch paused; closed as a portfolio project (2026-11-02, eleventh session)
+
+Status: **owner decision: the commercial launch is paused, and the project is finished as a
+presentable GitHub portfolio project.** Documentation only: no code, test, dependency or
+configuration change, no new product feature or commercial setup. No merge, publication,
+deployment, purchase or model call. Branch `feature/v1-commercial-beta`, PR #1 stays a
+draft, repository stays private.
+
+### Changes
+
+| File | Change |
+| --- | --- |
+| `README.md` | Rewritten for a reader new to the project: status (paused, portfolio), problem, solution, architecture, key decisions with trade-offs and ADRs, what works and how it is verified, latest local and CI results, AI/ML status (assistants implemented; no learned model active), local run, limitations, how the project was built |
+| `docs/demo.md` (new) | Step-by-step local demo: start → find the 10 violations → deploy the fixed demo version (and which code fixes each of the 3 bugs) → retest → resolved; optional regression step; troubleshooting |
+| `docs/portfolio-case.da.md` (new) | Short Danish portfolio case: purpose, the owner's work, technologies, documented results, lessons learned |
+| `docs/milestones/V1.md` | Status: paused. Corrected: Django 5.2 LTS → built on 6.1; the "owner decision" on the open invoice after the last retry is resolved (void rule, ninth/tenth session); "before the first real payment" no longer lists the test-mode Stripe work that is done |
+| `docs/PROJECT_WALKTHROUGH.md` | Status line; test table on CI `2fefd69`; browser and demo rows; pause in A.10; Part B marked as the M1/M2 snapshot (its "no UI, database, authentication" statements describe that time); V1 and closure in the ownership section |
+| `docs/launch-checklist.md`, `docs/beta-operations-plan.md`, `docs/deployment.md`, ADR 0014, `docs/business/*` | "Paused" notes; ADR 0014 status proposed → deferred; checklist: CI on `2fefd69`, browser check re-run |
+| `docs/threat-model.md` | Status line no longer says it covers only M1/M2 (it has a V1 section) |
+| `docs/install.md` | Link to the demo guide |
+| `docs/deployment.md` | An unescaped `\|` in a code span split a table row on GitHub |
+
+### Verification reused, not rerun
+
+The previous results stand and are quoted, not repeated: Stripe sandbox runs, the paid
+real-model run, customer acceptance, the Docker compose run, the M2 evaluation and the ML
+gate. **CI on `2fefd69`** (run 41455086418; only reported in the tenth session until now):
+all six jobs passed; engine tests 376, 2 skipped on Ubuntu 3.11 and 3.13, 9 skipped on
+Windows 3.13; web tests on PostgreSQL 150, 4 skipped (3 paid, 1 free).
+
+### Checks run this session
+
+- **Demo walked through in headless Chrome** (Playwright script in the session scratchpad,
+  only the visible buttons named in `docs/demo.md`), three times against fresh throwaway
+  SQLite databases (`DATABASE_URL` outside the repository; `.local/dev.sqlite3` and
+  `.local/stripe-e2e.sqlite3` checked by SHA-256 before and after: unchanged): 30 checks →
+  10 confirmed violations → "Deploy the fixed version" → retest of 17 checks passed → 0
+  open, 10 resolved, chip "Resolved · verified by retest"; then switched back and a full
+  scan reopened all 10 with "Regression: the violation reappeared in scan #7".
+- `ops/dev/browser_check.py` against the same stack: 0 problems (desktop and phone).
+- Documentation check (script in the session scratchpad, not committed): 38 Markdown files,
+  123 relative links and their `#anchors` resolve; the backticked paths in the changed files
+  exist (package-relative ones such as `domain/scope.py` resolved under `src/accessguard/`
+  or `web/accessguard_web/`).
+- `PYTHON=.venv/Scripts/python bash ops/verify.sh` (Windows, changes staged): all 11 steps
+  ok; 376 engine/runner/ML tests OK (9 skipped); 150 web tests on SQLite OK (7 skipped);
+  detect-secrets 365 tracked files, exit 0; pip-audit no known vulnerabilities.
+
+### Machine state
+
+Stack stopped; ports 8000/8800/8801 free (`netstat` briefly listed stale 8800 entries
+without an owning process; binding all three ports succeeded). `run_stack.py` regenerated
+`.local/demo-runner.token`, `demo-runner.toml` and `sampleapp-credentials.json`, as it does
+on every start.
+
+### If the project is resumed
+
+Open items are unchanged and listed in `docs/launch-checklist.md` and
+`docs/beta-operations-plan.md` (hosting, domain, SMTP, legal texts, DPA, VAT, live keys).
+The claimable sandbox's restricted key and the test clocks expire on Stripe's side; check
+the sandbox before any new run.
+
+## Review fix of the renewal-invoice void rule (2026-11-02, tenth session)
+
+Status: **fixed and tested locally; CI numbers for this commit are reported in the session,
+not committed** (no documentation-only commit for CI numbers). Test mode only: no live key,
+purchase, deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private.
+
+A review of `ee1af63` found two defects; details, alternatives and limits in ADR 0011,
+"Review fix":
+
+| Defect | Fix | Files |
+| --- | --- | --- |
+| A refused void whose re-fetched invoice was still `open` and unpaid was stored as handled (`kept: void refused, status open`, HTTP 200), so Stripe never redelivered | The webhook re-checks the returned invoice with `_keep_invoice_because`. It is kept if it no longer qualifies (paid, partly paid). If it still qualifies, `VoidNotApplied` (a `ProviderUnavailable`) rolls back and the endpoint answers 503. The gateway logs the refusal's code | `billing/webhooks.py`, `billing/gateway.py`, `billing/views.py` (log text) |
+| The billing page said "voids the unpaid renewal invoice, so nothing is owed" for every `payment_failed` cancellation | `webhooks.renewal_voided` checks for the `billing.renewal_invoice_voided` audit event of the row's subscription. With it: "has voided … nothing is owed"; without it: "was not voided", status in the Customer Portal. The past-due timeline states the condition instead of a promise | `billing/webhooks.py`, `billing/views.py`, `templates/billing/overview.html`, `billing/entitlements.py` (docstring) |
+
+Kept unchanged: the payment rule and its scope, the 7-day grace period, the sandbox results
+(the README now notes that the page text of that run has since changed; the run had the
+audit event, so the page would now show the confirmed variant). The test-clock run was not
+repeated; the new branches cannot be triggered on demand in the sandbox.
+
+Tests (`test_billing.py`): `FakeStripe` now has `changed_while_voiding` (a full or partial
+payment just before the void) and `refused` (Stripe refuses while the invoice is unchanged).
+New in `FailedRenewalVoidTests`: a refused void of a still-qualifying invoice (503, nothing
+stored, row rolled back, no void claim on the page, redelivery voids it), a partial payment
+that wins the race (kept, neutral page), a void of another subscription not claimed, and a
+past-due timeline without a promise. The paid-race test now also checks the page.
+`GatewayVoidRefusalTests` (new, 2 tests) go through the real `StripeGateway` and endpoint
+with only the SDK's `SubscriptionService`/`InvoiceService` mocked. In the first, Stripe
+refuses, the invoice is still open and unpaid, the endpoint answers 503 with no stored
+event, and the redelivery of the same event id is then processed. In the second, a refusal
+after a full or partial payment is final (200, kept). Negative control: with the previous
+`webhooks.py`, `views.py` and template restored, 8 of these 16 tests failed.
+
+Local checks, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02, final
+tree): all 11 steps ok. Engine/runner/ML 376 OK, 9 skipped (unchanged); web tests on
+SQLite **150 OK, 7 skipped** (3 PostgreSQL-only row-lock tests, 3 paid, 1 free); before:
+144 / 7. A first run failed lint, format and types (a long line, unwrapped lines, a missing
+annotation in the new tests); fixed before the final run.
+
+## Failed renewal voided after Stripe's final action (2026-11-02, ninth session)
+
+Status: **done and verified in the sandbox.** Test mode only: no live key, purchase,
+deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private.
+
+### Owner input used
+
+Dashboard settings of the KRL sandbox, checked visually by the owner and not changed:
+Smart Retries up to 8 retries within 2 weeks; first failed renewal → leave the subscription
+past-due; all retries failed → cancel the subscription; invoice → leave it past-due. The
+owner specified the rule (void the unpaid renewal invoice when Stripe finally cancels for a
+failed renewal), its scope, and to keep the 7-day grace period for now.
+
+### Changes
+
+| File | Change |
+| --- | --- |
+| `billing/webhooks.py` | `_void_failed_renewal` / `_keep_invoice_because`: after the tenant check and before the followed-subscription check, inside the row lock; `process_event(event, stripe_api: StripeApi)` (protocol: subscription, invoice, void_invoice); `cancellation_reason` mirrored |
+| `billing/gateway.py` | `invoice`, `void_invoice` on the port; a refused void returns the invoice as it is; transient errors → `ProviderUnavailable` |
+| `billing/models.py`, migration `0004` | `Subscription.cancellation_reason` |
+| `billing/entitlements.py`, `settings.py`, `.env.example` | `PaymentRecovery` / `payment_recovery`: grace end and Stripe's retry end; `ACCESSGUARD_STRIPE_RETRY_DAYS` (default 14, display only, must match the Dashboard) |
+| `billing/views.py`, `templates/billing/overview.html` | banner with both dates; "what happens next" timeline while `past_due`; explanation after a `payment_failed` cancellation |
+| `ops/stripe_sandbox/sandbox.py` | `cancel-now`, `invoices`; cancellation reason in both state views |
+| Docs | ADR 0011 update, sandbox README (settings, run plan, results), walkthrough, launch checklist, beta operations plan, interview prep |
+
+### Tests
+
+`test_billing.py`: `FailedRenewalVoidTests` (10), `GracePeriodDisplayTests` (2),
+`GatewayInvoiceTests` (4), one more PostgreSQL-only concurrency test (two events of one
+cancellation void once). `FakeStripe` now holds invoices and voids like the gateway.
+Negative control: with the void call replaced by `None`, 8 of the 10 `FailedRenewalVoidTests`
+failed (15 failures incl. sub-tests); the two passing ones do not depend on the void.
+
+### Sandbox run (evidence: `.local/stripe/void-run.log`, `evidence-void-*.txt`, `listen8.log`, `stack7.log`)
+
+See ops/stripe_sandbox/README.md, "Void of the failed renewal after the final action". In
+short: 9 failed attempts → Stripe `canceled` with reason `payment_failed` → invoice `void`,
+outcome and audit recorded once; paying it refused by Stripe; resend → 200, no second void;
+re-subscription through hosted Checkout with the same customer; a requested cancellation
+(`cancel-now`, reason `cancellation_requested`) left its open renewal invoice alone; the 8
+invoices of the earlier owners stayed `paid`; 29 deliveries, all HTTP 200.
+Reused, not rerun (code path unchanged): purchase, plan changes, portal flows, late first
+delivery, renewal paid, recovery by retry and by payment, grace boundary in app time.
+
+### Limits
+
+- Not run in the sandbox (tests only): an API error during the void, a payment that wins the
+  race with the void, partly paid or non-renewal invoices, a delayed cancellation of an
+  earlier subscription, concurrent deliveries (PostgreSQL-only, CI).
+- No reconciliation job: if Stripe stops redelivering a failed event, the invoice stays open
+  until another event of that subscription arrives.
+- A requested immediate cancellation while `past_due` leaves Stripe's open renewal invoice
+  payable (by design of this rule; the portal only offers cancellation at period end).
+
+### Checks
+
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02): all 11 steps
+ok. Engine/runner/ML 376 OK, 9 skipped (unchanged); web tests on SQLite **144 OK, 7 skipped**
+(3 PostgreSQL-only row-lock tests, 3 paid, 1 free); before: 127 / 6.
+
+**CI on `dfd01c3`** (run 41448382426): all six jobs passed. Engine tests 376, 2 skipped on
+Ubuntu 3.11 and 3.13, 9 skipped on Windows 3.13; web tests on PostgreSQL **144, 4 skipped**
+(3 paid, 1 free), so all three row-lock tests ran, including
+`test_two_events_of_one_cancellation_void_the_invoice_once`. This handoff and the
+walkthrough's test table were then updated with these numbers (documentation-only commit).
+
+### Machine and sandbox state
+
+- Sandbox database migrated to `0004`; backup before the run:
+  `.local/stripe-e2e.before-2026-11-02-void.sqlite3` (same SHA-256 at copy time, integrity
+  `ok`). New owners `owner-void-e`, `owner-req-f@example.test`; two new test clocks
+  (`clock_1UXKWe…` and B's), deleted by Stripe after 30 days.
+- Stack, listener and `stripe.exe` stopped; ports 8000/8800/8801 free.
+
+## Stripe renewals, retries and grace period verified (2026-11-02, eighth session)
+
+Status: **package 6 test-clock verification done.** Test mode only: no live key, purchase,
+deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private. Details and the run table: `ops/stripe_sandbox/README.md` ("Renewals and
+payment retries with test clocks").
+
+### Environment checked before any change
+
+- The owner claimed the sandbox and logged the separate CLI config in
+  (`--config .local/stripe/config.toml -p accessguard-sandbox`). The CLI and the env file's
+  key both reach account `acct_1UWAdYB9QLrE2rSI` ("KRL sandbox"), every object
+  `livemode: false`.
+- Products, prices (`price_1UWD5X…` Team EUR 49, `price_1UWD5Y…` Business EUR 199) and the
+  portal configuration `bpc_1UWD5Z…` (`always_invoice`, default) are unchanged and reused.
+- **Credentials:** the env file still holds the claimable sandbox's `rkcs_test_` key. After
+  the claim it still works for everything except test clocks (`PermissionError`). The CLI
+  1.55 login stored an OAuth token in the Windows Credential Manager (`StripeCLI:uat:…`),
+  not an API key, so there was no new test key to put into `stripe.env`; the token was not
+  extracted. The `stripe listen` signing secret was compared without printing it: unchanged.
+  `stripe.env` is therefore unchanged (byte-identical to before the session).
+- Test clocks: create/delete through the CLI profile worked; with the env key refused.
+  Re-checked after the run on the owner's request: the CLI still reaches the account and
+  `clock-probe` via the profile created and deleted `clock_1UXI7K…`; with the env key it is
+  still refused. A full test key in `stripe.env` is optional (see the README).
+
+### Driver changes (`ops/stripe_sandbox/sandbox.py`)
+
+| Change | Why |
+| --- | --- |
+| `ACCESSGUARD_STRIPE_CLI_PROFILE`: clock endpoints through the logged-in CLI profile (`CliClocks`), else the SDK (`SdkClocks`); refused unless the CLI can read the env file's Team price (same account) and every clock says `livemode: false` | the only credentials with clock access were the CLI's; they stay in the CLI |
+| `app-at <email> <seconds>`: billing page and two project creations through the app's views (Django test client, in-process, sandbox database) at `past_due_since + seconds`, rolled back | the app's grace period runs on its own clock, which a test clock does not move; no timestamp is edited |
+| Commands now wait up to 30 s for the app's status to match Stripe's before printing | **defect:** `clock-next-retry` printed the app before the webhooks arrived (recovery showed `past_due` although the app turned `active` 9 s later) |
+| `current_period_end` in the app view | needed to see a renewal |
+
+Tests: `web/accessguard_web/tests/test_stripe_sandbox_driver.py` (CLI JSON after the banner, errors, no key
+fragments, `livemode` on plain JSON), 5 tests.
+
+### Results (stack on `.local/stripe-e2e.sqlite3`, `stripe listen`, evidence below)
+
+| Scenario | Result |
+| --- | --- |
+| Renewal paid (`renew-a`) | `subscription_cycle` EUR 49.00 paid at attempt 1; app Team, period end → 2027-01-02, no warning |
+| Renewal fails, retries exhausted (`retry-b`) | `pm_card_chargeCustomerFail` (attaches, every charge `card_declined`/`generic_decline`); 9 attempts = renewal + **8 retries over 14.02 simulated days**, 36-44 h apart; then **cancelled**, invoice left `open`. App Team with warning throughout (row unchanged by every retry), then Free/`canceled` |
+| Grace period, app time (`retry-b`) | `past_due_since` 08:32:32 UTC. +0, +604799, +604800 s: Team, warning on the page, 2nd project allowed; +604801 s and +10 d: Free, banner, 2nd project refused (redirect to billing) |
+| Recovery by retry after the app's grace (`recover-c`) | attempts 1-5 failed (5th at +7.02 simulated days; `app-at` at that offset: Free); card fixed, attempt 6 paid; app Team, warning and `past_due_since` cleared |
+| Recovery by payment (`pay-d`) | 2 failed attempts, `pay-open`: `active`, app Team |
+| Payment after the final action (`retry-b`) | the open invoice of the cancelled subscription was still payable and was paid (EUR 49.00); subscription stayed `canceled`, app Free (`invoice.paid` → `unchanged`) |
+| Webhooks | 49 deliveries, all HTTP 200; every handled event of these customers stored; a late `invoice.payment_failed` after `customer.subscription.deleted` stored as `unchanged` |
+
+**Retry settings:** not readable through the API, and the Dashboard was not opened. The
+observed pattern (8 retries within 2 weeks at irregular times, then cancel, invoice left
+open) matches Stripe's Smart Retries default with "cancel the subscription". Inference, not
+a reading of the setting.
+
+### Limits
+
+- The grace-period checks ran in-process through the app's views with a patched
+  `timezone.now`, not against the running server, and not by waiting 7 days. The
+  `past_due_since` they start from was written by the real webhook. No database timestamp
+  was edited this session.
+- Stripe's time and the app's time differed throughout (the clocks ran up to six weeks
+  ahead): the app never reached the end of its grace period on its own; it went Free only
+  through Stripe's cancellation.
+- Test cards decline identically every time; real Smart Retries timing depends on card
+  networks. No public webhook endpoint (only `stripe listen`).
+
+### Findings for the owner (no code changed)
+
+1. **Open invoice after the final action stays payable**: a customer can pay EUR 49 for a
+   cancelled subscription and gets nothing. Choose the invoice action after the last retry
+   in the Dashboard (Billing > Revenue recovery) or void such invoices; legal/accounting
+   view on charging for the 7 days of grace that were used.
+2. **Grace 7 days vs retries 14 days**: in production a customer is on Free from day 7
+   while Stripe still retries until day 14, and returns to the plan when a retry succeeds.
+   Keep, or set `ACCESSGUARD_PAYMENT_GRACE_DAYS` / the retry window to match.
+
+### Operations preparation continued (no owner information needed)
+
+`tests/unit/test_offsite_backup.py` (6 tests): one pass of `ops/docker/offsite_backup.sh`
+under `sh` with stubbed `date`, `find`, `restic`, `wget` and `sleep`, including the Sunday
+`restic check` branch that was never run before: check passed → ping; check failed →
+error line and **no** heartbeat ping. Negative control: with the `!` before `restic check`
+removed, 2 of the 6 failed (script restored with `git checkout`). Still not run: Caddyfile
+validation and certificates (need Docker or a Caddy binary; Docker stays off on this
+machine), the real restic image and repository, SMTP, any server.
+
+### Checks
+
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02, changes
+staged): all 11 steps ok (lint, format, mypy strict, tests, web tests, migrations, deploy
+check, pip-audit, detect-secrets, build, demo). Final local counts after the CI fixes below:
+376 engine/runner/ML tests OK, 9 skipped (2 opt-in real-model, 1 POSIX-only file mode, the 6
+POSIX-only backup-loop tests); 127 web tests on SQLite OK, 6 skipped (2 PostgreSQL-only,
+3 paid, 1 free).
+
+**CI on the final commit `2411dfe`** (run 41419743169): all six jobs passed. Engine tests 376,
+2 skipped on Ubuntu 3.11 and 3.13 (opt-in real-model; the backup-loop tests ran), 9 skipped
+on Windows 3.13; web tests on PostgreSQL 127, 4 skipped (3 paid, 1 free). Compared with
+`02d5693` (370 / 2 and 122 / 4): +6 engine tests (`test_offsite_backup.py`), +5 web tests
+(`test_stripe_sandbox_driver.py`).
+
+CI on `177bf0a` (run 41416449371): both Ubuntu engine jobs failed, `ModuleNotFoundError: No
+module named 'stripe'`. The engine jobs install no third-party packages; the new driver test
+imported `sandbox.py`, which needs `stripe`. Moved to the web tests
+(`test_stripe_sandbox_driver.py`), which run in CI with the web dependencies. Re-checked
+locally: engine tests with the bare system Python 3.13 (no `stripe`) 376 OK; lint, format,
+types, tests, web tests and secrets ok. The off-site backup tests passed on Ubuntu in that run.
+
+The Windows engine job of the same run, and again of `0410c04` (run 41418440644), hung in
+the unit tests until cancelled ("Terminate orphan process: bash"): on the runner, Git's `sh`
+launcher left its `bash` child looping when the stubbed `sleep` ended the script, so the
+subprocess pipes never closed. Locally (Git Bash's `sh`) the tests had passed. The script
+runs only in a Linux container, so `test_offsite_backup.py` now skips on Windows; the two
+Ubuntu jobs run it.
+
+### Machine and sandbox state
+
+- Stack, listener and every `stripe.exe` stopped; ports 8000/8800/8801 free.
+- `.local/stripe-e2e.sqlite3` gained the owners `renew-a`, `retry-b`, `recover-c`,
+  `pay-d@example.test`; copy from before the run: `.local/stripe-e2e.before-2026-11-02.sqlite3`
+  (same SHA-256 at copy time, integrity `ok`).
+- Four test clocks with their customers are kept in the sandbox for inspection
+  (`clock_1UXGdy…`, `clock_1UXGet…`, `clock_1UXGiz…`, `clock_1UXGlq…`); Stripe
+  deletes them after 30 days, or `sandbox.py clock-delete <email>`.
+- Evidence (git-ignored): `.local/stripe/clock-run.log` (every driver command with output),
+  `evidence-*.txt` (charges, invoices, events and the app's stored outcome),
+  `stack6.log`, `listen7.log` (contains the webhook secret: do not share), `sb.sh`.
+
+## Package 10: operations and self-serve beta prepared (2026-11-02, seventh session)
+
+Status: **prepared, not deployed.** No purchase, account, server, deployment, publication,
+merge, live payment or model call. One Stripe call in test mode (`clock-probe`, refused).
+Docker was not started (machine memory limits). Package 7 stays accepted for its synthetic
+scenarios. Branch `feature/v1-commercial-beta`, draft PR #1, repository private.
+
+### Decision basis
+
+`docs/beta-operations-plan.md`: two EU options with official prices of 2026-11-02
+(Hetzner CX23 + Storage Box ≈ €10.22/month excl. VAT; Scaleway DEV1-S + managed PostgreSQL
+≈ €24.52), assumptions, recommendation (Hetzner), open items as technical gaps, owner
+decisions, legal clarifications and optional improvements, the self-serve beta plan and
+the list of missing information. ADR 0014 (proposed). Hetzner's plan pages showed the
+plans as "currently unavailable" on that day: check when ordering. Scaleway's pricing
+pages refuse automated access; prices come from its public product catalogue API.
+
+### Technical changes
+
+| Change | Why | Tests |
+| --- | --- | --- |
+| `_client_ip` honours `ACCESSGUARD_TRUSTED_PROXY_HOPS` (rightmost N-th `X-Forwarded-For` entry) | behind the proxy every visitor would have shared the proxy's sign-in limit | `ClientAddressTests`, `test_behind_a_proxy_the_limit_follows_the_visitor_not_the_proxy` |
+| `ThrottledPasswordResetView`: 3 e-mails per address, 10 per IP per hour, same page | the form was unlimited (inbox flooding, SMTP quota); reset flow had no test | `PasswordResetTests` (https link end to end, unknown address, limits) |
+| Runner download in the app (`scans/distribution.py`, `ACCESSGUARD_RUNNER_WHEEL`), SHA-256 on the Runners and help pages, members only | self-serve install without us sending files; PyPI optional | `test_runner_download.py` |
+| `docker-compose.prod.yml`, `ops/deploy/Caddyfile`, `ops/docker/offsite_backup.sh` | TLS, no public app port, encrypted off-site backups with heartbeat, log rotation | `docker compose config` (merged); backup loop with stubbed restic/wget |
+| `ops/deploy/check_env.py` | production `.env` check by name (placeholders, domain consistency, proxy hop, SMTP 587, test-mode Stripe unless approved, all-or-nothing Stripe for a free beta, backups) | `tests/unit/test_deploy_env_check.py` (13; 1 POSIX-only) |
+| Images pinned by digest: Python (built locally 2026-10-30), PostgreSQL 17.11 (also in CI), Caddy 2.11.6, restic 0.19.1 | reproducible builds; launch-checklist item | CI image build |
+| `sandbox.py clock-probe/-start/-renew/-next-retry/-advance/-delete`; Stripe error text scrubbed of key fragments | renewal, retries and final action with test clocks | `clock-probe` against the claimable sandbox: `PermissionError`, as documented; key fragment no longer printed |
+
+Docs: `docs/deployment.md` (runbook), `ops/stripe_sandbox/README.md` (test-clock run plan
+and expected results, owner steps), operations, install, launch checklist, threat model
+(T31, T37, T38), V1, README, walkthrough, economics; stale CI statements corrected
+(README, V1 packages 1/10/12, walkthrough, notes in M1/M2).
+
+### Checks
+
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02): all 11
+steps ok; 370 engine/runner/ML tests OK (3 skipped: 2 opt-in real-model, 1 POSIX-only
+file-mode test); 122 web tests on SQLite OK (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free);
+mypy strict 223 files; detect-secrets exit 0 (re-run with the new files staged). CI on
+`afb5074` (previous commit): run 41404904459, all six jobs passed.
+
+CI on `02d5693` itself (run 41411323263, all six jobs passed; counts corrected in the
+eighth session, the local numbers above had been the only ones recorded): engine tests 370
+with **2** skipped on Ubuntu 3.11 and 3.13 (the opt-in real-model tests; the POSIX-only test
+runs there) and 3 skipped on Windows 3.13; web tests on PostgreSQL 122 with **4** skipped
+(3 paid, 1 free; the PostgreSQL-only tests run there).
+
+Not run: the Caddyfile, certificate issuance, the real restic image and repository, the
+Sunday `restic check` branch (tested since the eighth session), SMTP delivery, the test-clock
+scenarios (run in the eighth session), any server.
+
+### Pending (owner)
+
+1. ~~Stripe: claim the sandbox, log in the CLI, run the test-clock plan~~: done in the
+   eighth session (above); the retry settings were inferred, not read.
+2. Decide hosting, domain, SMTP, backup target and alert services
+   (docs/beta-operations-plan.md, section 5), and approve ordering and deployment.
+3. Support address for the site; free or paid beta; legal texts.
+
+## Package 7: real-model run recorded (2026-11-02, sixth session)
+
+Status: **package 7 accepted for the synthetic scenarios.** The owner ran the paid test
+locally on 2026-10-30; this session checked the evidence file and updated the records. No
+model call, purchase, deployment or merge in this session. Branch
+`feature/v1-commercial-beta`, draft PR #1, repository private.
+
+### Result
+
+- Owner's console output: `Ran 10 tests in 36.004s`, `OK`, no skips; model
+  `claude-opus-5-5`; three model requests with HTTP 200.
+- `.local/ai-live/runs.jsonl` (checked without repeating the run): exactly three lines,
+  2026-10-30 13:52:53-13:53:13 UTC, provider `anthropic`, one attempt each (no fallback).
+
+| Test | Outcome | Input | Output | Latency | USD (estimate) |
+| --- | --- | --- | --- | --- | --- |
+| setup (`setup-v1`) | `ok` | 1,049 | 125 | 4,329 ms | 0.00670 |
+| explanation (`explain-v1`) | `ok` | 1,146 | 913 | 13,548 ms | 0.02284 |
+| cut-off (`explain-v1`, `max_tokens=16`) | `failed`, "cut off before it was complete", test passed | 1,049 | 16 | 3,934 ms | 0.00452 |
+| total | | 3,244 | 1,054 | | 0.03406 |
+
+The sums match the console totals. The estimate is list price times tokens; it has not
+been compared with the Console's cost page.
+
+### What is now verified, and what is not
+
+Criterion by criterion in docs/milestones/V1.md ("Package 7 criteria after the real-model
+run"). In short, verified with the real model for one synthetic OpenAPI document and the
+finding `orbit-billing@ben`: both flows through the app's adapter with structured output,
+validation, review before anything changes, AI-draft labelling, no secret or canary sent,
+usage record for `ok` and cut-off. Quota and opt-in are decided before any provider call
+and were already covered by tests.
+
+Not shown by this run: general model quality or usefulness beyond these scenarios,
+consistency across runs, a real refusal, a real API timeout, the Ollama provider, ongoing ML
+improvement.
+
+### Documentation changes
+
+- `docs/ai-live-verification.md`: result section, status; the PowerShell procedure replaced
+  by the one that worked (separate `Read-Host -AsSecureString`, `PSCredential` for the
+  hand-over, a key check before the tests start, clean-up in `finally`). The cause of the
+  earlier empty key entries was not established and is not stated. The new step 2 was
+  dry-checked in Windows PowerShell 5.1 with the test command replaced (dummy values; no
+  API call).
+- `docs/milestones/V1.md`: 11 of 12 accepted; package 7 row and criteria table.
+- `docs/PROJECT_WALKTHROUGH.md`, `docs/launch-checklist.md`: the "pending/blocked" AI
+  statements and the CI push item corrected.
+
+### Checks (documentation-only change)
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh` on 2026-11-02: all 11 steps ok; 357
+engine/runner/ML tests OK (2 opt-in skipped), 111 web tests OK (6 skipped: 2
+PostgreSQL-only, 3 paid, 1 free, as no opt-in was set); detect-secrets exit 0.
+
+### CI on `71c4d3d` (usage of refused and cut-off answers)
+
+Run 41056167999: all six jobs passed.
+
+### Pending (owner)
+
+1. Compare the estimate with the Console's cost page (optional) and disable or delete the
+   API key if it is not needed again.
+2. A DPA with the AI provider before AI assistance is enabled for customers
+   (launch checklist).
+
+## Package 7: AI assistant verification (2026-10-30, fifth session)
+
+Status: superseded by the sixth session above (the real-model run is done). At the time:
+real-model run pending (no `ANTHROPIC_API_KEY`; paid calls need an approved budget).
+Everything that needed no paid call was done. No paid call, purchase, deployment or merge.
+Branch `feature/v1-commercial-beta`, draft PR #1.
+
+### CI on `c58a853` (billing hardening)
+
+Run 41052053351: all six jobs passed (lint/types/security/build, engine tests on Ubuntu 3.11
+and 3.13 and Windows 3.13, container images, web tests on PostgreSQL). The PostgreSQL job:
+`Ran 99 tests ... OK`, no skips, so `ConcurrentWebhookTests` (row locks) ran and passed.
+
+### Prepared
+
+- `web/accessguard_web/tests/test_assistant_flows.py`: both flows (setup draft from a
+  synthetic OpenAPI document with canary values; explanation of `orbit-billing@ben` from a
+  real in-process scan of the sample app) through the pages, the provider port and
+  `AssistantRun`. The same scenarios run with a recording fake (always) and with the real
+  `AnthropicProvider` (`ACCESSGUARD_AI_LIVE=paid`, at most 3 calls, evidence to the
+  git-ignored `.local/ai-live/runs.jsonl`). Reuses `support.py` and the fakes and OpenAPI
+  document of `test_assistant.py`; no new production architecture.
+- `providers.py`: a timeout now says "did not answer within N seconds" (before:
+  "could not be reached", because `APITimeoutError` subclasses `APIConnectionError`).
+  A refusal or cut-off answer now keeps its model and tokens on the `ProviderError`, and
+  every model attempt is read from `usage.iterations` (`Attempt`). Top-level `usage`
+  covers only the attempt that produced the message, so iterations are used instead of,
+  never added to, it.
+- `service.py`: latency is recorded for failed calls too (was 0); a refused or cut-off
+  call now stores its model and tokens (were empty).
+- Evidence file: each attempt priced at its own model; a model without a known price
+  gives `"unknown"` (was a silent USD 0). A line is written before the checks, so a
+  failed call is still logged. `MAX_PAID_CALLS` is documented as counting logical SDK
+  calls, not the SDK's retries or fallback attempts.
+- `docs/ai-live-verification.md`: what is checked, opt-in levels, model and price check,
+  budget (estimate vs credits vs spend limits, with retries and fallback), API access
+  (check plan-included API credits first; linking an organization and accepting terms
+  are the owner's manual decisions), PowerShell commands that keep the key out of the
+  chat and history.
+
+### Run without cost (2026-10-30)
+
+| Check | Result |
+| --- | --- |
+| Fake flows: model/tokens/latency/outcome stored, answer on the page, draft changes nothing, applying one template leaves `target`/`policy` unchanged, no API key / protected value / canary sent | passed |
+| Invalid answer (setup) and refusal (explainer) through the pages: error shown, rule-based draft or no explanation, no stand-in text | passed |
+| Timeout through the real SDK against a local silent server (0.3 s, 3 attempts) | passed; page says "did not answer within 0.3 seconds", latency ≥ 900 ms |
+| `ACCESSGUARD_AI_LIVE=free`: real request to the Claude API with an invalid key | `HTTP/1.1 401 Unauthorized`; page says "rejected the API key" |
+| Regression: refused / cut-off answer keeps model and tokens (adapter, mocked SDK response with a declined and a fallback attempt; service); cost per attempt, `"unknown"` for an unpriced model | passed |
+
+### Checks
+
+- Full `ops/verify.sh` before the usage fixes (13:22): all 11 steps ok; 108 web tests OK
+  (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free).
+- After the fixes: ruff check and format, mypy strict (219 files) clean; web tests 111
+  OK (same 6 skipped); detect-secrets with the new files staged: 350 files, exit 0.
+  Engine tests, audit, build and demo not re-run (nothing under `src/`, dependencies or
+  packaging changed).
+
+### Pending (needs the owner)
+
+1. Check whether the Claude plan includes API credits (Max or Team; see
+   `docs/ai-live-verification.md`). Claiming them (choosing the Console organization,
+   accepting the terms) is a manual decision; without credits the run stays pending.
+2. Approve a budget (proposed USD 2 in total, as the workspace spend limit). One run is
+   ≤ USD 0.31 at `claude-opus-5-5` (USD 4 / 20 per million tokens, checked 2026-10-30),
+   ≤ USD 0.69 if every call falls back; SDK retries could in theory triple that, which
+   only the spend limit stops.
+3. Create a workspace with that spend limit and an API key in it; enter the key locally as
+   in `docs/ai-live-verification.md`, never in the chat.
+4. Run the module with `ACCESSGUARD_AI_LIVE=paid`; record the three evidence lines here.
+
+Not provable with a real model: a classifier refusal (not provoked on purpose) and an
+invalid structured answer (the API enforces the schema); both are tested with fakes.
+
+## Billing hardening (2026-10-30, fourth session)
+
+Scope: upgrades only after payment, webhook ordering and concurrency, reproducible sandbox
+drivers. Test payments only (claimable sandbox `acct_1UWAdYB9QLrE2rSI`, expires
+**2026-11-06**); no live key, purchase, deployment, merge or AI call. Branch
+`feature/v1-commercial-beta`, draft PR #1. Decision record: ADR 0011, update "current state
+instead of timestamps, pending upgrades".
+
+### Defects confirmed
+
+| # | Defect | Evidence |
+| --- | --- | --- |
+| 1 | "Choose Business" while on Team opened a new Checkout → a **second subscription** | `PlanChangeTests` failed against the old code (Checkout called) |
+| 2 | `invoice.payment_failed` / `invoice.paid` had no ordering guard: a late failure after a successful retry restarted the grace period; an old subscription's `paid` ended a running grace period | `test_late_payment_failure_after_a_successful_payment_changes_nothing`, `test_old_payment_success_does_not_end_the_grace_period_of_the_new_one` failed |
+| 3 | Customer fallback in `_subscription_by_stripe`: events of an earlier subscription changed the current one; a later `deleted` of the old subscription downgraded an active re-subscription to Free | `test_old_failure_of_a_previous_subscription_does_not_touch_the_new_one`, `test_cancellation_of_a_previous_subscription_keeps_the_new_plan` failed |
+| 4 | Same-second events: the later arrival won, whatever was true | `test_events_with_the_same_created_second_follow_stripes_current_state` failed; Stripe produced 3 events with one `created` in the sandbox |
+| 5 | An upgrade applied before payment (`allow_incomplete`) granted the higher plan during the grace period | `test_failed_upgrade_keeps_the_previous_plan_during_the_grace_period` failed |
+| 6 | Customer Portal configured with `create_prorations`: switching to Business applied at once with **no charge** (difference billed at renewal), with a declining card | sandbox, org pc2: Stripe `active` + Business, latest invoice still the EUR 49 purchase, portal "next estimated payment €349" |
+| 7 | CSP `form-action` blocked the redirect to Stripe's hosted invoice page (`net::ERR_ABORTED`) | sandbox, Playwright; unit tests cannot see it; header assertion added |
+
+Baseline before the fix: 13 of the 15 new tests failed (the 2 PostgreSQL concurrency tests
+skip on SQLite; the cross-customer guard already held).
+
+### Fixes
+
+- `webhooks.py`: events are signals. Organisation from subscription id, customer id or our
+  metadata → `SELECT ... FOR UPDATE` on its row → fetch the subscription from Stripe **inside**
+  the lock → mirror it. Events of another subscription apply only when the followed one has
+  ended at Stripe; customer and metadata must match (tenant check). Only `active`/`trialing`
+  raise the plan; other states keep at most the plan already held. No-op syncs save nothing
+  and write no audit event. Duplicate detection is limited to the `StripeEvent` insert.
+  Handles `pending_update_applied|expired`. `last_event_created` removed (migration `0003`;
+  the sandbox database was copied to `.local/stripe-e2e.before-0003.sqlite3` first).
+- `views.webhook`: Stripe API unreachable → nothing stored, HTTP 503, Stripe retries.
+- `gateway.py`: `subscription()`, `change_plan()` (`always_invoice` + `pending_if_incomplete`;
+  returns the hosted invoice URL when pending), Checkout refused while Stripe lists a live
+  subscription for the customer (`BillingRefused`).
+- `views.checkout`: with a live subscription → plan change (refused while a payment is
+  open), otherwise Checkout. Template: "Switch to …" with a note.
+- Sandbox portal configuration `bpc_1UWD5Z…` now uses `always_invoice` (install.md says so).
+
+### Sandbox evidence (stack on `.local/stripe-e2e.sqlite3`, `stripe listen`, drivers in `ops/stripe_sandbox/`)
+
+| Scenario | Org | Result |
+| --- | --- | --- |
+| App upgrade, card declined | pc1 | redirect to `invoice.stripe.com`; Stripe `active`, price Team, `pending_update` → Business, invoice EUR 150 `open`; app Team, no grace |
+| … then paid (`pay-open`) | pc1 | `invoice.paid` (first!), `subscription.updated`, `pending_update_applied` → app Business |
+| Replacing a pending update | pc1 | Stripe sent `pending_update_expired` for the old one; app unchanged |
+| Portal upgrade, `create_prorations`, card declined | pc2 | defect 6 |
+| Portal upgrade, `always_invoice`, card declined | pc3 | portal: "Your payment method was declined"; Stripe pending update, invoice EUR 150 open; app Team |
+| … then paid in the portal with the saved 4242 card | pc3 | app Business |
+| `allow_incomplete` upgrade declined | pc4 | Stripe `past_due` with Business; app **Team** with the grace warning; after paying: Business |
+| Late first delivery: listener stopped, fail + recover, 7 events resent newest-first | pc5 | first event → Business `active`; the other 6, incl. the late `invoice.payment_failed` and the `past_due` snapshot, stored as `unchanged` |
+| Resend of already processed events | pc1 | `duplicate`, `updated_at` unchanged |
+| Portal cancellation, end via `cancel_at` + 60 s | pc2 | warning with end date → `deleted` → Free |
+| Re-subscription via Checkout | pc2 | allowed; same customer, new subscription; app follows it |
+| Extra subscriptions | pc1-pc5 | exactly one live subscription per customer after every plan change |
+
+Side effect of defect 6 worth knowing: pc2's deferred EUR 150 proration stayed as an
+expected charge in the portal even after the cancellation.
+
+### Reproducible drivers
+
+`ops/stripe_sandbox/` (`README.md`, `sandbox.py`, `sandbox_browser.py`): opt-in via
+`ACCESSGUARD_STRIPE_SANDBOX=1`, test keys only (`is_test_key`, `livemode: false` checked),
+credentials only from the git-ignored env file, refuses any database but
+`.local/stripe-e2e.sqlite3`. Not part of `verify.sh` or CI. The earlier ad-hoc scratchpad
+scripts are superseded.
+
+### Still not verified
+
+- A **natural renewal** and its failure, Stripe's **retry schedule** (Smart Retries) and its
+  final action: the claimable sandbox has no test clocks. `fail-renewal` is not a
+  substitute (with flexible billing the reset invoice can be EUR 0, observed).
+- `ConcurrentWebhookTests` (row lock, simultaneous copies) run only on PostgreSQL: CI, not
+  this machine.
+- No public webhook endpoint (only `stripe listen`).
+
+### Verification
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30): lint;
+format; mypy strict (incl. `ops/stripe_sandbox`); 357 engine/runner/ML tests (2 opt-in
+real-model tests skipped); 99 web tests on SQLite (2 skipped: the PostgreSQL-only
+`ConcurrentWebhookTests`); migrations check; deploy check; pip-audit no known
+vulnerabilities; detect-secrets on tracked files (re-run after staging the new files);
+wheel 45 files, 0 problems; lab demo exact match. CI on `c58a853`: all six jobs passed,
+PostgreSQL 99 web tests without skips (see the fifth session above).
+
+### Machine state after this session
+
+Stack and listener stopped; ports 8000/8800/8801 free; no `stripe.exe` running. Sandbox
+test orgs `owner-pc1…pc5@example.test` in `.local/stripe-e2e.sqlite3`. Logs
+`.local/stripe/stack3-5.log`, `listen3-6.log` (the listener logs contain the webhook secret:
+git-ignored, do not share). `.local/stripe/stripe.env.bak` is a copy taken before `setup`
+(identical ids).
+
+## Stripe sandbox verification (2026-10-30, third session)
+
+Billing (package 6) ran end to end against a real Stripe test environment. Test payments only;
+no live key, purchase, AI call, deployment or merge. Fix commit: `710f4fe`.
+
+### Setup (owner-approved; no Stripe account was registered)
+
+- Stripe CLI 1.55.3 installed with `npm install -g @stripe/cli@1.55.3` (the package is published
+  by Stripe from `github.com/stripe/stripe-cli`; npm skipped its postinstall script, the binary
+  works). Only CLI calls with an explicit `--config` file and `-p accessguard-sandbox` touched
+  credentials. The default `%USERPROFILE%\.config\stripe` held no prior login; `--help` created
+  an empty docs cache there, which was removed again.
+- `stripe sandbox create --from-git --non-interactive` (git identity of this repository)
+  created a **claimable sandbox**, account `acct_1UWAdYB9QLrE2rSI`, **expires 2026-11-06**.
+  It issues a restricted key with the prefix `rkcs_test_`.
+- The command output (keys and claim link), the CLI config and the app's env file are in
+  `.local/stripe/` (git-ignored; the folder's ACL grants only the Windows user `krisr`):
+  `sandbox-create.out`, `config.toml`, `stripe.env`. Do not print or commit them.
+- Created by API, all `livemode: false`: products `prod_VXHeVVyQ0QQDk9` (Team) and
+  `prod_VXHecucyp9KtJt` (Business); prices `price_1UWD5XB9QLrE2rSIaX4lxei7` (EUR 49/month,
+  lookup key `accessguard_team_monthly_eur`) and `price_1UWD5YB9QLrE2rSIVnnFhrbI` (EUR 199/month,
+  `accessguard_business_monthly_eur`); Customer Portal configuration
+  `bpc_1UWD5ZB9QLrE2rSICEGY6Xch` (cancel at period end, switch between the two prices, payment
+  methods, invoice history). It became the sandbox's default because none existed; the app
+  passes it explicitly anyway.
+- Webhooks: `stripe listen --events <the nine handled types> --forward-to
+  http://127.0.0.1:8000/webhooks/stripe/` (CLI 1.55 requires `--events`); API version
+  `2026-09-30.endive`, the same as the pinned SDK. Its signing secret went from
+  `stripe listen --print-secret` straight into `stripe.env`.
+- App: `ops/dev/run_stack.py --env-file .local/stripe/stripe.env` (new flag) with a **separate
+  database** `.local/stripe-e2e.sqlite3`; the dev database `.local/dev.sqlite3` was not used.
+  Proof that the running server loaded the configuration: it printed the five variable names,
+  the billing page showed the test-mode banner, and it created real `cs_test_` Checkout
+  Sessions with the configured prices.
+
+### Results (evidence: Stripe events delivered by `stripe listen`, `StripeEvent` rows, database state and pages of the running app)
+
+| Scenario | How | Result |
+| --- | --- | --- |
+| Checkout and webhooks | Playwright in headless Chrome: sign-up, "Choose Team" (Org A) and "Choose Business" (Org B), hosted Checkout with card 4242 | Each purchase: `checkout.session.completed`, `customer.subscription.created`, `invoice.paid`, `invoice.payment_succeeded`, all HTTP 200 and stored. Org A `team`/`active`, Org B `business`/`active`, own customer and subscription ids |
+| Plan limits | projects created through the running app | Org A (Team) created a 2nd project; an untouched Free organisation was refused its 2nd ("Your Free plan includes 1 projects") |
+| Customer Portal | "Manage payment method…" in the app | Stripe's `billing_portal.session.created` shows `configuration = bpc_1UWD5Z…`; portal lists plan, payment method, paid invoice |
+| Failed payment | card `pm_card_chargeCustomerFail`, then Team → Business with `always_invoice` and `allow_incomplete` | invoice EUR 150 `open`, `customer.subscription.updated` (`past_due`) and `invoice.payment_failed`: grace started, plan kept, warning "stays active until 2026-11-06" |
+| Grace period | 3rd project during grace; then `past_due_since` moved 8 days back **in the test database only**, then restored | during grace: created. Boundary: 7 days → paid plan, 7 days + 1 s → Free. After expiry: page shows Free with the "grace period has ended" banner, 4th project refused, existing projects kept |
+| Recovery | card 4242 attached, open invoice paid | `invoice.paid` and `subscription.updated` (`active`): `past_due_since` cleared |
+| Cancellation | "Cancel subscription" in the portal UI; later "Don't cancel" and cancel again | **defect** (below); after the fix the app shows "cancelled and ends on 2026-11-30", plan kept; reactivation cleared it |
+| Access after the end | `cancel_at` moved to 90 s ahead; Stripe ended the subscription itself | `customer.subscription.deleted`: Org A `free`/`canceled`, page shows Free, new project refused, its 3 projects kept |
+| Re-subscription | Org A bought Team again | same customer `cus_VXHmYk…` reused, new subscription, `team`/`active` (ordering guard did not block it) |
+| Repeated deliveries | `stripe events resend` of `invoice.payment_failed` (Org A, then active), `checkout.session.completed` and `customer.subscription.created` (Org B) | delivered again with HTTP 200; every field of every organisation unchanged (incl. `updated_at`, audit-event counts), 19 → 19 `StripeEvent` rows; Org A stayed `active` |
+| Organisation isolation | all of the above | Org B's row did not change (`updated_at` 10:39:33) through about 20 events for Org A; the Free control organisation never changed; each organisation got its own customer and subscription |
+
+### Defect found and fixed (`710f4fe`)
+
+New subscriptions use `billing_mode: flexible`. The Customer Portal then cancels with
+`cancel_at` (= period end) and leaves `cancel_at_period_end` **false**, so the app stored no
+cancellation and showed no warning. Access was still correct (it ends on
+`customer.subscription.deleted`). Fix: `Subscription.cancel_at` (migration `0002`, nullable,
+applied to the populated test database), set by the webhook; the warning uses it.
+Regression test `test_flexible_billing_cancellation_uses_cancel_at` failed before the fix.
+
+Same commit: explicit portal configuration (`STRIPE_PORTAL_CONFIGURATION`); key classification
+by mode segment (`rkcs_test_` is a test key) with refusal of every non-test key unless
+`ACCESSGUARD_ALLOW_LIVE_PAYMENTS=true` (before, a live key only changed a banner); and
+`run_stack.py --env-file`. Tests: `GatewaySafetyTests` (3), `tests/unit/test_run_stack_env.py`
+(3).
+
+### Limits of this run (not verified, or verified with a substitute)
+
+- **No test clocks:** the claimable sandbox key gets `PermissionError` on test clocks. So the
+  failed payment was an upgrade invoice, not a renewal, and the end came from a near
+  `cancel_at`, not a natural period end. Stripe's own retry schedule and its final action
+  (cancel or `unpaid`) after failed retries were not observed.
+- The grace expiry relies on the app's clock; it was checked by moving `past_due_since` in
+  the test database, not by waiting 7 days.
+- Plan switching in the portal UI is configured but was not clicked.
+- No webhook endpoint on a server: only `stripe listen` to localhost.
+- The Playwright and SDK driver scripts were ad hoc (session scratchpad), not committed.
+
+### Observations for the owner (no code changed)
+
+1. **Out-of-order delivery happened for real:** `invoice.paid` arrived before
+   `checkout.session.completed` and was recorded as "ignored: unknown customer". Harmless,
+   because the subscription events carry the status. A possible improvement: resolve the
+   organisation from `invoice.parent.subscription_details.metadata`.
+2. **Failed upgrade payment:** with `allow_incomplete`, Stripe applies the new price even
+   though the payment failed, so the organisation had Business during the grace period.
+   Decide whether upgrades should use `pending_if_incomplete` (no upgrade until paid).
+
+### State left behind
+
+- The stack and `stripe listen` are stopped; ports 8000/8800/8801 are free.
+- The sandbox keeps its test data until **2026-11-06**. Claiming it (`stripe --config
+  .local/stripe/config.toml -p accessguard-sandbox sandboxes claim`) turns it into a Stripe
+  account with full keys and test clocks: an owner decision. Otherwise it expires.
+- `.local/stripe-e2e.sqlite3` holds the test organisations (`owner-a`, `owner-a2`,
+  `owner-b@example.test`); delete it whenever convenient.
+
+### Verification after the fix
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30): lint;
+format; mypy strict; 357 engine/runner/ML tests (2 opt-in real-model tests skipped); 82 web
+tests; migrations check; deploy check; pip-audit no known vulnerabilities; detect-secrets 344
+tracked files clean; wheel 45 files, 0 problems; lab demo exact match.
+
+## Previous state (2026-10-30, V1 commercial beta, second session)
+
+- Branch: `feature/v1-commercial-beta` (from `b94f5b7`), pushed to the **private** repository
+  `kris7011/accessguard` (`origin`, SSH). **Draft PR #1** into `main`, open and not merged.
+  Nothing is merged, published or deployed; `main` is unchanged.
+- V1 plan and acceptance record (three axes: implemented / verified locally / blocked
+  externally): `docs/milestones/V1.md`. At the end of this session: 9 of 12 accepted. Since
+  the third session (above): **10 of 12**, billing (6) accepted for test mode.
+- This session's commits (oldest first): `054abc8` rules-page form fix + browser-faithful
+  tests, `5ca94fc` compose/image fixes, `0ccdd87` runner install text, `f223fd0` customer
+  acceptance script, then the documentation commit after it.
+
+### GitHub and CI (PR #1)
+
+CI (`.github/workflows/test.yml`) runs on the pull request only for feature branches
+(`d6a48a6`). It ran for the first time on this PR and found four defects that local Windows
+runs could not show; each is fixed in its own commit:
+
+| Run | Commit | Result | Failure and fix |
+| --- | --- | --- | --- |
+| 41030339469 | `d6a48a6` | 3 of 6 jobs failed | Ubuntu (3.11 and 3.13) rebuilt the committed ML dataset with another version, because `math.log1p` is not correctly rounded in every C library → correctly rounded `Decimal` ln (`737bc42`). mypy failed on Linux: Windows-only attributes behind `os.name`, and missing Playwright types → `sys.platform` and the locked e2e requirements (`10d6445`). The verify scripts showed only 15 log lines, hiding a second failure → full log for failed steps (`6473fa4`) |
+| 41031684030 | `6473fa4` | 5 of 6 passed | Ubuntu/3.13: `test_deep_nesting_within_the_size_limit_is_invalid_json` got `not_an_object`. `json` stops deep nesting only at CPython's C recursion limit, which is above 5000 on Linux with 3.13 and below it on Windows and on 3.11, so the rejection category depended on the platform → explicit `MAX_NESTING_DEPTH` (32) in `parse_action`, boundary and in-string tests added, original test unchanged (`c93242e`) |
+| 41033173820 | `c93242e` | **6 of 6 passed** | lint/types/audit/secrets/build; engine tests 354 (2 skipped) on Ubuntu 3.11, Ubuntu 3.13 and Windows 3.13; 78 web tests on PostgreSQL 17; container image builds |
+
+The documentation commit after `c93242e` (this file) gets its own CI run; see the PR for its
+result.
+
+### Verified this session
+
+| What | How | Result |
+| --- | --- | --- |
+| Distribution | `python -m build`; wheel and sdist into clean venvs made from the base interpreters (no repo `.venv`, no `PYTHONPATH`, cwd outside the repo) | wheel 45 files, 0 problems; sdist holds only the package. `accessguard_sampleapp`, `accessguard_web`, `accessguard_lab` not importable in the venvs |
+| Customer journey with the installed runner | `ops/dev/customer_acceptance.py` (new control plane on a fresh SQLite file, sample app as the customer's API, forms over HTTP) | PASS with the wheel on CPython 3.12.7 and the sdist on 3.13.13: 30 checks, 10 findings, no key in the report, triage, fixed variant on the same origin, retest 10/10 resolved and verified |
+| Docker compose | Docker Desktop 29.8 (WSL2) started for the run; project name `agverify`, throwaway env file in the scratchpad, override only for `env_file` and a loopback db port | build, migrations, `/healthz` `/readyz`, hashed static files, CSP, demo runner in compose, wheel runner on the host against the container (scan with 10 findings), scheduler sweep/purge/backup, restore into a separate database (exact counts and digest), 78 web tests on PostgreSQL 17.11. Test stack and volumes removed afterwards; images kept |
+| Anthropic adapter | current API docs (claude-api skill) + the installed SDK 2.3.0 signature | request shape statically valid (`output_config.format`, `effort`, `fallbacks: "default"` with `server-side-fallback-2026-07-01`). **No real call** |
+
+### Defects found and fixed
+
+1. **Rules page unsavable in a browser** (`054abc8`): the empty record row's owner select had
+   no blank option, browsers submit the first option, so the row failed validation. Adding a
+   list or editing a record failed until the empty row was filled. The e2e test missed it
+   because it posts hand-built rows.
+2. **No `.dockerignore`** (`5ca94fc`): local SQLite files and caches would be baked into the
+   web image. Allowlist added; images verified clean (no `*.sqlite3`, `__pycache__`, tests).
+3. **Backups never worked in Docker** (`5ca94fc`): pg_dump 15 (bookworm) vs server 17. Images
+   now on `python:3.13-slim-trixie` (postgresql-client 17).
+4. **Scheduler died on a fresh install** (`5ca94fc`): started before migrations, `set -eu`,
+   no restart policy. Now waits for a healthy web, restarts unless stopped, logs and retries
+   failed jobs; its inherited gunicorn health check is disabled.
+5. **Install text pointed at an unpublished PyPI name** (`0ccdd87`): replaced by the wheel
+   install with a warning. The PyPI names were free on 2026-10-30, so anyone could take them.
+
+### Blocked externally (exact missing item)
+
+- **Stripe**: resolved in the third session with a claimable sandbox (above).
+- **AI assistants, real call**: no `ANTHROPIC_API_KEY`. The local Ollama model was not run:
+  the assistants use `num_ctx` 16384, free commit memory was 1.2-3.5 GB, and the machine
+  crashed twice (below).
+- **E-mail**: no SMTP settings. Needs an SMTP provider with STARTTLS on 587.
+- **Server, domain, TLS, production backup drill**: owner decisions.
+
+### Machine incidents (not caused by AccessGuard code, but caused during this work)
+
+- Two unexpected reboots, 09:02 and 09:15 local time, both bugcheck `0x116`
+  (`VIDEO_TDR_FAILURE`, parameter 3 `0xC000009A` = `STATUS_INSUFFICIENT_RESOURCES`). Dumps:
+  `C:\Windows\Minidump\103026-10453-01.dmp` and `103026-15640-01.dmp`. Both happened while
+  Docker Desktop's VM ran with about 1-2 GB free commit memory; `nvlddmkm` event 153 preceded
+  the first. Older dumps from 26-10 and 29-10 exist, so the machine had this before.
+- No repository or development data was lost (`.local/` untouched; all test data lived in the
+  scratchpad and the `agverify` volumes).
+- Docker Desktop was stopped at the end (`docker desktop stop`, `wsl --shutdown`). The
+  `agverify-*` images (about 700 MB) remain; remove them with
+  `docker image rm agverify-web agverify-scheduler agverify-demo` if not needed.
+
+### Latest verification
+
+- `PYTHON=.venv/Scripts/python bash ops/verify.sh`: exit 0, all 11 steps (2026-10-30, after the code commits): lint; format (244 files); mypy strict (213 files); 351 engine/runner/ML tests, 2 opt-in real-model tests skipped; 78 web tests; migrations check; deploy check; pip-audit no known vulnerabilities; detect-secrets 342 tracked files clean; wheel 45 files, 0 problems; lab demo exact match
+- After the CI fixes (2026-10-30, `c93242e`): `ops/verify.ps1 -Steps lint,format,types,tests`
+  passed locally (354 engine/runner/ML tests, 2 skipped); CI on the same commit: see above.
+- Customer acceptance runs and the Docker results: see above, `docs/install.md` and
+  `docs/operations.md` (drill record).
+
+### Publishing review (done before the push; the repository is private)
+
+- 342 tracked files at the time; 31 commits on this branch not in `main`; other local branches:
+  `feature/m1-reproducible-foundation`, `feature/m2-adaptive-agent`, `main`.
+- No `.env`, database, dump, key or report file is tracked (`.gitignore` covers `.env*`,
+  `.local/`, `reports/`, `web/db.sqlite3`); `.env.example` holds placeholders only; the secret
+  scan (detect-secrets on tracked files) is part of `verify.sh`.
+- Worth a conscious decision before a **public** repository: `AccessGuard-Claude-Code.md` (the
+  original Danish task prompt for Claude Code) and `ml/datasets/ds-b82628ce4c20c8e3/`
+  (140 KB, built from the synthetic lab and sample app, no customer data).
+- Dependencies unchanged this session (`requirements*.txt`, `web/requirements.txt` untouched;
+  pip-audit is part of the gate).
+
+### Next steps (each needs the owner)
+
+See the prioritised owner list in the session report and `docs/launch-checklist.md`. In short:
+review draft PR #1 (merge only on the owner's explicit approval); Stripe test
+account (done in the third session with a sandbox); an Anthropic API key for the assistant verification; reserve the PyPI name; hosting
+and domain; legal texts; design-partner conversations.
+
+### Commands (no secrets)
+
+```bash
+# Git Bash on Windows (use ':' as separator on Linux/macOS)
+PYTHON=.venv/Scripts/python bash ops/verify.sh          # all gates incl. web-tests, deploy-check
+.venv/Scripts/python ops/dev/run_stack.py                # whole product on http://127.0.0.1:8000
+PYTHONPATH=src .venv/Scripts/python ops/dev/browser_check.py --out reports/browser   # stack must run
+# customer journey with a runner installed from the wheel in a clean venv (see docs/install.md)
+.venv/Scripts/python ops/dev/customer_acceptance.py --runner-venv <venv> --out <new dir>
+```
+
+The stack writes only to `.local/` (git-ignored). Stop it with Ctrl+C; if it was started in
+the background, stop the `python.exe` processes whose command line contains `run_stack.py`,
+`runserver`, `accessguard_sampleapp` or `-m accessguard runner`.
+
+### Known issues
+
+- Git Bash heredocs with `\` or `'` in long documents can break; write such files with the
+  editor tools or a script file.
+- `ops/ci/secret_scan.py` scans tracked files only; `git add` before trusting it.
+- `py -3.11` is registered on this machine but its `python.exe` is missing, so Python 3.11 is
+  untested locally.
+- This laptop cannot safely run Docker Desktop and a local model next to an editor and a
+  browser (see the incidents above).
+
+## Previous V1 session (2026-10-30, first): summary
+
+Commits `4fd78c1` … `c37f9e5`: engine for authorised targets, runner, sample app, web control
+plane, web tests, ML foundation, static assets, backup/restore, Docker/compose/CI files, ADRs
+0009-0013, install/operations/checklist, business material, V1 docs. Gate then: 351 engine
+tests (2 skipped), 74 web tests, wheel 45 files. Docker, PostgreSQL, Stripe and real AI calls
+were not exercised; Docker and PostgreSQL now are (above).
+
+## Archive: M2 state (2026-10-27, eighth M2 session)
+
+- Branch: `feature/m2-adaptive-agent`.
+- This session added four commits on top of `5b2d4b7`: the list-first adapter `f6d8d25`, the
+  post-hoc control record `7a15505`, the pre-registration `a047f3c`, and the results commit
+  after it (see git log).
+- **Code changed this session** (first time since the fourth session): a new non-AI responder
+  `scripted:list-first` plus tests. No prompt, fixture, engine, budget or limit changed.
+- Nothing is pushed or merged.
+- Milestone 2 status: **mock and contract verification, a passed real-model smoke test, a
+  passed full opt-in test, and bounded real-model comparisons on all four fixtures at 25 % and
+  50 % budgets** (all under runtime setup B).
+  - **No demonstrated advantage of AI prioritisation over simple rules.** On `projects` the
+    post-hoc `list-first` rule matches the model; on `helpdesk` and `clinic` the model was
+    worse than the best simple baseline in three of four cells and equal in one.
+  - The model's choices were identical across three separate server sessions.
+- The full evaluation at 100 % budgets has not been run with the model.
+- No Ollama or `llama-server` process is running: the three servers started this session were
+  stopped, and port 11434 is not listening.
+- M3 has not been started.
+
+## Done in this session (2026-10-27): list-first control and bounded helpdesk/clinic evaluation
+
+Full record: `docs/evaluation.md` → "Post-hoc list-first control on `projects` and `library`"
+and "Bounded evaluation on `helpdesk` and `clinic` (pre-registered 2026-10-27)" (design,
+results, conclusion); summary in `docs/milestones/M2.md`.
+
+- **Adapter** (`f6d8d25`): `scripted:list-first` in `adapters/scripted_model.py`, registered in
+  `RESPONDERS` and the CLI help (`entrypoints/agent_options.py`). Every pending list check
+  first, then every other pending check, in listed order; reads only `kind` and `status` from
+  the model-visible state; does not follow findings. Shared budget, retest reserve, deadline
+  and safety limits unchanged.
+- **Tests:** `tests/unit/test_scripted_model_and_planning.py` (`ListFirstResponderTests`:
+  priority, stable order and no reaction to findings, executed checks never chosen again, a
+  real `ModelView` state yields an alias only; plus the stop test) and
+  `tests/integration/test_agent_lab.py` (full-budget verdicts equal the baseline for every lab
+  profile; a 30-request run takes listings first in policy order, then items, nothing twice,
+  budget respected, a last-request finding stays `not_retested`). 280 → 285 tests.
+- **Post-hoc control** (`7a15505`, marked as chosen after seeing the model; not independent
+  confirmation): list-first on `projects`/`library` at the bounded evaluation's budgets
+  confirmed 2 and 5 findings on `projects` with the first at request 8, exactly the model's
+  saved results; 0 false positives on `library`. The model was not rerun; the 24 baseline runs
+  reproduced the saved ones.
+- **Pre-registration** (`a047f3c`) before any run on `helpdesk`/`clinic`.
+- **Runs:** `deny-first` and `list-first` (3 repetitions each, 3.8 s and 3.7 s), then three
+  model sessions (fresh `ollama serve` each, setup B, warm-up 17.9 / 10.6 / 12.2 s, evaluations
+  214.9 / 215.2 / 220.8 s, all exit 0). 177 model calls, all valid, `truncated = 0`,
+  `prompt cache is disabled` in every log. The watchdog never intervened (free commit at least
+  3118 MB; `llama-server` peak 4651 MB; VRAM 2295 MiB; free RAM at least 57 MB).
+- **Resources before:** RAM 0.71 of 7.35 GB free; commit 7.85 of 28.52 GB free; VRAM
+  3962 MiB free; C: 14.03 GB free. No program was closed.
+- **Results** (confirmed findings; `helpdesk` 17/34, `clinic` 16/31): model 0, 1, 0, 0 in every
+  session; best simple baseline 1 (random median), 5 (`deny-first`), 0, 2 (random median);
+  `list-first` 0, 2, 0, 0. 0 false positives in all 96 scored runs. Model runs took 27-87 s.
+- **Conclusion by the pre-registered rule:** no demonstrated advantage; worse in three cells.
+  There is no gain, so there is no consistency or cost-benefit case for the model time.
+- **Kept locally (git-ignored):** `reports/eval-list-first-2026-10-27/` (post-hoc control,
+  `compare_posthoc.py`) and `reports/eval-hc-2026-10-27/` (`deny-first/`, `list-first/`,
+  `model-s1..3/` with raw reports, server logs, warm-up, memory CSVs, start/stop records;
+  `analysis.md`; scratch scripts `session.sh`, `save_reports.py`, `watchdog.py`, `analyze.py`).
+- **Docs:** `evaluation.md`, `M2.md`, `README.md`, `PROJECT_WALKTHROUGH.md`,
+  `interview-prep/M2.md` (new addendum), this file.
+- No prompt optimisation, no fixture change, no downloads, no paid services, no external
+  scans, no push, no merge.
+
+## Earlier session (2026-10-27): bounded comparative real-model evaluation
+
+Full record: `docs/evaluation.md` → "Bounded comparative real-model evaluation
+(pre-registered 2026-10-27)". In short:
+
+- Pre-registered (`00f860f`); `projects` and `library` at 25 % and 50 %; deterministic,
+  seeds 1-5, `deny-first` ×3, model ×3 in one server session; setup B; exit 0, 415.3 s,
+  99 valid model calls.
+- `projects`: the model confirmed 2 / 5 at 12 / 23 requests in every repetition, against
+  deterministic 0 / 0, `deny-first` 0 / 1 and a random median of 1 / 2. `library`: 0 false
+  positives everywhere. By its rule: an advantage per request, limited.
+- Explained by a "listings first" preference (5 of 7 `projects` flaws are listing checks), which
+  this session's post-hoc control confirmed.
+- Kept locally: `reports/eval-real-bounded-2026-10-27/`.
+
+## Earlier session (2026-10-27): prompt-cache fix and full-test rerun
+
+Full record: `docs/milestones/M2.md` → "Runtime setups", "Control series with setup B" and
+"Full opt-in real-model test, rerun with the prompt cache disabled". In short:
+
+- **Supported setting found and verified, nothing installed:**
+  - The installed `llama-server.exe --help` documents `--cache-ram N` (env
+    `LLAMA_ARG_CACHE_RAM`, 0 disables it). The llama.cpp server README says an argument takes
+    precedence over its env var.
+  - The Ollama v0.40.11 source (`llm/llama_server.go`) copies `os.Environ()` into the child.
+    For chat models it passes no `--cache-ram`.
+  - `ollama serve --help` does not list the variable.
+  - The child's log then confirmed the setting: `prompt cache is disabled` and
+    `--cache-idle-slots requires --cache-ram, disabling`, with no prompt saves.
+- **Runtime setup B** = the smoke-test settings plus `LLAMA_ARG_CACHE_RAM=0`, set only in the
+  environment of the `ollama serve` process (command below). Model, digest, prompt `agent-v1`,
+  client settings and every AccessGuard limit are unchanged. Nothing persistent was changed.
+- **Control series** (10 calls through the test's own `agent_scan`, 600 s):
+  - free commit stayed flat at about 4.1 GB after the load, and `llama-server` private memory
+    at 4638-4644 MB;
+  - latency was flat at about 3.8 s (setup A rose from 4.3 to 15 s);
+  - 10 valid choices, 0 invalid, all matching the answer key.
+- **Full opt-in test** (`unittest tests.e2e.test_real_model`, unchanged; same watchdog rule,
+  300 MB free commit): **both tests OK, exit 0, 312.1 s.**
+  - Agent `completed`; 56 valid choices, 0 invalid; 56/56 checks executed, 0 skipped.
+  - 23 FAIL (all reproduced) and 33 PASS: an exact match with the answer key (0 false positives,
+    0 false negatives). The deterministic comparison gave the same 56 outcomes.
+  - 92 of 500 HTTP requests; model time 294.12 s of the 294.9 s agent scan.
+  - `prompt_eval_count` was at most 4381 of 8192, with `truncated = 0`.
+  - Memory: `llama-server` at 4637-4801 MB; free commit at least 2.73 GB (an unattributed
+    drift of about 1 GB, not from the model server); free RAM at least 3 MB; VRAM peak 2299 MiB.
+  - The smoke test also passed again (3 valid choices).
+- **Observation:** this session's smoke run chose different checks than the morning's smoke
+  run, although the first prompt length was the same (2965 tokens). The cause is not
+  established. Repeatability is for the evaluation to measure.
+- **Resources before:** RAM 0.81-1.28 GB free; commit 8.15-8.53 of 27.78 GB free; VRAM
+  3962 MiB free; C: 13.46 GB free. No program was closed.
+- **Kept locally (git-ignored):** `reports/real-model-cram0-2026-10-27/` (`control/`, `full/`,
+  scratch scripts). The previous attempt's directory is untouched.
+- **Docs:** `M2.md`, `evaluation.md`, `README.md`, `PROJECT_WALKTHROUGH.md` (status lines),
+  this file.
+- **Permission note:** a PowerShell launch with `-ExecutionPolicy Bypass` was refused by the
+  session's permission check. The server was started from Git Bash instead.
+
+## Earlier session (2026-10-27): full opt-in real-model test attempt, stopped for memory
+
+Full record: `docs/milestones/M2.md` → "Full opt-in real-model test (2026-10-27): stopped for
+memory". In short:
+
+- **Docs first:** recorded the smoke test in `M2.md` and `evaluation.md` (commit `01fb104`).
+- **Resources before the run:** RAM 0.70 GB of 7.35 GB free; commit 4.53 GB free of
+  24.63 GB; VRAM 3962 MiB free; C: 15.13 GB free. No program was closed.
+- **Run:** protocol step 2 (`unittest tests.e2e.test_real_model -v`, both tests, unchanged).
+  It used the same Ollama 0.40.11, model, server settings and client settings as the smoke
+  test, on loopback only, with no downloads. A scratch wrapper saved each report. A watchdog
+  sampled memory every 2 s and was allowed to stop only the Ollama server below 300 MB free
+  commit.
+- **Result:** `Ran 2 tests in 121.431s ... FAILED (failures=2)`.
+  - The watchdog stopped the server at 110 s (214 MB free commit). The agent ended with
+    `model_failed` after 12 valid `run_check` and 0 invalid replies.
+  - 12 of 56 checks executed, 44 skipped; 3 FAIL (all reproduced) and 9 PASS. All 12 match the
+    hand-written answer key, with 0 false positives; 20 of 23 expected failures were never
+    reached.
+  - 24 HTTP requests; 108.49 s model time; 117.2 s agent scan.
+  - No truncation: `truncated = 0` for every call, at most 3255 tokens of 8192.
+  - The smoke test ran second and failed only because the server had been stopped.
+- **Cause:** the `llama-server` child of Ollama 0.40.11 keeps a host prompt cache by default
+  (limit 8192 MiB). It saved each previous prompt (419-470 MiB) and reached 12 prompts /
+  5263.75 MiB at the stop. It reused only about 186 tokens per prompt. Not an AccessGuard
+  defect:
+  - against the fake Ollama server, the Python side grows about 0.03 MB per call;
+  - the other programs did not grow;
+  - committed memory returned to 19.97 GB after the stop.
+- No code, assertion or limit was changed.
+- **Kept locally (git-ignored):** `reports/real-model-full-test-2026-10-27/`, with the partial
+  reports, the server log, the memory CSV, the score output and the scratch scripts
+  (`run_full.py`, `watchdog.py`, `score.py`, `python_side_memory.py`).
+- **Docs:** `M2.md`, `evaluation.md`, `README.md` (status lines; also fixed a broken
+  walkthrough anchor), `PROJECT_WALKTHROUGH.md` (status lines), this file.
+- **Side effect:** Windows grew the system-managed page file (21 GB allocated, C: free
+  15.1 → 12.0 GB).
+
+## Earlier session (2026-10-27): first real-model smoke test
+
+**Resources, measured before installing.**
+
+| Resource | Value |
+| --- | --- |
+| RAM | 7.35 GB visible, 0.67-0.79 GB free. Commit 4.6 GB free of 24.6 GB; the page file is system-managed |
+| VRAM | 3962 MiB free of 4096 MiB (`nvidia-smi`). Ollama itself reported 3.2 GiB available |
+| Disk C: | 20.4 GB free before, 15.9 GB after install and model |
+
+The biggest RAM users were VS Code (about 4.6 GB private) and Chrome (about 4.5 GB). No
+program was closed. The first `nvidia-smi` call hung (killed after 20 s), and a later one
+answered in 0.4 s. Probably the dGPU was waking from a power-saving state; this is not verified.
+
+**Sources checked (2026-10-27).** These are documented facts:
+
+- [Ollama model page](https://ollama.com/library/qwen3:4b-instruct-2507-q4_K_M): tag exists,
+  2.5 GB, ID `0edcdef34593`, Apache 2.0, 4.02B parameters, Q4_K_M. Capabilities "tools" and
+  "thinking". The page states no context length.
+- [Model card](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507): Apache 2.0, 36 layers,
+  GQA 32 Q / 8 KV heads, native context 262,144. Non-thinking only, no `<think>` blocks.
+- [Ollama Windows docs](https://docs.ollama.com/windows): Windows 10 22H2+, NVIDIA driver
+  551.61+ (installed: 610.62), at least 4 GB for the binary install. A standalone
+  `ollama-windows-amd64.zip` exists.
+- [Ollama FAQ](https://docs.ollama.com/faq): binds 127.0.0.1:11434 by default. Default context
+  4096; `num_ctx` in the API options overrides it.
+- The agent's required context of 8192 is the project's own setting. Ollama documents no RAM or
+  VRAM requirement for this model. Those numbers were my estimates (see `docs/milestones/M2.md`)
+  and were checked against the measured run below.
+
+**Install (no installer, no autostart, no tray app, no persistent environment variables).**
+
+- Source: the official GitHub release `ollama/ollama` **v0.40.11** (published 2026-10-24),
+  asset `ollama-windows-amd64.zip`, 1,586,356,606 bytes.
+- The sha256 `bda4a493ba8a7c24d57263cd843cd68cee84f44aed4299eeed532acad7eda12a` matched both
+  `sha256sum.txt` and the GitHub API digest.
+- Extracted to `%LOCALAPPDATA%\Programs\ollama-standalone\v0.40.11` (2.08 GB); the zip was
+  deleted afterwards.
+- Model store: the default `%USERPROFILE%\.ollama\models`.
+- The server was started by hand for the run only:
+  `OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 ollama serve`.
+- `netstat` showed it listening on `127.0.0.1:11434` only. It was stopped after the run, and no
+  Ollama process is left running.
+
+**Model.**
+
+- Pulled `qwen3:4b-instruct-2507-q4_K_M`; Ollama verified the sha256 during the pull.
+- Digest `0edcdef34593eac1aa2be9c7d06c432dcf81945adca5eca2f27662c18f168ba0`, 2,497,293,803
+  bytes, gguf, qwen3, 4.0B, Q4_K_M, Apache 2.0.
+- `ollama show` reports a context length of 262144 and capabilities tools/thinking/completion.
+- The model defaults (temperature 0.7, top_p 0.8, top_k 20) are overridden by the client's
+  temperature 0.
+
+**Smoke test.**
+
+- Command: the existing
+  `tests.e2e.test_real_model.RealModelAgentTests.test_smoke_a_few_bounded_model_calls`,
+  unchanged, run in the CPython 3.13.13 venv with `ACCESSGUARD_REAL_MODEL` set.
+- A scratchpad wrapper (not in the repo) only saved the report the test produced.
+- Result: **`Ran 1 test in 80.961s ... OK`**.
+
+| Item | Result |
+| --- | --- |
+| Runtime | Ollama 0.40.11, CUDA backend (`cuda_v13`), RTX 3050 Laptop, compute 8.6 |
+| Settings | temperature 0, seed 0, `num_ctx` 8192, `num_predict` 64, endpoint `http://127.0.0.1:11434`; prompt `agent-v1`, tool contract `agent-tools-v1` |
+| Limits | 3 model calls, 3 invalid replies, 120 s per call, 600 s per run, 512 output chars; HTTP budget 500 requests (the test's default) |
+| Provenance | all 7 keys reported (`ollama_version`, `digest`, `modified_at`, `format`, `family`, `parameter_size`, `quantization_level`); no metadata error |
+| Valid `run_check` | **3 of 3**: `list:documents@initech-admin`, `list:documents@initech-member`, `list:documents@anonymous` |
+| Invalid replies | **0** (each reply was 15 output tokens, `done_reason: stop`; no `<think>` output) |
+| End status | `model_calls_exhausted` (expected at 3 calls; not a failure status). The run is `interrupted: model call budget exhausted`, so 53 of 56 checks were skipped |
+| Verdicts | 2 FAIL (both `reproduced` on retest), 1 PASS; overall `findings`, coverage 3/56 |
+| HTTP requests | **15** of 500. Per the report's counting rule this includes session probes, owner baselines and retests; the breakdown was not inspected |
+| Model time | **80.65 s** of 80.95 s wall time. Call 1: 68.6 s, including 41.1 s model load; calls 2 and 3: 5.9 s and 6.2 s |
+| Context | `prompt_eval_count` 2965, 2992, 3018 of 8192. The server log shows `truncated = 0` for every call |
+| Timeouts | none (the slowest call took 68.6 s of the 120 s limit) |
+
+**Memory during the run.** There was no out-of-memory error and no WARN or ERROR line in the
+server log; the "llm server error" status during load is the normal start-up wait.
+
+- Ollama placed **21 of 37 layers on the GPU**: 1455 MiB of weights on CUDA and 1225 MiB in host
+  RAM. The KV cache is 1152 MiB (640 MiB on GPU, 512 MiB on CPU), which matches the earlier
+  144 KiB/token estimate exactly.
+- VRAM in use peaked at 2291 MiB. Ollama's fit step reported 1112 MiB left free on the GPU;
+  why it placed no more layers there was not investigated.
+- Free RAM fell to 435 MB and free commit to **421 MB at the lowest**. Commit is the tightest
+  resource: a larger context or other memory-hungry programs could cause allocation failures.
+
+**What it shows:**
+
+- The real integration works end to end: the loopback-only adapter, a JSON schema-constrained
+  reply, alias validation, the deterministic verdicts, retests and provenance.
+- This model, at these settings, produced schema-valid choices without thinking tokens.
+
+**What it does not show:**
+
+- Nothing about prioritisation quality: three choices are no sample, and there is no comparison
+  with the deterministic or seeded-random baselines.
+- Nothing about behaviour later in a run, with larger states (up to about 14k characters).
+- Nothing about repeatability across repetitions or the full-run duration.
+- Not whether the two FAIL findings match the lab's answer key. The smoke test does not score
+  that, though both reproduced on retest.
+
+`bash ops/verify.sh` was not rerun because no code changed (last run: exit 0, see below).
+
+### Earlier session (2026-10-27), retest reserve, in `9bd4846`
+
+- **Committed the staged real-model readiness work** as `735d118` (unchanged; it had only
+  been staged last session).
+- **Fixed: budget-limited runs never confirmed findings.** The scan spent the whole request
+  budget before the separate retest phase, so retests were refused and every finding stayed
+  `not_retested`. The runner now holds back one request per finding (a finding's retest costs
+  exactly one request, since its baseline and session are cached) and releases the reserve for
+  the existing retest phase. The policy lives in the shared `CheckRunner`/`RequestGate`, so it
+  is identical for the deterministic order, seeded random and the agent. Model input and model
+  choice are unchanged, so the budget effect is isolated. ADR 0008 (2026-10-27 amendment)
+  records the decision and the rejected alternatives (immediate inline retest; fixed up-front
+  reservation). Files: `application/gate.py`, `application/runner.py`, `application/agent.py`
+  (one comment).
+- **Tests** for a limited-but-sufficient budget (confirmed), an insufficient budget (honest
+  `not_retested`, no overrun), a finding that does not reproduce on retest, cancellation during
+  the retest, the gate reserve primitive, and identical reserve rules across strategies. Files:
+  `tests/unit/test_runner.py`, `tests/unit/test_gate.py`, `tests/unit/test_agent_loop.py`,
+  `tests/integration/test_agent_lab.py` (updated to assert confirmation within budget).
+- **Docs:** ADR 0008 amendment, `docs/evaluation.md` before/after section, this handoff.
+
+### Previous session (2026-10-26), now in `735d118`
+
+| Area | Files |
+| --- | --- |
+| Opt-in real-model tests: now fail on `invalid_replies_exhausted` and require at least one accepted `run_check`; new bounded smoke test (3 calls, 120 s per call, 600 s per run) | `tests/e2e/test_real_model.py` |
+| Evaluation: `--agent-repeats N` (every repetition scored), `--max-run-seconds` (the same for every strategy), per-run `confirmed_true_positives`, `model_seconds`, `selection_digest`; per-row `agent_statuses`, `distinct_selection_orders` | `evaluations/accessguard_eval/harness.py`, `cli.py` |
+| Provenance: `ModelDescriptor.provenance_keys`; the evaluation writes `"unknown"` for keys the provider did not report, plus metadata errors | `application/ports.py`, `adapters/ollama_client.py`, `harness.py` |
+| Scripted `deny-first` reference adapter (not AI) | `adapters/scripted_model.py`, `entrypoints/agent_options.py` |
+| Tests for the above | `tests/integration/test_evaluation.py`, `tests/unit/test_scripted_model_and_planning.py`, `tests/e2e/test_agent_cli.py` |
+| Docs | `docs/milestones/M2.md` (readiness review, machine capacity, model recommendation), `docs/evaluation.md` (new results, information basis, real-model protocol), ADR 0008 amendment, README, walkthrough, interview prep |
+
+## Not done
+
+- **Full real-model evaluation.** Bounded comparisons now cover all four fixtures at 25 % and
+  50 %. The full evaluation (100 % budgets) has not run with the model. Ollama and the model are
+  installed.
+- The smoke-test report itself was saved only in the session scratchpad and is not kept; the
+  numbers above (and in `docs/milestones/M2.md` → "Real-model smoke test") are its record.
+- `agent-v2` (more anonymous structure in the model state) is proposed, not implemented. Measure
+  `agent-v1` with a real model first.
+- GitHub Actions not run (nothing pushed); Python 3.11, Linux and macOS not verified.
+
+## Commands
+
+```bash
+export PYTHONPATH="src;lab;evaluations"          # Git Bash on Windows (use ':' on Linux)
+PYTHON=.venv/Scripts/python bash ops/verify.sh    # all quality gates
+.venv/Scripts/python -m accessguard_eval run --model scripted:deny-first --agent-repeats 3 --out reports/evaluation-deny-first
+.venv/Scripts/python -m accessguard_eval run --model scripted:list-first --agent-repeats 3 --out reports/evaluation-list-first
+```
+
+One model-server session (start, watchdog, warm-up, evaluation, stop), as used in the eighth
+session: `bash reports/eval-hc-2026-10-27/session.sh <k>` (a git-ignored scratch script; it
+starts the server with setup B from Git Bash and stops only the process it started).
+
+For the real-model sequence (smoke test → full test → subset evaluation → full evaluation),
+see `docs/evaluation.md` → "Real-model protocol". Start the local server first, loopback
+only, with **runtime setup B** (prompt cache disabled). It is not autostarted. Stop it with
+Ctrl+C when done. While the model is loaded, it holds about 2.3 GB of VRAM, and `llama-server`
+holds about 4.6-4.8 GB of private memory (measured in setup B).
+
+```bash
+OLLAMA_HOST=127.0.0.1:11434 OLLAMA_NUM_PARALLEL=1 OLLAMA_MAX_LOADED_MODELS=1 LLAMA_ARG_CACHE_RAM=0 \
+  "$LOCALAPPDATA/Programs/ollama-standalone/v0.40.11/ollama.exe" serve
+```
+
+After the first model call, check that the server log contains
+`prompt cache is disabled - use --cache-ram N to enable it`.
+
+## Latest actual results
+
+- Bounded `helpdesk`/`clinic` evaluation (2026-10-27, eighth session, setup B, three server
+  sessions, each exit 0): 177 valid model calls, 0 invalid. Confirmed findings, model vs best
+  simple baseline: `helpdesk` 17: 0 vs 1; `helpdesk` 34: 1 vs 5; `clinic` 16: 0 vs 0;
+  `clinic` 31: 0 vs 2. **No demonstrated advantage** (worse in 3 of 4 cells). Identical choices
+  across sessions. 0 false positives.
+- Post-hoc list-first control on `projects` (eighth session, no model run): confirmed 2 / 5 at
+  12 / 23 requests, equal to the model's saved results.
+- Bounded comparative real-model evaluation (2026-10-27, this session, setup B): exit 0;
+  99 valid model calls, 0 invalid.
+  - `projects`, confirmed findings at 12 / 23 requests: model 2 / 5 (every repetition);
+    deterministic 0 / 0; `deny-first` 0 / 1; random median 1 / 2.
+  - `library`: 0 false positives.
+  - Model runs took 12-73 s, against hundredths of a second for the others.
+  - By the pre-registered rule: advantage per request, limited. Details are above.
+- Real-model full opt-in test (2026-10-27, setup B): **passed**, both tests OK.
+  56 valid choices, 0 invalid; 56/56 checks; 23 reproduced FAILs; exact match with the answer
+  key; 92 HTTP requests; 294.12 s model time. Details are above.
+- Real-model full opt-in test, first attempt (2026-10-27, setup A): **stopped for memory, not
+  passed.** 12 valid choices; 12/56 checks; all matching the answer key.
+- Real-model smoke test (2026-10-27): **passed**, 3/3 valid `run_check`, 0 invalid replies,
+  15 HTTP requests, 80.65 s model time. Details are above.
+
+### Quality gates
+
+- Rerun 2026-10-27 at the end of the eighth session (after the code changes and every
+  documentation change except this file): `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0.
+  - **285 tests run, 283 passed, 0 failed, 2 skipped** (the real-model tests; the variable is
+    not set in `verify.sh`). 280 → 285: +4 list-first unit tests and +1 list-first lab test;
+    two existing tests were extended to include list-first.
+  - mypy: no issues in 91 files. detect-secrets: 136 tracked files clean. Wheel: 40 files,
+    0 problems. Demo: exact match. pip-audit: no known vulnerabilities.
+  - The same gate also passed after the adapter commit, before the documentation changes.
+- Rerun 2026-10-27 after the seventh session's documentation changes:
+  `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0.
+  - 280 tests run, 278 passed, 0 failed, 2 skipped (the real-model tests, since the variable
+    is not set in `verify.sh`).
+  - mypy: no issues in 91 files. detect-secrets: 136 tracked files clean. Wheel: 40 files,
+    0 problems. Demo: exact match. pip-audit: no known vulnerabilities.
+- Rerun 2026-10-27 after the sixth session's documentation changes:
+  `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0. 280 tests run, 278 passed,
+  0 failed, 2 skipped (the real-model tests, since the variable was not set in `verify.sh`;
+  their real-model pass is the separate run above, not this gate). mypy reported no issues in
+  91 files, detect-secrets found 136 tracked files clean, the wheel had 40 files and
+  0 problems, the demo was an exact match, and pip-audit found no known vulnerabilities.
+- Rerun 2026-10-27 after the fifth session's documentation changes:
+  `PYTHON=.venv/Scripts/python bash ops/verify.sh` exit 0. 280 tests run, 278 passed,
+  0 failed, 2 skipped (the real-model tests; the variable was not set). mypy reported no
+  issues in 91 files, detect-secrets found 136 tracked files clean, the wheel had 40 files
+  and 0 problems, and the demo was an exact match.
+
+Previous run (2026-10-27, after the retest reserve):
+
+- `bash ops/verify.sh` (CPython 3.13.13 venv): exit 0.
+  - Lint, format and types: mypy strict, 91 files, no issues.
+  - Tests: **280 run, 278 passed, 0 failed, 2 skipped**. Both skipped tests are the real-model
+    tests, and a skipped test is not a verification. (273 → 280: +7 targeted tests for the
+    reserve; one existing budget-limited agent test was updated to assert confirmation.)
+  - pip-audit: no known vulnerabilities. detect-secrets: clean. Wheel: 40 files, 0 problems.
+    Demo: exact match.
+  - One earlier run failed on a mypy error in a new test's annotations; fixed before the rerun.
+- Evaluation before/after (`scripted:follow-up`, `--agent-repeats 3`, 108 runs), full table in
+  `docs/evaluation.md`:
+  - **Confirmed findings at partial budgets rose from 0 to the number confirmable in budget**
+    for every strategy; full-budget rows and the flaw-free `library` fixture are unchanged.
+  - **No run exceeded its budget** (max `requests_used - budget` over 108 runs is 0).
+  - Drawback: a small coverage/candidate drop at partial budgets, because confirming a finding
+    spends a request that would otherwise probe another check (e.g. `helpdesk` 50 %
+    deterministic: 5 unconfirmed candidates became 4 confirmed findings).
+  - 0 false positives and 0 invalid replies throughout. Scripted adapters still show no
+    advantage over seeded random (unchanged conclusion).
+- Previous session (`735d118`): 273 run, 271 passed, 0 failed, 2 skipped.
+
+## Known issues and limitations
+
+- Python `Path.write_text` on Windows writes CRLF; write files with LF (`.ps1` stays CRLF per
+  `.gitattributes`).
+- `detect-secrets` (`ops/ci/secret_scan.py`) scans only tracked files: stage new files before
+  trusting the secrets step.
+- Long Markdown heredocs in Git Bash can fail to parse; use the editor tools for documents.
+- See `docs/milestones/M2.md` "Not done or not verified".
+
+## Next step
+
+Every further experiment needs the owner's go-ahead. None was started, and no prompt
+optimisation was started. The bounded results give no reason to expect an AI advantage at
+these settings. Options to decide on:
+
+1. Stop the real-model comparison for M2 here and record M2 as complete with a negative
+   prioritisation result: the agent's safety and contract guarantees are verified, and its
+   prioritisation adds no measured value with this model.
+2. If AI prioritisation is still of interest: `agent-v2` (more anonymous structure in the
+   state; see `docs/evaluation.md` → "Information basis") or a larger model, each as a new
+   pre-registered comparison against the same simple rules. Ideally use fresh fixtures, since
+   the current four have now been seen.
+3. The full evaluation at 100 % budgets. It mostly checks that every strategy converges and
+   cannot show a prioritisation advantage.
+
+M3 (a separately authorised test application through configuration and an explicit policy)
+needs a separate go-ahead.

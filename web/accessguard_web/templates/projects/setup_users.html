@@ -1,0 +1,24 @@
+{% extends "app.html" %}{% block title %}Test users · {{ project.name }}{% endblock %}
+{% block content %}
+{% include "projects/_setup_nav.html" with step="users" %}
+<div class="card">
+  <h1>Test users</h1>
+  <p class="muted">Create dedicated test accounts in your test environment: ideally at least two tenants (customers) with two roles each. The runner sends requests as each of them, and also once without credentials.</p>
+  <form method="post" novalidate>{% csrf_token %}
+    {{ formset.management_form }}
+    {{ formset.non_form_errors }}
+    {% for form in formset %}
+    <fieldset class="formset-row">
+      <legend class="small muted">Test user {{ forloop.counter }}</legend>
+      {{ form.non_field_errors }}
+      <div class="cols">
+        {% for field in form %}{% if field.name != "DELETE" %}<div>{{ field.label_tag }}{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{{ field.errors }}</div>{% endif %}{% endfor %}
+      </div>
+      {% if form.initial %}<div class="checkbox-row">{{ form.DELETE }} <label for="{{ form.DELETE.id_for_label }}">Remove</label></div>{% endif %}
+    </fieldset>
+    {% endfor %}
+    <p class="small muted">Need more rows? Save, and two new empty rows appear.</p>
+    {% if not project.is_demo %}<button class="btn btn-primary" type="submit">Save and continue</button>{% endif %}
+  </form>
+</div>
+{% endblock %}

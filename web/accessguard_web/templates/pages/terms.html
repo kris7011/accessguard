@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Beta terms{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Beta terms (summary)</h1>
+  <div class="banner banner-warn"><p>This is a plain-language summary for the beta. The binding terms of service, privacy policy and data processing agreement are being prepared and will be published before paid plans are offered.</p></div>
+  <ul>
+    <li>Only test systems that your organisation owns or is explicitly authorised to test. Each scan records who approved it and the confirmation they gave.</li>
+    <li>Use dedicated test accounts and synthetic or test data in the environments you scan.</li>
+    <li>AccessGuard sends read-only GET requests within the limits you set. It is not a penetration test and does not certify security.</li>
+    <li>Reports contain the endpoints, status codes, field names and hashes your runner uploads; never response content or credentials.</li>
+    <li>You can delete projects, or your whole organisation with all of its data, at any time in Settings.</li>
+  </ul>
+</div>
+{% endblock %}

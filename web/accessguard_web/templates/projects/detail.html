@@ -1,0 +1,66 @@
+{% extends "app.html" %}{% block title %}{{ project.name }}{% endblock %}
+{% block content %}
+<div class="row spread">
+  <div><h1>{{ project.name }}</h1><p class="muted mono">{{ project.config.target.origin|default:"No target yet" }}</p></div>
+  <div class="row">
+    {% if status.ready and can_edit %}<a class="btn btn-primary" href="{% url 'scans:review' project.pk %}">Review and start scan</a>{% endif %}
+    <a class="btn" href="{% url 'projects:export_spec' project.pk %}">Download scan spec</a>
+  </div>
+</div>
+
+{% if project.is_demo %}
+<div class="card">
+  <h2>About this demo</h2>
+  <p>This project tests a <strong>synthetic</strong> projects API with two organisations (orbit and quasar), owners and viewers, one roadmap shared between them and owner-only billing. Its <em>flawed</em> version contains three access-control bugs. A platform runner scans it, exactly like your own runner will scan your API.</p>
+  <ol class="steps">
+    <li>Start the scan and watch it run.</li>
+    <li>Read the findings, their evidence and the fix guidance.</li>
+    <li>“Deploy” the fixed version below, then retest the findings: they are resolved only if the retest passes.</li>
+  </ol>
+  {% if can_edit %}<form method="post" action="{% url 'projects:demo_variant' project.pk %}" class="row">{% csrf_token %}
+    <span>The demo API currently runs the <strong>{{ demo_fixed|yesno:"fixed,flawed" }}</strong> version.</span>
+    {% if demo_fixed %}<button class="btn" name="variant" value="flawed" type="submit">Switch back to the flawed version</button>
+    {% else %}<button class="btn" name="variant" value="fixed" type="submit">Deploy the fixed version</button>{% endif %}
+  </form>{% endif %}
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h2>Setup</h2>
+    <ol class="steps">
+      {% for step in status.steps %}<li class="{% if step.done %}done{% endif %}"><a href="{% url step.url_name project.pk %}">{{ step.title }}</a></li>{% endfor %}
+      <li class="{% if status.ready %}done{% endif %}"><a href="{% url 'projects:setup_limits' project.pk %}">Limits</a></li>
+    </ol>
+    {% if status.ready %}<p class="small">{{ status.planned_checks }} checks will run. Recommended budget: {{ status.recommended_requests }} requests.</p>
+    {% elif status.error %}<p class="small muted">Not ready: {{ status.error }}</p>{% endif %}
+    {% for w in status.warnings %}<p class="small chip chip-warn">{{ w }}</p>{% endfor %}
+    {% if not project.is_demo %}<p class="small"><a href="{% url 'projects:import_openapi' project.pk %}">Import endpoints from an OpenAPI document</a></p>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Open findings</h2>
+    {% if open_findings %}<ul>{% for f in open_findings|slice:":8" %}<li><a href="{% url 'scans:finding' f.pk %}" class="mono">{{ f.check_id }}</a> <span class="chip {% if f.status == 'confirmed' %}chip-fail{% else %}chip-warn{% endif %}">{{ f.get_status_display }}</span></li>{% endfor %}</ul>
+      <form method="get" action="{% url 'scans:review' project.pk %}">{% for f in open_findings %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endfor %}<button class="btn" type="submit">Retest all {{ open_findings|length }} open findings</button></form>
+    {% else %}<p class="muted">No open findings.</p>{% endif %}
+    <p class="small muted">{{ resolved_count }} resolved.</p>
+  </div>
+</div>
+
+<h2>Scan history</h2>
+{% if scans %}
+<div class="table-wrap"><table>
+  <thead><tr><th scope="col">Scan</th><th scope="col">Status</th><th scope="col">Result</th><th scope="col">Approved by</th><th scope="col">Started (UTC)</th></tr></thead>
+  <tbody>{% for s in scans %}<tr><td><a href="{% url 'scans:detail' s.pk %}">#{{ s.pk }}</a> {{ s.get_kind_display }}</td><td>{{ s.get_status_display }}</td><td>{% include "scans/_result_chip.html" with scan=s %}</td><td>{{ s.approved_by.email|default:"" }}</td><td class="small">{{ s.created_at|date:"Y-m-d H:i" }}</td></tr>{% endfor %}</tbody>
+</table></div>
+{% else %}<p class="muted">No scans yet.</p>{% endif %}
+
+{% if can_edit and not project.is_demo %}
+<details><summary>Delete project</summary>
+  <form method="post" action="{% url 'projects:delete' project.pk %}">{% csrf_token %}
+    <label for="confirm">Type “{{ project.name }}” to delete the project with its scans and findings</label>
+    <input id="confirm" name="confirm" type="text">
+    <button class="btn btn-danger" type="submit">Delete project</button>
+  </form>
+</details>
+{% endif %}
+{% endblock %}

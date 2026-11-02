@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% block title %}{{ title }} · Help{% endblock %}
+{% block body %}
+<div class="shell">
+  <nav class="sidebar" aria-label="Help">
+    <div class="section">Help</div>
+    {% for key, label in help_pages.items %}<a href="{% url 'pages:help_page' key %}" {% if key == slug %}aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+  </nav>
+  <main id="main" class="content stack">
+    <h1>{{ title }}</h1>
+    {% block help %}{% endblock %}
+  </main>
+</div>
+{% endblock %}

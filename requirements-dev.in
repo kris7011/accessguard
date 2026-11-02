@@ -1,0 +1,13 @@
+# Development and CI tooling. The engine/runner package has no third-party dependencies;
+# the web control plane's runtime dependencies are included so it can be type-checked and tested.
+# Lock with: python -m piptools compile --generate-hashes --allow-unsafe -o requirements-dev.txt requirements-dev.in
+-r web/requirements.in
+ruff==0.17.2
+mypy==2.4.0
+pip-audit==2.10.1
+detect-secrets==1.5.0
+build==1.6.1
+django-stubs==6.1.2
+django-stubs-ext==6.1.2
+# Build backend, installed so editable installs can run with --no-build-isolation from the lock file.
+setuptools==84.2.1

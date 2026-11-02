@@ -1,0 +1,56 @@
+{% extends "base.html" %}{% block title %}Find cross-tenant data leaks before your customers do{% endblock %}
+{% block body %}
+<main id="main">
+  <section class="hero">
+    <h1>Can one of your customers read another customer's data?</h1>
+    <p class="lead">AccessGuard tests your multi-tenant API against the access rules you declare: every test user against every record, list and role. It reports each violation with evidence, tells you how to fix it, and retests the fix.</p>
+    <div class="row row-center">
+      <a class="btn btn-primary" href="{% url 'accounts:signup' %}">Start free, with a live demo</a>
+      <a class="btn" href="{% url 'pages:example_report' %}">See an example report</a>
+    </div>
+    <p class="small muted">No card needed. No sales call. Read-only GET requests. Test credentials stay in your environment.</p>
+  </section>
+
+  <section class="page">
+    <h2>The problem</h2>
+    <div class="grid">
+      <div class="card feature"><h3>One missing check is enough</h3><p>A handler that loads a record by id without checking the caller's tenant exposes every customer's records. Broken object level authorization is listed first in the OWASP API Security Top 10 (2023).</p></div>
+      <div class="card feature"><h3>Hard to test by hand</h3><p>With 3 tenants, 2 roles and 20 endpoints there are already well over 100 combinations to try, again after every change, and the dangerous ones are the ones nobody thought of.</p></div>
+      <div class="card feature"><h3>Fixes break other things</h3><p>A quick fix often blocks too much and breaks a legitimate share. A retest has to check the denial <em>and</em> the access that should still work.</p></div>
+    </div>
+
+    <h2>How it works</h2>
+    <div class="diagram">
+      <div class="box"><strong>1 · Declare</strong>Test users, the records they own and who may read what. Import endpoints from OpenAPI; forms, no JSON.</div>
+      <div class="box"><strong>2 · Approve and scan</strong>You review the exact scope. A runner in your environment sends only GET requests to the targets you allow, within a budget and deadline.</div>
+      <div class="box"><strong>3 · Evidence</strong>A violation counts only when the protected values of another tenant's record appear in the response. Expired sessions, errors and login pages are never counted as passed.</div>
+      <div class="box"><strong>4 · Fix and retest</strong>Fix guidance per finding, an optional AI explanation, and a one-click retest that also checks legitimate access. History and triage per finding.</div>
+    </div>
+
+    <h2>Why teams can trust the results</h2>
+    <div class="grid">
+      <div class="card"><h3>Honest status</h3><p>Green means every declared check passed, nothing more. Partial scans, invalid test sessions and inconclusive responses are shown as incomplete, never as secure.</p></div>
+      <div class="card"><h3>Your credentials stay with you</h3><p>The runner reads test credentials locally and uploads a report with status codes, field names and hashes, never response content or credentials.</p></div>
+      <div class="card"><h3>Scope you control twice</h3><p>You approve every scan in the app, and the runner refuses any target that is not on its own local allowlist. Cloud metadata and link-local addresses are always blocked.</p></div>
+      <div class="card"><h3>AI where it saves you work</h3><p>Drafts from your OpenAPI document and plain-language explanations of findings. Verdicts, scope and budgets are decided by the deterministic engine, never by the model.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>What AccessGuard does not do</h2>
+      <p>It tests read access for the users, records and endpoints you declare. It does not crawl, test write operations, find injection bugs or certify an application as secure. <a href="{% url 'pages:help_page' 'limitations' %}">Full list of limitations</a>.</p>
+    </div>
+
+    <h2>Pricing</h2>
+    <div class="grid">
+      {% for p in plans %}<div class="card"><h3>{{ p.name }}</h3><div class="price">€{{ p.monthly_price_eur }}<span class="small muted"> / month</span></div><p class="muted">{{ p.summary }}</p></div>{% endfor %}
+    </div>
+    <p><a href="{% url 'pages:pricing' %}">Compare plans</a></p>
+
+    <div class="card center">
+      <h2>See it on a real API in two minutes</h2>
+      <p>Every new account includes a demo project: a synthetic API with three seeded access-control bugs, scanned live by a demo runner.</p>
+      <a class="btn btn-primary" href="{% url 'accounts:signup' %}">Start free</a>
+    </div>
+  </section>
+</main>
+{% endblock %}

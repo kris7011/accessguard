@@ -1,0 +1,61 @@
+{% extends "app.html" %}{% block title %}Plan and billing{% endblock %}
+{% block content %}
+<h1>Plan and billing</h1>
+{% if checkout_state == "success" %}<div class="banner banner-info"><p>Thank you. Your plan changes as soon as Stripe confirms the payment (usually within seconds). Reload this page if it still shows the old plan.</p></div>
+{% elif checkout_state == "cancelled" %}<div class="banner banner-neutral"><p>Checkout was cancelled; nothing was charged.</p></div>{% endif %}
+{% if not configured %}<div class="banner banner-neutral"><p>Payments are not configured in this environment. Plans and limits work; upgrading is disabled.</p></div>
+{% elif live_refused %}<div class="banner banner-warn"><p>A live Stripe key is configured, but live payments have not been approved. Upgrading is disabled.</p></div>
+{% elif test_mode %}<div class="banner banner-info"><p><strong>Test mode:</strong> payments use Stripe's test environment; no real money moves.</p></div>{% endif %}
+
+<div class="card">
+  <h2>Current plan: {{ ent.plan.name }}</h2>
+  <p class="muted">Subscription status: {{ ent.subscription.get_status_display }}{% if ent.subscription.current_period_end %} · current period ends {{ ent.subscription.current_period_end|date:"Y-m-d" }}{% endif %}</p>
+  {% if recovery %}
+  <h3>Failed payment: what happens next</h3>
+  <p class="small muted">Two separate clocks: AccessGuard's grace period for your plan, and Stripe's payment retries. Dates in UTC.</p>
+  <ol class="timeline">
+    <li><strong>{{ recovery.failed_since|date:"Y-m-d H:i" }}</strong>: the payment failed (when AccessGuard was told).</li>
+    <li><strong>Until {{ recovery.grace_ends|date:"Y-m-d H:i" }}</strong>: AccessGuard's {{ recovery.grace_days }}-day grace period. Your paid plan stays active; after it, Free limits apply.</li>
+    <li><strong>Until about {{ recovery.retries_end|date:"Y-m-d" }}</strong>: Stripe retries the payment for up to {{ recovery.retry_days }} days. A successful retry, or paying the open invoice, restores your plan at once.</li>
+    <li><strong>If every retry fails</strong>: Stripe cancels the subscription. If the renewal invoice is then still open with nothing paid on it, AccessGuard voids it, and this page says so once Stripe has confirmed it. Your data is kept, and you can subscribe again on this page.</li>
+  </ol>
+  {% elif ended_unpaid %}
+  <div class="banner banner-neutral"><p>Your subscription was cancelled because the renewal payment still failed after Stripe's retries.
+  {% if renewal_voided %}AccessGuard has voided the unpaid renewal invoice, so nothing is owed for it.{% else %}The renewal invoice was not voided; its current status, including any payment on it, is shown under invoices in the Customer Portal.{% endif %}
+  Your data is kept; choose a plan below to subscribe again.</p></div>
+  {% endif %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Usage</th><th scope="col">Used</th><th scope="col">Included</th></tr></thead>
+    <tbody>
+      <tr><td>Scans this month (demo scans excluded)</td><td>{{ usage.scans }}</td><td>{{ ent.plan.scans_per_month }}</td></tr>
+      <tr><td>Projects</td><td>{{ usage.projects }}</td><td>{{ ent.plan.projects }}</td></tr>
+      <tr><td>Checks per scan</td><td>—</td><td>{{ ent.plan.checks_per_scan }}</td></tr>
+      <tr><td>Runners</td><td>{{ usage.runners }}</td><td>{{ ent.plan.runners }}</td></tr>
+      <tr><td>Members</td><td>{{ usage.members }}</td><td>{{ ent.plan.members }}</td></tr>
+      <tr><td>AI assistant requests this month</td><td>{{ usage.assistant }}</td><td>{{ ent.plan.assistant_requests_per_month }}</td></tr>
+      <tr><td>Report history</td><td>—</td><td>{{ ent.plan.history_days }} days</td></tr>
+    </tbody>
+  </table></div>
+  {% if is_owner and ent.subscription.stripe_customer_id %}
+  <form method="post" action="{% url 'billing:portal' %}">{% csrf_token %}<button class="btn" type="submit">Manage payment method, invoices or cancel</button></form>
+  <p class="small muted">Cancelling keeps your plan until the end of the paid period; then Free limits apply. Your data is kept.</p>
+  {% endif %}
+</div>
+
+<h2>Plans</h2>
+<div class="grid">
+{% for p in plans %}
+  <div class="card">
+    <h3>{{ p.name }}</h3>
+    <div class="price">€{{ p.monthly_price_eur }}<span class="small muted"> / month</span></div>
+    <p class="muted">{{ p.summary }}</p>
+    {% include "billing/_plan_limits.html" with plan=p %}
+    {% if p.is_paid and is_owner and configured and ent.plan.id != p.id %}
+      <form method="post" action="{% url 'billing:checkout' p.id %}">{% csrf_token %}<button class="btn btn-primary" type="submit">{% if has_subscription %}Switch to{% else %}Choose{% endif %} {{ p.name }}</button></form>
+      {% if has_subscription %}<p class="small muted">Charged now for the rest of the period; the plan changes once the payment succeeds.</p>{% endif %}
+    {% elif ent.plan.id == p.id %}<span class="chip chip-pass">Current plan</span>{% endif %}
+  </div>
+{% endfor %}
+</div>
+<p class="small muted">Prices exclude VAT. Prices and limits are for the beta and may change with notice.</p>
+{% endblock %}

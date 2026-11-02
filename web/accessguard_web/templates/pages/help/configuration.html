@@ -1,0 +1,20 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<h2>Concepts</h2>
+<ul>
+<li><strong>Test user</strong>: an account in your test environment with a tenant (customer) and a role. The session check must return its subject (for example its e-mail), so AccessGuard can tell an expired or wrong credential from a real denial.</li>
+<li><strong>Record</strong>: one concrete resource (an endpoint with an id), its owner and the protected fields whose values prove that someone saw it.</li>
+<li><strong>Who may read</strong>: the tenant/role combinations the policy allows. Sharing across tenants is an explicit choice; AccessGuard then checks that the share works and that nobody else gets in.</li>
+<li><strong>List</strong>: an endpoint that lists records. It must show each user exactly the records they may read.</li>
+</ul>
+<h2>How a check is judged</h2>
+<ol>
+<li>The owner reads the record first (baseline). Without a readable baseline, the check is inconclusive.</li>
+<li>Another user reads it. If all protected values appear in the response, that is a violation, with any status code (a 403 with the data in its body counts). Some of the values: suspected.</li>
+<li>A denial (401, 403 or 404 without protected content and with a readable body) passes.</li>
+<li>Redirects, rate limits, server errors, login pages, unreadable bodies and expired sessions are inconclusive, never passed.</li>
+<li>Every violation is retested separately; one that does not reproduce becomes suspected.</li>
+</ol>
+<h2>Tips</h2>
+<ul><li>Protected field values must be strings of at least 4 characters and are matched exactly; nested fields use dots (<span class="mono">data.title</span>).</li><li>Use a budget at least as large as the recommendation on the Limits step, so scans are complete.</li><li>Download the scan spec from the project page to run the same scan offline or in CI.</li></ul>
+{% endblock %}

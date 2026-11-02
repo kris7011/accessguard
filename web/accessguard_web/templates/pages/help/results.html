@@ -1,0 +1,17 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<h2>Status at a glance</h2>
+<ul>
+<li><span class="chip chip-fail">Violations</span> at least one confirmed violation of your declared rules.</li>
+<li><span class="chip chip-warn">Needs review / Incomplete</span> suspected violations, or checks that could not produce a result. This is never a security approval.</li>
+<li><span class="chip chip-pass">All checks passed</span> a complete scan in which every declared check passed. It covers only what you declared.</li>
+<li><span class="chip chip-info">Retest passed</span> only the retested checks ran.</li>
+</ul>
+<h2>Findings</h2>
+<p>Each finding shows the rule, who tried, what was expected and observed, redacted evidence (status, size, body hash and which protected fields appeared), reproduction steps and fix guidance. Findings keep their identity across scans, so you can track them.</p>
+<h2>Triage</h2>
+<ul><li><strong>Confirmed</strong>: a real problem.</li><li><strong>Rejected</strong>: not a problem (for example an intended share); a note is required. Consider updating your access rules instead.</li><li><strong>Resolved</strong>: fixed. Set by a passing retest (verified) or by a person (unverified until a retest passes).</li></ul>
+<p>A finding that appears again after it was resolved is reopened automatically.</p>
+<h2>Retest</h2>
+<p>A retest runs the finding's check together with the legitimate-access checks of the same record or list, so a fix that blocks everyone is reported as a new finding instead of passing.</p>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "app.html" %}{% block title %}Review scan · {{ project.name }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'projects:detail' project.pk %}">← {{ project.name }}</a></p>
+<h1>{% if findings %}Review the retest{% else %}Review the scan{% endif %}</h1>
+<p class="muted">This is exactly what the runner will be allowed to do. The approval is recorded with your name and the hash of this configuration.</p>
+<div class="card">
+  <h2>Scope</h2>
+  <div class="table-wrap"><table><tbody>
+    <tr><th scope="row">Target</th><td class="mono">{{ summary.origin }}</td></tr>
+    <tr><th scope="row">Allowed endpoints</th><td class="mono">{{ summary.path_prefixes|join:", " }}</td></tr>
+    <tr><th scope="row">Methods</th><td>GET only (read-only). No writes, no brute force, no crawling.</td></tr>
+    <tr><th scope="row">Authentication</th><td>{{ summary.auth }} · credentials stay in the runner</td></tr>
+    <tr><th scope="row">Test users</th><td>{{ summary.identities }} plus one anonymous actor</td></tr>
+    <tr><th scope="row">Records and lists</th><td>{{ summary.resources }} records, {{ summary.collections }} lists</td></tr>
+    <tr><th scope="row">Checks</th><td><strong>{{ summary.checks }}</strong>{% if summary.is_subset %} selected (the findings below and their positive controls){% endif %}</td></tr>
+    <tr><th scope="row">Request budget</th><td>{{ summary.max_requests }} requests{% if summary.max_requests < summary.recommended_requests %} <span class="chip chip-warn">below the {{ summary.recommended_requests }} needed for full coverage</span>{% endif %}</td></tr>
+    <tr><th scope="row">Pace and deadline</th><td>at least {{ summary.min_interval_seconds }} s between requests · stops after {{ summary.max_duration_seconds|floatformat:0 }} s</td></tr>
+  </tbody></table></div>
+  {% if findings %}<h3>Findings to retest</h3><ul>{% for f in findings %}<li class="mono">{{ f.check_id }}</li>{% endfor %}</ul>{% endif %}
+  <details><summary>All {{ summary.check_ids|length }} checks</summary><p class="mono small">{{ summary.check_ids|join:", " }}</p></details>
+</div>
+<div class="card">
+  <h2>Runner</h2>
+  {% if runners %}
+    <ul>{% for r in runners %}<li>{{ r.name }} — {% if r.online %}<span class="chip chip-pass">online</span>{% else %}<span class="chip">offline (last seen {{ r.last_seen_at|default:"never"|date:"Y-m-d H:i" }})</span>{% endif %}</li>{% endfor %}</ul>
+    {% if not project.is_demo %}<p class="small muted">The runner must also list {{ summary.origin }} in its local allowlist; otherwise it refuses the job.</p>{% endif %}
+  {% else %}
+    <div class="banner banner-warn"><p>No runner is registered yet. The scan will wait in the queue until one claims it. <a href="{% url 'scans:runners' %}">Set up a runner</a>.</p></div>
+  {% endif %}
+</div>
+<form method="post" class="card">{% csrf_token %}
+  {% for f in findings %}<input type="hidden" name="finding" value="{{ f.pk }}">{% endfor %}
+  <div class="checkbox-row"><input type="checkbox" id="authorised" name="authorised" value="yes" required> <label for="authorised">{{ attestation }}</label></div>
+  <button class="btn btn-primary" type="submit">Approve and start</button>
+</form>
+{% endblock %}

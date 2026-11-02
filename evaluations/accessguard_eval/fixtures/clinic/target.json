@@ -1,0 +1,29 @@
+{
+  "id": "clinic",
+  "users": [
+    {"id": "north-clinician", "tenant": "north", "role": "clinician"},
+    {"id": "north-clerk", "tenant": "north", "role": "clerk"},
+    {"id": "south-clinician", "tenant": "south", "role": "clinician"},
+    {"id": "south-clerk", "tenant": "south", "role": "clerk"},
+    {"id": "east-clinician", "tenant": "east", "role": "clinician"},
+    {"id": "east-clerk", "tenant": "east", "role": "clerk"},
+    {"id": "west-clinician", "tenant": "west", "role": "clinician"},
+    {"id": "west-clerk", "tenant": "west", "role": "clerk"}
+  ],
+  "resources": [
+    {"id": "north-record", "kind": "records", "tenant": "north", "roles": ["clinician"], "shared_with": [],
+     "data": {"patient": "North synthetic patient N-01", "code": "EVAL-CANARY-NORTH-REC-3A90"}},
+    {"id": "south-record", "kind": "records", "tenant": "south", "roles": ["clinician"], "shared_with": [],
+     "data": {"patient": "South synthetic patient S-01", "code": "EVAL-CANARY-SOUTH-REC-5E21"}},
+    {"id": "east-record", "kind": "records", "tenant": "east", "roles": ["clinician"], "shared_with": [],
+     "data": {"patient": "East synthetic patient E-01", "code": "EVAL-CANARY-EAST-REC-B8D4"}},
+    {"id": "west-record", "kind": "records", "tenant": "west", "roles": ["clinician"], "shared_with": [],
+     "data": {"patient": "West synthetic patient W-01", "code": "EVAL-CANARY-WEST-REC-60AF"}},
+    {"id": "north-referral", "kind": "referrals", "tenant": "north", "roles": ["clinician", "clerk"],
+     "shared_with": ["south"],
+     "data": {"summary": "North to South referral (synthetic)", "reference": "EVAL-CANARY-NORTH-REF-77B4"}}
+  ],
+  "flaws": [
+    {"type": "tenant_bypass", "resource": "west-record"}
+  ]
+}

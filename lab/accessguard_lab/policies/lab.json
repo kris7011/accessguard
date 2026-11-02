@@ -1,0 +1,80 @@
+{
+  "schema_version": "1",
+  "id": "accessguard-lab",
+  "description": "Intended access policy of the synthetic lab API: tenant isolation, admin-only invoices and one explicit cross-tenant share (acme -> globex).",
+  "session_probe": { "path": "/me", "subject_field": "user" },
+  "identities": [
+    { "id": "acme-admin", "tenant": "acme", "role": "admin" },
+    { "id": "acme-member", "tenant": "acme", "role": "member" },
+    { "id": "globex-admin", "tenant": "globex", "role": "admin" },
+    { "id": "globex-member", "tenant": "globex", "role": "member" },
+    { "id": "initech-admin", "tenant": "initech", "role": "admin" },
+    { "id": "initech-member", "tenant": "initech", "role": "member" }
+  ],
+  "collections": [{ "id": "documents", "path": "/documents" }],
+  "resources": [
+    {
+      "id": "acme-doc",
+      "category": "document",
+      "path": "/documents/acme-doc",
+      "owner": "acme-member",
+      "collection": "documents",
+      "protected_fields": ["title", "canary"],
+      "grants": [{ "tenant": "acme", "roles": ["admin", "member"] }]
+    },
+    {
+      "id": "globex-doc",
+      "category": "document",
+      "path": "/documents/globex-doc",
+      "owner": "globex-member",
+      "collection": "documents",
+      "protected_fields": ["title", "canary"],
+      "grants": [{ "tenant": "globex", "roles": ["admin", "member"] }]
+    },
+    {
+      "id": "initech-doc",
+      "category": "document",
+      "path": "/documents/initech-doc",
+      "owner": "initech-member",
+      "collection": "documents",
+      "protected_fields": ["title", "canary"],
+      "grants": [{ "tenant": "initech", "roles": ["admin", "member"] }]
+    },
+    {
+      "id": "acme-shared-brief",
+      "category": "shared-document",
+      "path": "/documents/acme-shared-brief",
+      "owner": "acme-admin",
+      "collection": "documents",
+      "protected_fields": ["title", "canary"],
+      "grants": [
+        { "tenant": "acme", "roles": ["admin", "member"] },
+        { "tenant": "globex", "roles": ["admin", "member"] }
+      ]
+    },
+    {
+      "id": "acme-invoice",
+      "category": "invoice",
+      "path": "/invoices/acme-invoice",
+      "owner": "acme-admin",
+      "protected_fields": ["reference", "canary"],
+      "grants": [{ "tenant": "acme", "roles": ["admin"] }]
+    },
+    {
+      "id": "globex-invoice",
+      "category": "invoice",
+      "path": "/invoices/globex-invoice",
+      "owner": "globex-admin",
+      "protected_fields": ["reference", "canary"],
+      "grants": [{ "tenant": "globex", "roles": ["admin"] }]
+    },
+    {
+      "id": "initech-invoice",
+      "category": "invoice",
+      "path": "/invoices/initech-invoice",
+      "owner": "initech-admin",
+      "protected_fields": ["reference", "canary"],
+      "grants": [{ "tenant": "initech", "roles": ["admin"] }]
+    }
+  ]
+}

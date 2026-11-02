@@ -1,4 +1,17 @@
 __pycache__/
 *.pyc
 .venv/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
 reports/
+.env
+.local/
+web/db.sqlite3
+web/staticfiles/
+.env.*
+!.env.example
+# Server-side secrets (SSH key for the off-site backup repository)
+.secrets/

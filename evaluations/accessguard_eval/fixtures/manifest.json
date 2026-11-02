@@ -1,0 +1,10 @@
+{
+  "schema_version": "1",
+  "description": "Synthetic evaluation fixtures for milestone 2. Separate from the development lab (different routes, data and flaw placements). Each fixture has target.json (served behaviour including flaws; never given to the engine or an agent), policy.json (the declared policy: the only input the engine and the agent receive) and answer_key.json (hand-written expected findings, used for scoring only).",
+  "fixtures": [
+    {"id": "helpdesk", "purpose": "role bypass within each tenant plus one resource that leaks in its 403 body"},
+    {"id": "clinic", "purpose": "needle: a single resource readable across tenants; one explicit cross-tenant share as negative control"},
+    {"id": "projects", "purpose": "listing leak and anonymous reads; a third-party auditor tenant with explicit grants"},
+    {"id": "library", "purpose": "control: no flaws, so any finding is a false positive"}
+  ]
+}

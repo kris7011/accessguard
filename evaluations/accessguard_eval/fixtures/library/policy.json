@@ -1,0 +1,31 @@
+{
+  "schema_version": "1",
+  "id": "eval-library",
+  "description": "Library consortium: loans readable within the branch, ledgers by librarians only, one catalogue shared from maple to cedar.",
+  "session_probe": {"path": "/session", "subject_field": "subject"},
+  "identities": [
+    {"id": "maple-librarian", "tenant": "maple", "role": "librarian"},
+    {"id": "maple-member", "tenant": "maple", "role": "member"},
+    {"id": "cedar-librarian", "tenant": "cedar", "role": "librarian"},
+    {"id": "cedar-member", "tenant": "cedar", "role": "member"}
+  ],
+  "collections": [{"id": "loans", "path": "/api/loans"}],
+  "resources": [
+    {"id": "maple-loan", "category": "loan", "path": "/api/loans/maple-loan", "owner": "maple-member",
+     "collection": "loans", "protected_fields": ["title", "barcode"],
+     "grants": [{"tenant": "maple", "roles": ["librarian", "member"]}]},
+    {"id": "cedar-loan", "category": "loan", "path": "/api/loans/cedar-loan", "owner": "cedar-member",
+     "collection": "loans", "protected_fields": ["title", "barcode"],
+     "grants": [{"tenant": "cedar", "roles": ["librarian", "member"]}]},
+    {"id": "maple-ledger", "category": "ledger", "path": "/api/ledgers/maple-ledger", "owner": "maple-librarian",
+     "protected_fields": ["title", "barcode"], "grants": [{"tenant": "maple", "roles": ["librarian"]}]},
+    {"id": "cedar-ledger", "category": "ledger", "path": "/api/ledgers/cedar-ledger", "owner": "cedar-librarian",
+     "protected_fields": ["title", "barcode"], "grants": [{"tenant": "cedar", "roles": ["librarian"]}]},
+    {"id": "maple-catalogue", "category": "catalogue", "path": "/api/catalogues/maple-catalogue",
+     "owner": "maple-librarian", "protected_fields": ["title", "barcode"],
+     "grants": [
+       {"tenant": "maple", "roles": ["librarian", "member"]},
+       {"tenant": "cedar", "roles": ["librarian", "member"]}
+     ]}
+  ]
+}

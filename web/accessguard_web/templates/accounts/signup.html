@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block title %}Create your account{% endblock %}
+{% block content %}
+<div class="narrow">
+  <div class="card">
+    <h1>Start free</h1>
+    <p class="muted">No card needed. Your account comes with a live demo against a synthetic API, so you can see a full report in a minute.</p>
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {{ form.as_div }}
+      <button class="btn btn-primary" type="submit">Create account</button>
+    </form>
+  </div>
+  <p class="small muted">Already have an account? <a href="{% url 'accounts:login' %}">Sign in</a>.</p>
+</div>
+{% endblock %}

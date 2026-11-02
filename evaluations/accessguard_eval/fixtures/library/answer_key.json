@@ -1,0 +1,5 @@
+{
+  "fixture": "library",
+  "expected_findings": [],
+  "notes": "Control fixture without flaws: every reported finding is a false positive."
+}

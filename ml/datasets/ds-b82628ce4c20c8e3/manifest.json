@@ -1,0 +1,53 @@
+{
+  "applications": {
+    "eval:clinic": {
+      "examples": 45,
+      "positives": 3
+    },
+    "eval:helpdesk": {
+      "examples": 49,
+      "positives": 7
+    },
+    "eval:library": {
+      "examples": 30,
+      "positives": 0
+    },
+    "eval:projects": {
+      "examples": 30,
+      "positives": 7
+    },
+    "lab:vulnerable": {
+      "examples": 56,
+      "positives": 23
+    },
+    "sampleapp:flawed": {
+      "examples": 30,
+      "positives": 10
+    }
+  },
+  "customer_applications": 0,
+  "examples": 240,
+  "feature_version": "features-v1",
+  "features": [
+    "bias",
+    "kind_list",
+    "expect_deny",
+    "rel_same_tenant",
+    "rel_shared_grant",
+    "rel_cross_tenant",
+    "rel_anonymous",
+    "resource_shared_across_tenants",
+    "resource_in_collection",
+    "log_protected_fields",
+    "log_grants",
+    "path_depth",
+    "list_log_hidden",
+    "list_log_visible"
+  ],
+  "positives": 50,
+  "schema": "accessguard-ml-dataset-v1",
+  "sources": [
+    "synthetic-answer-key"
+  ],
+  "version": "ds-b82628ce4c20c8e3"
+}

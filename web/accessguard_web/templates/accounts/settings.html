@@ -1,0 +1,62 @@
+{% extends "app.html" %}{% block title %}Settings{% endblock %}
+{% block content %}
+<h1>Organisation settings</h1>
+<div class="card">
+  <h2>General and consent</h2>
+  {% if is_owner %}
+  <form method="post">{% csrf_token %}
+    <div class="field">{{ form.name.label_tag }}{{ form.name }}</div>
+    <div class="checkbox-row">{{ form.ai_assistance_enabled }} <div>{{ form.ai_assistance_enabled.label_tag }}<span class="helptext">{{ form.ai_assistance_enabled.help_text }}</span></div></div>
+    <div class="checkbox-row">{{ form.ml_data_consent }} <div>{{ form.ml_data_consent.label_tag }}<span class="helptext">{{ form.ml_data_consent.help_text }}</span></div></div>
+    <button class="btn btn-primary" type="submit">Save</button>
+  </form>
+  {% else %}
+  <p>{{ current_org.name }} · AI assistance {{ current_org.ai_assistance_enabled|yesno:"on,off" }} · learning consent {{ current_org.ml_data_consent|yesno:"on,off" }}</p>
+  <p class="muted small">Only owners can change these settings.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Members</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Person</th><th scope="col">Role</th>{% if is_owner %}<th scope="col">Change</th>{% endif %}</tr></thead>
+    <tbody>{% for m in members %}<tr>
+      <td>{{ m.user.email }}</td><td>{{ m.get_role_display }}</td>
+      {% if is_owner %}<td><form method="post" action="{% url 'accounts:change_role' m.pk %}" class="row">{% csrf_token %}
+        <label class="small" for="role-{{ m.pk }}">Role</label>
+        <select id="role-{{ m.pk }}" name="role">{% for value, label in roles %}<option value="{{ value }}" {% if value == m.role %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <button class="btn small" type="submit">Save</button>
+        <button class="btn btn-danger small" type="submit" name="remove" value="yes">Remove</button>
+      </form></td>{% endif %}
+    </tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="small muted">Viewer: read results. Admin: configure projects, approve scans, triage. Owner: also billing and members.</p>
+  {% if is_owner %}
+  {% if invite_link %}<div class="banner banner-info"><p>Invitation link (shown once, valid 7 days):</p><pre id="invite-link">{{ invite_link }}</pre><button class="btn small" type="button" data-copy-target="invite-link">Copy</button></div>{% endif %}
+  <form method="post" action="{% url 'accounts:invite' %}" class="row">{% csrf_token %}
+    <div>{{ invite_form.email.label_tag }}{{ invite_form.email }}</div>
+    <div>{{ invite_form.role.label_tag }}{{ invite_form.role }}</div>
+    <button class="btn" type="submit">Create invitation</button>
+  </form>
+  {% if invitations %}<p class="small muted">Open invitations: {% for i in invitations %}{{ i.email }} ({{ i.role }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% endif %}
+</div>
+
+{% if audit %}
+<div class="card">
+  <h2>Audit log</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">When (UTC)</th><th scope="col">Who</th><th scope="col">What</th><th scope="col">Target</th></tr></thead>
+    <tbody>{% for e in audit %}<tr><td class="small">{{ e.created_at|date:"Y-m-d H:i" }}</td><td>{{ e.actor.email|default:"system" }}</td><td class="mono">{{ e.action }}</td><td class="mono small">{{ e.target }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if is_owner %}
+<div class="card">
+  <h2>Delete organisation</h2>
+  <p>Deletes every project, scan, report, finding and runner of this organisation immediately. This cannot be undone. Cancel a paid plan first.</p>
+  <form method="post" action="{% url 'accounts:delete_organization' %}">{% csrf_token %}{{ delete_form.as_div }}<button class="btn btn-danger" type="submit">Delete organisation and all data</button></form>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,41 @@
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AccessGuard{% endblock %} · AccessGuard</title>
+  <meta name="description" content="{% block description %}Find, document and retest broken access control in your multi-tenant API.{% endblock %}">
+  <link rel="icon" href="{% static 'accessguard/favicon.svg' %}" type="image/svg+xml">
+  <link rel="stylesheet" href="{% static 'accessguard/app.css' %}">
+  <script src="{% static 'accessguard/app.js' %}" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="logo" href="{% url 'pages:landing' %}"><span class="logo-mark" aria-hidden="true"></span>AccessGuard</a>
+    <nav class="topnav" aria-label="Main">
+      <a href="{% url 'pages:example_report' %}">Example report</a>
+      <a href="{% url 'pages:pricing' %}">Pricing</a>
+      <a href="{% url 'pages:help' %}">Help</a>
+      {% if user.is_authenticated %}
+        <a class="btn btn-primary" href="{% url 'dashboard' %}">Open app</a>
+      {% else %}
+        <a href="{% url 'accounts:login' %}">Sign in</a>
+        <a class="btn btn-primary" href="{% url 'accounts:signup' %}">Start free</a>
+      {% endif %}
+    </nav>
+  </header>
+  {% block body %}
+  <main id="main" class="page">
+    {% include "_messages.html" %}
+    {% block content %}{% endblock %}
+  </main>
+  {% endblock %}
+  <footer class="footer">
+    <div class="page">
+      <span>AccessGuard · access-control regression testing for multi-tenant APIs</span>
+      <span><a href="{% url 'pages:help_page' 'data-handling' %}">Security &amp; data handling</a> · <a href="{% url 'pages:help_page' 'limitations' %}">Limitations</a> · <a href="{% url 'pages:terms' %}">Beta terms</a></span>
+    </div>
+  </footer>
+</body>
+</html>

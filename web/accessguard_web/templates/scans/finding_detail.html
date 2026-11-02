@@ -1,0 +1,101 @@
+{% extends "app.html" %}{% block title %}{{ guidance.title }}{% endblock %}
+{% block content %}
+{% with d=finding.details %}
+<p><a href="{% url 'scans:findings' %}">← Findings</a> · <a href="{% url 'projects:detail' finding.project.pk %}">{{ finding.project.name }}</a></p>
+<div class="row spread">
+  <div>
+    <h1>{{ guidance.title }}</h1>
+    <p class="mono">{{ finding.check_id }}</p>
+  </div>
+  <span class="chip {% if finding.status == 'resolved' %}chip-pass{% elif finding.outcome == 'FAIL' %}chip-fail{% else %}chip-warn{% endif %}">{{ finding.get_status_display }}{% if finding.status == 'resolved' %}{% if finding.resolution_verified %} · verified by retest{% else %} · not verified{% endif %}{% endif %}</span>
+</div>
+{% if suspicion %}<div class="banner banner-warn"><p>{{ suspicion }}</p></div>{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h2>What happened</h2>
+    <p><strong>Rule:</strong> {{ d.rule }}</p>
+    <p><strong>Who:</strong> {% if d.actor.id == "anonymous" %}a request without credentials{% else %}{{ d.actor.id }} (tenant {{ d.actor.tenant }}, role {{ d.actor.role }}){% endif %}</p>
+    <p><strong>Expected:</strong> {{ d.expected }}</p>
+    <p><strong>Observed:</strong> {{ d.actual }}</p>
+  </div>
+  <div class="card">
+    <h2>Evidence</h2>
+    <p class="small muted">Redacted: AccessGuard keeps field names, status and a hash, never the response content.</p>
+    <table><tbody>
+      <tr><th scope="row">Request</th><td class="mono">{{ d.evidence.request }}</td></tr>
+      <tr><th scope="row">Status</th><td>{{ d.evidence.status }} · {{ d.evidence.content_type }} · {{ d.evidence.size_bytes }} bytes</td></tr>
+      <tr><th scope="row">Body SHA-256</th><td class="mono small">{{ d.evidence.body_sha256 }}</td></tr>
+      <tr><th scope="row">Protected fields seen</th><td>{% for m in d.evidence.matched_protected_fields %}<div><span class="mono">{{ m.resource }}</span>: {{ m.fields|join:", " }}{% if not m.complete %} (partial){% endif %}</div>{% empty %}none{% endfor %}</td></tr>
+      <tr><th scope="row">Observed at</th><td class="small">{{ d.observed_at }}</td></tr>
+      <tr><th scope="row">Retest in scan</th><td>{{ d.verification|default:"—" }}</td></tr>
+    </tbody></table>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Reproduce</h2>
+  <ol>{% for step in d.reproduction %}<li>{{ step }}</li>{% endfor %}</ol>
+</div>
+
+<div class="card">
+  <h2>How to fix it</h2>
+  <p class="small muted">Rule-based guidance for this kind of finding.</p>
+  <p><strong>Why it matters:</strong> {{ guidance.why_it_matters }}</p>
+  <p><strong>Likely cause:</strong> {{ guidance.likely_cause }}</p>
+  <ol>{% for step in guidance.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+  <details><summary>Example pattern</summary><pre>{{ guidance.example }}</pre></details>
+  <p><strong>Regression test:</strong> {{ guidance.regression_test }}</p>
+</div>
+
+<div class="card">
+  <h2>AI explanation <span class="chip chip-info">draft</span></h2>
+  {% if explanation %}
+    {% with r=explanation.result %}
+    <p class="small muted">Written by {{ explanation.model }} ({{ explanation.prompt_version }}) on {{ explanation.created_at|date:"Y-m-d H:i" }} UTC. AI drafts can be wrong; the deterministic retest decides whether it is fixed.</p>
+    <p><strong>{{ r.summary }}</strong></p>
+    <p>{{ r.explanation|linebreaksbr }}</p>
+    <ol>{% for step in r.fix_steps %}<li>{{ step }}</li>{% endfor %}</ol>
+    {% if r.code_suggestion %}<details open><summary>Suggested change to your code</summary><pre>{{ r.code_suggestion }}</pre></details>{% endif %}
+    <p><strong>Regression test:</strong> {{ r.regression_test }}</p>
+    {% if r.caveats %}<p class="small"><strong>Caveats:</strong> {{ r.caveats }}</p>{% endif %}
+    {% endwith %}
+  {% endif %}
+  {% if can_edit %}
+    {% if assistant_unavailable %}<p class="muted small">{{ assistant_unavailable }}</p>
+    {% else %}
+    <form method="post" action="{% url 'scans:explain' finding.pk %}">{% csrf_token %}
+      <label for="code">Optional: paste the handler code for this endpoint for a concrete suggestion</label>
+      <textarea id="code" name="code" rows="5" placeholder="def get_project(request, project_id): ..."></textarea>
+      <span class="helptext">Sent to the AI provider together with the finding facts. Remove secrets first. Nothing is changed in your code.</span>
+      <button class="btn" type="submit">{% if explanation %}Explain again{% else %}Explain with AI{% endif %}</button>
+    </form>
+    {% endif %}
+  {% endif %}
+</div>
+
+{% if can_edit %}
+<div class="grid">
+  <form method="post" action="{% url 'scans:triage' finding.pk %}" class="card">{% csrf_token %}
+    <h2>Decide</h2>
+    <label for="status">Status</label>
+    <select id="status" name="status">{% for value, label in statuses %}<option value="{{ value }}" {% if value == finding.status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <label for="note">Note</label>
+    <textarea id="note" name="note" rows="3" placeholder="Required when rejecting, e.g. “intended: partners may read this record”."></textarea>
+    <span class="helptext">Confirmed and rejected decisions are kept as labels with your name; “resolved” stays unverified until a retest passes.</span>
+    <button class="btn" type="submit">Save decision</button>
+  </form>
+  <div class="card">
+    <h2>Retest</h2>
+    <p>After deploying a fix, run this check again (with the legitimate-access checks for the same record, so an over-broad fix is caught). Only a conclusive pass resolves the finding.</p>
+    <form method="get" action="{% url 'scans:review' finding.project.pk %}"><input type="hidden" name="finding" value="{{ finding.pk }}"><button class="btn btn-primary" type="submit">Retest this finding</button></form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>History</h2>
+  <ol class="timeline">{% for e in events %}<li><strong>{{ e.get_source_display }}</strong>{% if e.actor %} · {{ e.actor.email }}{% endif %} · {{ e.created_at|date:"Y-m-d H:i" }} UTC{% if e.from_status != e.to_status %} · {{ e.from_status|default:"new" }} → {{ e.to_status }}{% endif %}{% if e.label %} <span class="chip">{{ e.get_label_display }}</span>{% endif %}<div class="small">{{ e.note }}</div></li>{% endfor %}</ol>
+</div>
+{% endwith %}
+{% endblock %}

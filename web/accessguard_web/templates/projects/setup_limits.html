@@ -1,0 +1,14 @@
+{% extends "app.html" %}{% block title %}Limits · {{ project.name }}{% endblock %}
+{% block content %}
+{% include "projects/_setup_nav.html" with step="limits" %}
+<div class="card">
+  <h1>Limits</h1>
+  {% if status.ready %}<p>This configuration has <strong>{{ status.planned_checks }} checks</strong>. A budget of <strong>{{ status.recommended_requests }}</strong> requests guarantees that every check and every retest can run.</p>{% endif %}
+  <p class="muted small">The runner enforces these limits on its side: one request at a time, never more than the budget, never longer than the deadline. You can stop a scan at any time; partial results are kept and marked incomplete.</p>
+  {% for w in status.warnings %}<div class="banner banner-warn"><p>{{ w }}</p></div>{% endfor %}
+  <form method="post" novalidate>{% csrf_token %}
+    {% for field in form %}<div class="field">{{ field.label_tag }}{{ field }}<span class="helptext">{{ field.help_text }}</span>{{ field.errors }}</div>{% endfor %}
+    {% if not project.is_demo %}<button class="btn btn-primary" type="submit">Save</button>{% endif %}
+  </form>
+</div>
+{% endblock %}

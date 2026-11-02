@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "accessguard-sampleapp"
+version = "1.0.0"
+description = "Synthetic multi-tenant project API (flawed and fixed variants) for verifying AccessGuard integrations."
+requires-python = ">=3.11"
+# Deliberately independent of the accessguard package: it is a stand-in for a customer app.
+dependencies = []
+
+[project.scripts]
+accessguard-sampleapp = "accessguard_sampleapp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["accessguard_sampleapp", "accessguard_sampleapp.*"]
+
+[tool.setuptools.package-data]
+accessguard_sampleapp = ["config/*.json", "config/*.toml"]

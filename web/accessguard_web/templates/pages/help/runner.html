@@ -1,0 +1,47 @@
+{% extends "pages/help/_layout.html" %}
+{% block help %}
+<p>The runner is the part of AccessGuard that sends requests to your test environment. It runs on your side, so test credentials and response content never leave your environment, and AccessGuard's servers never connect to your systems.</p>
+<h2>Install</h2>
+<p>Python 3.11 or newer. The runner has no third-party dependencies.</p>
+{% if runner_wheel %}
+<p>During the beta the runner is not on PyPI. <a href="{% url 'scans:runner_download' %}">Download {{ runner_wheel.name }}</a> (signed-in members), check that its SHA-256 is <span class="mono">{{ runner_wheel.sha256 }}</span>, and install it into its own virtual environment:</p>
+<pre>sha256sum {{ runner_wheel.name }}      # PowerShell: Get-FileHash {{ runner_wheel.name }}
+python -m venv .venv
+.venv/bin/python -m pip install ./{{ runner_wheel.name }}
+# Windows: .venv\Scripts\python -m pip install .\{{ runner_wheel.name }}
+.venv/bin/accessguard --version</pre>
+{% else %}
+<p>During the beta the runner is not on PyPI. Install the wheel file you received from us (<span class="mono">accessguard-&lt;version&gt;-py3-none-any.whl</span>) into its own virtual environment:</p>
+<pre>python -m venv .venv
+.venv/bin/python -m pip install ./accessguard-&lt;version&gt;-py3-none-any.whl
+# Windows: .venv\Scripts\python -m pip install .\accessguard-&lt;version&gt;-py3-none-any.whl
+.venv/bin/accessguard --version</pre>
+{% endif %}
+<p class="small muted">Do not run <span class="mono">pip install accessguard</span> before we announce the PyPI release: until then that name is not ours on PyPI, and pip would install whatever package someone else publishes under it.</p>
+<h2>Configure</h2>
+<p>Create a runner token on the Runners page and store it in the environment variable named in the configuration. Then write <span class="mono">runner.toml</span>:</p>
+<pre>[control_plane]
+url = "https://app.accessguard.example"
+token_env = "ACCESSGUARD_RUNNER_TOKEN"
+
+[[targets]]
+origin = "https://staging.example.com"
+zone = "public"              # loopback | private | public
+credentials_file = "credentials.json"
+# credentials_env_prefix = "ACCESSGUARD_CRED_"   # alternative: ACCESSGUARD_CRED_ALICE_ACME=...
+# max_requests = 2000                             # optional local cap</pre>
+<p><span class="mono">credentials.json</span> maps each test user id to its credential, for example <span class="mono">{"alice-acme": "eyJ…"}</span>. Keep it out of version control and readable only by the runner's user.</p>
+<h2>Network zones</h2>
+<ul>
+<li><strong>public</strong>: the target must resolve to public internet addresses and use https.</li>
+<li><strong>private</strong>: also allows private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, unique-local IPv6) and loopback, for staging inside your network.</li>
+<li><strong>loopback</strong>: only this machine (127.0.0.1, ::1).</li>
+</ul>
+<p>In every zone the runner refuses link-local addresses (including the cloud metadata service 169.254.169.254), multicast, reserved and unspecified addresses. It resolves the host for every request and pins the connection to a validated address, so DNS rebinding cannot redirect it. Redirects are never followed and https certificates are verified.</p>
+<h2>Run</h2>
+<pre>accessguard runner --config runner.toml          # keep polling for approved scans
+accessguard runner --config runner.toml --once   # handle at most one scan, then exit</pre>
+<p>Stop it with Ctrl+C: a scan in progress stops, and its partial report is uploaded and marked incomplete.</p>
+<h2>What the runner refuses</h2>
+<ul><li>Targets that are not listed in its <span class="mono">[[targets]]</span>.</li><li>Policies with paths outside the allowed prefixes.</li><li>Jobs whose content does not match the hash you approved.</li></ul>
+{% endblock %}
