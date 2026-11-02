@@ -24,6 +24,9 @@ payment retries with test clocks").
   extracted. The `stripe listen` signing secret was compared without printing it: unchanged.
   `stripe.env` is therefore unchanged (byte-identical to before the session).
 - Test clocks: create/delete through the CLI profile worked; with the env key refused.
+  Re-checked after the run on the owner's request: the CLI still reaches the account and
+  `clock-probe` via the profile created and deleted `clock_1UXI7K…`; with the env key it is
+  still refused. A full test key in `stripe.env` is optional (see the README).
 
 ### Driver changes (`ops/stripe_sandbox/sandbox.py`)
 
@@ -88,12 +91,18 @@ machine), the real restic image and repository, SMTP, any server.
 
 ### Checks
 
-`PYTHON=.venv/Scripts/python bash ops/verify.sh` (2026-11-02, with the changes staged): all
-11 steps ok: lint, format, mypy strict; engine/runner/ML tests OK (3 skipped, as before:
-2 opt-in real-model, 1 POSIX-only); web tests OK (6 skipped, as before); migrations; deploy
-check; pip-audit; detect-secrets with the new files staged; build; demo. Final counts after
-the changes below: 376 engine/runner/ML tests (6 new; on Windows 9 skipped, as the 6
-backup-loop tests are POSIX-only), 127 web tests (5 new).
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02, changes
+staged): all 11 steps ok (lint, format, mypy strict, tests, web tests, migrations, deploy
+check, pip-audit, detect-secrets, build, demo). Final local counts after the CI fixes below:
+376 engine/runner/ML tests OK, 9 skipped (2 opt-in real-model, 1 POSIX-only file mode, the 6
+POSIX-only backup-loop tests); 127 web tests on SQLite OK, 6 skipped (2 PostgreSQL-only,
+3 paid, 1 free).
+
+**CI on the final commit `2411dfe`** (run 41419743169): all six jobs passed. Engine tests 376,
+2 skipped on Ubuntu 3.11 and 3.13 (opt-in real-model; the backup-loop tests ran), 9 skipped
+on Windows 3.13; web tests on PostgreSQL 127, 4 skipped (3 paid, 1 free). Compared with
+`02d5693` (370 / 2 and 122 / 4): +6 engine tests (`test_offsite_backup.py`), +5 web tests
+(`test_stripe_sandbox_driver.py`).
 
 CI on `177bf0a` (run 41416449371): both Ubuntu engine jobs failed, `ModuleNotFoundError: No
 module named 'stripe'`. The engine jobs install no third-party packages; the new driver test
@@ -158,11 +167,17 @@ and expected results, owner steps), operations, install, launch checklist, threa
 
 ### Checks
 
-`PYTHON=.venv/Scripts/python bash ops/verify.sh` (2026-11-02): all 11 steps ok; 370
-engine/runner/ML tests OK (3 skipped: 2 opt-in real-model, 1 POSIX-only file-mode test);
-122 web tests OK (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free); mypy strict 223 files;
-detect-secrets exit 0 (re-run with the new files staged). CI on `afb5074` (previous
-commit): run 41404904459, all six jobs passed.
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02): all 11
+steps ok; 370 engine/runner/ML tests OK (3 skipped: 2 opt-in real-model, 1 POSIX-only
+file-mode test); 122 web tests on SQLite OK (6 skipped: 2 PostgreSQL-only, 3 paid, 1 free);
+mypy strict 223 files; detect-secrets exit 0 (re-run with the new files staged). CI on
+`afb5074` (previous commit): run 41404904459, all six jobs passed.
+
+CI on `02d5693` itself (run 41411323263, all six jobs passed; counts corrected in the
+eighth session, the local numbers above had been the only ones recorded): engine tests 370
+with **2** skipped on Ubuntu 3.11 and 3.13 (the opt-in real-model tests; the POSIX-only test
+runs there) and 3 skipped on Windows 3.13; web tests on PostgreSQL 122 with **4** skipped
+(3 paid, 1 free; the PostgreSQL-only tests run there).
 
 Not run: the Caddyfile, certificate issuance, the real restic image and repository, the
 Sunday `restic check` branch (tested since the eighth session), SMTP delivery, the test-clock
