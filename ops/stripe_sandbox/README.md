@@ -118,7 +118,17 @@ not be). Two ways therefore work:
 ### Retry settings
 
 The Dashboard's **Billing > Revenue recovery > Retries** settings cannot be read through the
-API. What Stripe did is recorded below; check the page itself before relying on it.
+API. The owner checked them visually in the KRL sandbox on 2026-11-02 (not changed):
+
+| Setting | Value |
+| --- | --- |
+| Smart Retries | up to 8 retries within 2 weeks |
+| First failed renewal | leave the subscription past-due |
+| All retries failed | cancel the subscription |
+| Invoice after all retries failed | leave the invoice past-due (AccessGuard then voids it, see below) |
+
+`ACCESSGUARD_STRIPE_RETRY_DAYS` (default 14) must match the retry window; the app only shows
+it to customers.
 
 ### Run
 
@@ -147,7 +157,7 @@ waiting up to 30 s for the webhooks to bring the app to Stripe's status.
 | Grace in app time | `retry-b@example.test` | `past_due_since` 2026-11-02 08:32:32 UTC (app clock). +0 s, +604799 s, +604800 s: Team, warning on the page, 2nd project created; +604801 s and +10 days: Free, "grace period has ended" banner, 2nd project refused |
 | Recovery by retry after the app's grace | `recover-c@example.test` | attempts 1-5 failed; attempt 5 came 7.02 simulated days after the first, and `app-at` at that offset gave Free; card fixed, attempt 6 paid: Stripe `active`, app Team, warning and `past_due_since` cleared |
 | Recovery by payment | `pay-d@example.test` | 2 failed attempts, open invoice paid with 4242: `active`; app Team, warning gone |
-| Payment after the final action | `retry-b@example.test` | the `open` invoice of the cancelled subscription could still be paid (EUR 49.00); the subscription stayed `canceled` and the app Free (`invoice.paid` → `unchanged`) |
+| Payment after the final action | `retry-b@example.test` | before the void rule: the `open` invoice of the cancelled subscription could still be paid (EUR 49.00); the subscription stayed `canceled` and the app Free (`invoice.paid` → `unchanged`). Since then the webhook voids it (next section) |
 
 All 49 webhook deliveries were answered with HTTP 200; every handled event of these
 customers was stored. The last `invoice.payment_failed` arrived after
@@ -163,6 +173,43 @@ production both clocks are the same: the 7-day grace period then ends between St
 4th and 5th retry, so a customer whose retries fail for a week is on Free until a later
 retry or a payment succeeds.
 
+### Void of the failed renewal after the final action
+
+Rule (`webhooks._void_failed_renewal`, ADR 0011): when Stripe's current subscription is
+`canceled` with `cancellation_details.reason == "payment_failed"`, its latest invoice is
+voided if it is an open, unpaid `subscription_cycle` invoice of the same subscription and
+customer. Commands added for this run: `cancel-now <email>` (a requested cancellation
+through the API) and `invoices <email>` (every invoice of the customer).
+
+| Step | Command | Expected |
+| --- | --- | --- |
+| Baseline | `invoices <email>` for earlier owners | unchanged afterwards |
+| Failed renewal, A | `clock-start`, `card fail`, `clock-renew` | `past_due`, invoice `open`; banner names the grace end and the end of Stripe's retries |
+| Second organisation, B | the same with another e-mail | `past_due`, invoice `open` |
+| Final action, A | `clock-next-retry` until no attempt is scheduled | `canceled`, reason `payment_failed`; stored outcome `voided renewal invoice …`; audit `billing.renewal_invoice_voided`; invoice `void` |
+| Pay the voided invoice | `invoices.pay` with a working test card | refused by Stripe |
+| Redelivery | `stripe events resend <deleted event>` | HTTP 200, no new row, no second void |
+| Requested cancellation, B | `cancel-now <email B>` | reason `cancellation_requested`; invoice stays `open` |
+| Re-subscription, A | `sandbox_browser.py buy <slug of A> team` | Checkout allowed; same customer, new subscription `active`; app Team |
+
+**Results (2026-11-02, same account, app with migration `0004`):**
+
+| Scenario | Owner | Observed |
+| --- | --- | --- |
+| Final action and void | `owner-void-e@example.test` | renewal `in_…WyB9…` failed 9 times (renewal + 8 retries); Stripe `canceled`, `cancellation_details.reason = payment_failed`. `customer.subscription.deleted` → `subscription canceled (free); voided renewal invoice in_…`; the `invoice.payment_failed` of the 9th attempt, same second → `unchanged …; invoice … kept: status void`. One audit row. First invoice (`subscription_create`) stays `paid` |
+| Pay the voided invoice | `owner-void-e` | Stripe: `InvalidRequestError` "Voided invoices cannot be paid."; invoice still `void`, `amount_paid` 0 |
+| Redelivery | `owner-void-e` | `stripe events resend` of the deletion: HTTP 200, no new stored event, still one void and one audit row |
+| Billing page after the end | `owner-void-e` | Free; "cancelled because the renewal payment still failed after Stripe's retries … voids the unpaid renewal invoice …; choose a plan below to subscribe again" |
+| Re-subscription | `owner-void-e` | hosted Checkout with the 4242 card: same customer `cus_VYRP…`, new subscription `active`, new invoice EUR 49 paid (the voided amount was not added); app Team, `cancellation_reason` cleared |
+| Requested cancellation with an open renewal | `owner-req-f@example.test` | `cancel-now` while `past_due`: reason `cancellation_requested`, outcome `subscription canceled (free)` with no invoice step; renewal invoice stays `open` |
+| Other customers | `renew-a`, `retry-b`, `recover-c`, `pay-d` | all 8 invoices `paid` before and after |
+| Webhooks | | 29 deliveries, all HTTP 200; 28 stored events, exactly one void |
+
+Not run in the sandbox (covered by tests in `test_billing.py` only): an API error during the
+void (503 and redelivery), a payment that reaches Stripe just before the void, partly paid
+or non-renewal invoices, a delayed cancellation of an earlier subscription, two concurrent
+deliveries (PostgreSQL-only test, runs in CI).
+
 Limits from Stripe's documentation (checked 2026-11-02): up to three customers per clock
 and three subscriptions per customer; a clock advances at most two billing intervals at a
 time; clocks are deleted after 30 days; a renewal invoice stays in draft for about an hour
@@ -172,7 +219,8 @@ before it is finalised and charged (`clock-renew` advances past that hour).
 
 - A webhook endpoint on a public server (only `stripe listen` to localhost); see
   docs/deployment.md, section 5.
-- The retry settings as configured in the Dashboard (only their effect was observed).
+- The retry settings were read by the owner in the Dashboard, not through the API (it
+  cannot read them); the drivers only observe their effect.
 - Smart Retries timing with real card networks: test cards decline the same way every time.
 
 ## Clean up

@@ -2,6 +2,75 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Failed renewal voided after Stripe's final action (2026-11-02, ninth session)
+
+Status: **done and verified in the sandbox.** Test mode only: no live key, purchase,
+deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private.
+
+### Owner input used
+
+Dashboard settings of the KRL sandbox, checked visually by the owner and not changed:
+Smart Retries up to 8 retries within 2 weeks; first failed renewal → leave the subscription
+past-due; all retries failed → cancel the subscription; invoice → leave it past-due. The
+owner specified the rule (void the unpaid renewal invoice when Stripe finally cancels for a
+failed renewal), its scope, and to keep the 7-day grace period for now.
+
+### Changes
+
+| File | Change |
+| --- | --- |
+| `billing/webhooks.py` | `_void_failed_renewal` / `_keep_invoice_because`: after the tenant check and before the followed-subscription check, inside the row lock; `process_event(event, stripe_api: StripeApi)` (protocol: subscription, invoice, void_invoice); `cancellation_reason` mirrored |
+| `billing/gateway.py` | `invoice`, `void_invoice` on the port; a refused void returns the invoice as it is; transient errors → `ProviderUnavailable` |
+| `billing/models.py`, migration `0004` | `Subscription.cancellation_reason` |
+| `billing/entitlements.py`, `settings.py`, `.env.example` | `PaymentRecovery` / `payment_recovery`: grace end and Stripe's retry end; `ACCESSGUARD_STRIPE_RETRY_DAYS` (default 14, display only, must match the Dashboard) |
+| `billing/views.py`, `templates/billing/overview.html` | banner with both dates; "what happens next" timeline while `past_due`; explanation after a `payment_failed` cancellation |
+| `ops/stripe_sandbox/sandbox.py` | `cancel-now`, `invoices`; cancellation reason in both state views |
+| Docs | ADR 0011 update, sandbox README (settings, run plan, results), walkthrough, launch checklist, beta operations plan, interview prep |
+
+### Tests
+
+`test_billing.py`: `FailedRenewalVoidTests` (10), `GracePeriodDisplayTests` (2),
+`GatewayInvoiceTests` (4), one more PostgreSQL-only concurrency test (two events of one
+cancellation void once). `FakeStripe` now holds invoices and voids like the gateway.
+Negative control: with the void call replaced by `None`, 8 of the 10 `FailedRenewalVoidTests`
+failed (15 failures incl. sub-tests); the two passing ones do not depend on the void.
+
+### Sandbox run (evidence: `.local/stripe/void-run.log`, `evidence-void-*.txt`, `listen8.log`, `stack7.log`)
+
+See ops/stripe_sandbox/README.md, "Void of the failed renewal after the final action". In
+short: 9 failed attempts → Stripe `canceled` with reason `payment_failed` → invoice `void`,
+outcome and audit recorded once; paying it refused by Stripe; resend → 200, no second void;
+re-subscription through hosted Checkout with the same customer; a requested cancellation
+(`cancel-now`, reason `cancellation_requested`) left its open renewal invoice alone; the 8
+invoices of the earlier owners stayed `paid`; 29 deliveries, all HTTP 200.
+Reused, not rerun (code path unchanged): purchase, plan changes, portal flows, late first
+delivery, renewal paid, recovery by retry and by payment, grace boundary in app time.
+
+### Limits
+
+- Not run in the sandbox (tests only): an API error during the void, a payment that wins the
+  race with the void, partly paid or non-renewal invoices, a delayed cancellation of an
+  earlier subscription, concurrent deliveries (PostgreSQL-only, CI).
+- No reconciliation job: if Stripe stops redelivering a failed event, the invoice stays open
+  until another event of that subscription arrives.
+- A requested immediate cancellation while `past_due` leaves Stripe's open renewal invoice
+  payable (by design of this rule; the portal only offers cancellation at period end).
+
+### Checks
+
+Local, Windows (`PYTHON=.venv/Scripts/python bash ops/verify.sh`, 2026-11-02): all 11 steps
+ok. Engine/runner/ML 376 OK, 9 skipped (unchanged); web tests on SQLite **144 OK, 7 skipped**
+(3 PostgreSQL-only row-lock tests, 3 paid, 1 free); before: 127 / 6.
+
+### Machine and sandbox state
+
+- Sandbox database migrated to `0004`; backup before the run:
+  `.local/stripe-e2e.before-2026-11-02-void.sqlite3` (same SHA-256 at copy time, integrity
+  `ok`). New owners `owner-void-e`, `owner-req-f@example.test`; two new test clocks
+  (`clock_1UXKWe…` and B's), deleted by Stripe after 30 days.
+- Stack, listener and `stripe.exe` stopped; ports 8000/8800/8801 free.
+
 ## Stripe renewals, retries and grace period verified (2026-11-02, eighth session)
 
 Status: **package 6 test-clock verification done.** Test mode only: no live key, purchase,

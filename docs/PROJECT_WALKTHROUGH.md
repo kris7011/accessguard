@@ -113,6 +113,13 @@ Scan with frozen spec, hash, approval, progress, report; Finding with fingerprin
    subscription cannot touch the current one. Only `active`/`trialing` can raise the plan.
    `entitlements.py` turns status into limits with a grace period for failed payments (which
    keeps only the plan already held) and a warning for a scheduled cancellation (`cancel_at`).
+   The grace period (7 days, the app's clock) and Stripe's payment retries (14 days, a
+   Dashboard setting mirrored by `ACCESSGUARD_STRIPE_RETRY_DAYS`) are two separate clocks;
+   `payment_recovery` gives both dates to the banner and to a timeline on the billing page.
+   When Stripe finally cancels for non-payment (`cancellation_details.reason ==
+   "payment_failed"`), `_void_failed_renewal` voids that subscription's open, unpaid renewal
+   invoice (strictly scoped; requested cancellations and paid invoices are never touched),
+   records an audit event, and the owner can subscribe again through Checkout.
 
 ## A.7 Testing
 
@@ -150,9 +157,13 @@ views, because Stripe's test clock does not move the app's clock. Results and li
 [ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md) and [HANDOFF.md](HANDOFF.md).
 
 The billing webhook tests (`test_billing.py`) replace Stripe's API with an in-memory
-`FakeStripe` that returns the "current" subscription, while the real signature check runs.
-Two concurrency tests (`ConcurrentWebhookTests`) use two threads and database connections;
-they need row locks and therefore run only on PostgreSQL (CI), not on SQLite.
+`FakeStripe` that returns the "current" subscription and invoices and voids like the
+gateway, while the real signature check runs. `FailedRenewalVoidTests` cover the void rule
+(scope, duplicates, late events, API errors, a payment that wins the race, other
+organisations, the page and Checkout afterwards). Three concurrency tests
+(`ConcurrentWebhookTests`) use two threads and database connections; they need row locks and
+therefore run only on PostgreSQL (CI), not on SQLite. The void rule was also run in the
+sandbox on 2026-11-02 ([ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md)).
 
 The customer acceptance run found a real defect the end-to-end test had missed: the
 "Endpoints and rules" page could not be saved in a browser unless its empty extra record row

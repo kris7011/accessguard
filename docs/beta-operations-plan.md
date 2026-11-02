@@ -118,9 +118,9 @@ warning not to `pip install accessguard` until then.
    configured" and every organisation has the Free limits (1 project, 10 scans and 60
    checks per scan a month, 1 runner, 2 members). No legal or VAT setup for payments is
    needed yet, but terms, privacy policy and a DPA are (section 4).
-2. **Paid beta.** After company registration, VAT handling, legal texts, the decision on
-   invoices left open after the last retry, and the owner's explicit approval to switch to
-   live keys. (The test-clock verification was done on 2026-11-02.)
+2. **Paid beta.** After company registration, VAT handling, legal texts, and the owner's
+   explicit approval to switch to live keys. (The test-clock verification and the void of
+   the renewal invoice left open after the last retry were done on 2026-11-02.)
 
 **Feedback without meetings:** a support e-mail address on the site (to be provided),
 an optional short survey after the first completed scan, and the activation numbers below.
@@ -152,10 +152,12 @@ that address), login limits per installation, English UI.
 - Host and region (recommendation: A), domain name, SMTP provider, backup target,
   monitoring services.
 - Free beta first, or paid beta from the start; the Free limits for beta organisations.
-- Stripe (sandbox claimed 2026-11-02): confirm the retry settings in the Dashboard (observed:
-  8 retries in 2 weeks, then cancel) and choose what happens to the invoice left open after
-  the last retry (observed: it stays payable for a cancelled subscription); whether the
-  7-day grace period should match Stripe's 14-day retry window.
+- Stripe: the sandbox retry settings are confirmed (8 retries in 2 weeks, cancel, leave the
+  invoice past-due) and the app voids the renewal invoice after Stripe's cancellation for
+  non-payment. Still open: the same settings in the live account before live keys
+  (`ACCESSGUARD_STRIPE_RETRY_DAYS` must match), whether the 7-day grace period should later
+  match the 14-day retry window (kept at 7 for the beta, both shown to customers), and a
+  refund policy for a renewal invoice paid in the seconds before the void.
 - Whether to enable AI assistance on the server (API key in its own workspace with a spend
   limit) and for which plans.
 - Whether and when to publish the runner on PyPI.
