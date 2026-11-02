@@ -50,9 +50,10 @@ Status per item, updated 2026-11-02:
 
 | Item | Status |
 | --- | --- |
-| Stripe test account: products/prices for Team and Business, webhook endpoint, Customer Portal | **done in a temporary claimable sandbox** (2026-10-30, expires 2026-11-06): prices, portal configuration, `stripe listen`. A permanent test account (or the claimed sandbox) and a webhook endpoint on the server remain |
+| Stripe test account: products/prices for Team and Business, webhook endpoint, Customer Portal | **done**: the sandbox was claimed by the owner (2026-11-02, account `acct_1UWAdYB9QLrE2rSI`, same prices and portal configuration); `stripe listen` only. A webhook endpoint on the server remains |
 | Run a test-mode purchase, failed payment (card `4000 0000 0000 0341`), cancellation | **done in the sandbox** (docs/HANDOFF.md) |
-| Renewal, its failure, Stripe's retries and final action (test clocks) | ready: `sandbox.py clock-*` and the run plan in ops/stripe_sandbox/README.md. **Blocked: the claimable sandbox refuses test clocks**; needs the claimed sandbox or a sandbox in the owner's account (paid phase only) |
+| Renewal, its failure, Stripe's retries and final action (test clocks) | **done in the sandbox** (2026-11-02, ops/stripe_sandbox/README.md): renewal paid; renewal failed → 8 retries over 14 days → subscription cancelled → Free; recovery by retry and by payment; grace boundary in app time. Observed final action: cancel, invoice left `open` and still payable (owner decision below). The Dashboard retry settings themselves were not read |
+| What happens to the open invoice after the last retry | **owner decision**: observed, a customer can still pay EUR 49 for a cancelled subscription. Choose the invoice action in Billing > Revenue recovery (or void such invoices) before live payments |
 | VAT: Stripe Tax or a merchant of record; Danish CVR registration for the business | **open: owner + accountant** |
 | Switch to live keys | **needs explicit approval**; only after the test-mode run and legal texts |
 

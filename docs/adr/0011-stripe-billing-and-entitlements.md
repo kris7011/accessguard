@@ -115,8 +115,13 @@ against the previous design, and the sandbox showed two more gaps. Problems foun
 
 **Consequences.** The webhook depends on Stripe's API being reachable: when it is not, the
 event is not stored and the endpoint answers 503, so Stripe retries (up to three days in live
-mode). One extra API call per event. Natural renewal failures and Stripe's retry schedule
-still need a Stripe account with test clocks to verify.
+mode). One extra API call per event. Natural renewals, their failure, Stripe's retries and
+its final action were verified with test clocks on 2026-11-02 (ops/stripe_sandbox/README.md):
+every retry left the row unchanged, the cancellation after the last retry gave Free, and a
+late `invoice.payment_failed` after the cancellation changed nothing. The grace period runs
+on the app's clock from the first `past_due` it sees; Stripe's retries ran for 14 days, the
+grace period lasts 7, so a customer can be on Free while Stripe still retries, and returns
+to the paid plan when a retry or a payment succeeds.
 
 ## Revisit when
 

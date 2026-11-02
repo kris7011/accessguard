@@ -2,6 +2,111 @@
 
 Purpose: lets work resume after an interrupted session. Never put credentials or secrets here.
 
+## Stripe renewals, retries and grace period verified (2026-11-02, eighth session)
+
+Status: **package 6 test-clock verification done.** Test mode only: no live key, purchase,
+deployment, merge or model call. Branch `feature/v1-commercial-beta`, draft PR #1,
+repository private. Details and the run table: `ops/stripe_sandbox/README.md` ("Renewals and
+payment retries with test clocks").
+
+### Environment checked before any change
+
+- The owner claimed the sandbox and logged the separate CLI config in
+  (`--config .local/stripe/config.toml -p accessguard-sandbox`). The CLI and the env file's
+  key both reach account `acct_1UWAdYB9QLrE2rSI` ("KRL sandbox"), every object
+  `livemode: false`.
+- Products, prices (`price_1UWD5X…` Team EUR 49, `price_1UWD5Y…` Business EUR 199) and the
+  portal configuration `bpc_1UWD5Z…` (`always_invoice`, default) are unchanged and reused.
+- **Credentials:** the env file still holds the claimable sandbox's `rkcs_test_` key. After
+  the claim it still works for everything except test clocks (`PermissionError`). The CLI
+  1.55 login stored an OAuth token in the Windows Credential Manager (`StripeCLI:uat:…`),
+  not an API key, so there was no new test key to put into `stripe.env`; the token was not
+  extracted. The `stripe listen` signing secret was compared without printing it: unchanged.
+  `stripe.env` is therefore unchanged (byte-identical to before the session).
+- Test clocks: create/delete through the CLI profile worked; with the env key refused.
+
+### Driver changes (`ops/stripe_sandbox/sandbox.py`)
+
+| Change | Why |
+| --- | --- |
+| `ACCESSGUARD_STRIPE_CLI_PROFILE`: clock endpoints through the logged-in CLI profile (`CliClocks`), else the SDK (`SdkClocks`); refused unless the CLI can read the env file's Team price (same account) and every clock says `livemode: false` | the only credentials with clock access were the CLI's; they stay in the CLI |
+| `app-at <email> <seconds>`: billing page and two project creations through the app's views (Django test client, in-process, sandbox database) at `past_due_since + seconds`, rolled back | the app's grace period runs on its own clock, which a test clock does not move; no timestamp is edited |
+| Commands now wait up to 30 s for the app's status to match Stripe's before printing | **defect:** `clock-next-retry` printed the app before the webhooks arrived (recovery showed `past_due` although the app turned `active` 9 s later) |
+| `current_period_end` in the app view | needed to see a renewal |
+
+Tests: `tests/unit/test_stripe_sandbox_cli.py` (CLI JSON after the banner, errors, no key
+fragments, `livemode` on plain JSON), 5 tests.
+
+### Results (stack on `.local/stripe-e2e.sqlite3`, `stripe listen`, evidence below)
+
+| Scenario | Result |
+| --- | --- |
+| Renewal paid (`renew-a`) | `subscription_cycle` EUR 49.00 paid at attempt 1; app Team, period end → 2027-01-02, no warning |
+| Renewal fails, retries exhausted (`retry-b`) | `pm_card_chargeCustomerFail` (attaches, every charge `card_declined`/`generic_decline`); 9 attempts = renewal + **8 retries over 14.02 simulated days**, 36-44 h apart; then **cancelled**, invoice left `open`. App Team with warning throughout (row unchanged by every retry), then Free/`canceled` |
+| Grace period, app time (`retry-b`) | `past_due_since` 08:32:32 UTC. +0, +604799, +604800 s: Team, warning on the page, 2nd project allowed; +604801 s and +10 d: Free, banner, 2nd project refused (redirect to billing) |
+| Recovery by retry after the app's grace (`recover-c`) | attempts 1-5 failed (5th at +7.02 simulated days; `app-at` at that offset: Free); card fixed, attempt 6 paid; app Team, warning and `past_due_since` cleared |
+| Recovery by payment (`pay-d`) | 2 failed attempts, `pay-open`: `active`, app Team |
+| Payment after the final action (`retry-b`) | the open invoice of the cancelled subscription was still payable and was paid (EUR 49.00); subscription stayed `canceled`, app Free (`invoice.paid` → `unchanged`) |
+| Webhooks | 49 deliveries, all HTTP 200; every handled event of these customers stored; a late `invoice.payment_failed` after `customer.subscription.deleted` stored as `unchanged` |
+
+**Retry settings:** not readable through the API, and the Dashboard was not opened. The
+observed pattern (8 retries within 2 weeks at irregular times, then cancel, invoice left
+open) matches Stripe's Smart Retries default with "cancel the subscription". Inference, not
+a reading of the setting.
+
+### Limits
+
+- The grace-period checks ran in-process through the app's views with a patched
+  `timezone.now`, not against the running server, and not by waiting 7 days. The
+  `past_due_since` they start from was written by the real webhook. No database timestamp
+  was edited this session.
+- Stripe's time and the app's time differed throughout (the clocks ran up to six weeks
+  ahead): the app never reached the end of its grace period on its own; it went Free only
+  through Stripe's cancellation.
+- Test cards decline identically every time; real Smart Retries timing depends on card
+  networks. No public webhook endpoint (only `stripe listen`).
+
+### Findings for the owner (no code changed)
+
+1. **Open invoice after the final action stays payable**: a customer can pay EUR 49 for a
+   cancelled subscription and gets nothing. Choose the invoice action after the last retry
+   in the Dashboard (Billing > Revenue recovery) or void such invoices; legal/accounting
+   view on charging for the 7 days of grace that were used.
+2. **Grace 7 days vs retries 14 days**: in production a customer is on Free from day 7
+   while Stripe still retries until day 14, and returns to the plan when a retry succeeds.
+   Keep, or set `ACCESSGUARD_PAYMENT_GRACE_DAYS` / the retry window to match.
+
+### Operations preparation continued (no owner information needed)
+
+`tests/unit/test_offsite_backup.py` (6 tests): one pass of `ops/docker/offsite_backup.sh`
+under `sh` with stubbed `date`, `find`, `restic`, `wget` and `sleep`, including the Sunday
+`restic check` branch that was never run before: check passed → ping; check failed →
+error line and **no** heartbeat ping. Negative control: with the `!` before `restic check`
+removed, 2 of the 6 failed (script restored with `git checkout`). Still not run: Caddyfile
+validation and certificates (need Docker or a Caddy binary; Docker stays off on this
+machine), the real restic image and repository, SMTP, any server.
+
+### Checks
+
+`PYTHON=.venv/Scripts/python bash ops/verify.sh` (2026-11-02, with the changes staged): all
+11 steps ok: lint, format, mypy strict; 381 engine/runner/ML tests OK (3 skipped, as before:
+2 opt-in real-model, 1 POSIX-only), incl. the 11 new ones; 122 web tests OK (6 skipped, as
+before); migrations; deploy check; pip-audit; detect-secrets with the new files staged;
+build; demo.
+
+### Machine and sandbox state
+
+- Stack, listener and every `stripe.exe` stopped; ports 8000/8800/8801 free.
+- `.local/stripe-e2e.sqlite3` gained the owners `renew-a`, `retry-b`, `recover-c`,
+  `pay-d@example.test`; copy from before the run: `.local/stripe-e2e.before-2026-11-02.sqlite3`
+  (same SHA-256 at copy time, integrity `ok`).
+- Four test clocks with their customers are kept in the sandbox for inspection
+  (`clock_1UXGdy…`, `clock_1UXGet…`, `clock_1UXGiz…`, `clock_1UXGlq…`); Stripe
+  deletes them after 30 days, or `sandbox.py clock-delete <email>`.
+- Evidence (git-ignored): `.local/stripe/clock-run.log` (every driver command with output),
+  `evidence-*.txt` (charges, invoices, events and the app's stored outcome),
+  `stack6.log`, `listen7.log` (contains the webhook secret: do not share), `sb.sh`.
+
 ## Package 10: operations and self-serve beta prepared (2026-11-02, seventh session)
 
 Status: **prepared, not deployed.** No purchase, account, server, deployment, publication,
@@ -45,12 +150,13 @@ detect-secrets exit 0 (re-run with the new files staged). CI on `afb5074` (previ
 commit): run 41404904459, all six jobs passed.
 
 Not run: the Caddyfile, certificate issuance, the real restic image and repository, the
-Sunday `restic check` branch, SMTP delivery, the test-clock scenarios, any server.
+Sunday `restic check` branch (tested since the eighth session), SMTP delivery, the test-clock
+scenarios (run in the eighth session), any server.
 
 ### Pending (owner)
 
-1. Stripe: claim the sandbox before **2026-11-06** or create one in your account; log in
-   the separate CLI config; choose retry settings; then run the test-clock plan.
+1. ~~Stripe: claim the sandbox, log in the CLI, run the test-clock plan~~: done in the
+   eighth session (above); the retry settings were inferred, not read.
 2. Decide hosting, domain, SMTP, backup target and alert services
    (docs/beta-operations-plan.md, section 5), and approve ordering and deployment.
 3. Support address for the site; free or paid beta; legal texts.

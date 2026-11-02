@@ -144,7 +144,10 @@ Checkout, webhooks via `stripe listen`, Customer Portal, failed payment and grac
 plan changes declined and then paid (in the app and in the portal), late first delivery of
 events, cancellation, re-subscription and resent events. The drivers are in the repository
 and run only on explicit opt-in: [ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md).
-Results and limits (no natural renewal, no Stripe retry schedule): [HANDOFF.md](HANDOFF.md).
+Renewals, Stripe's retry schedule and its final action were run with test clocks on
+2026-11-02; the app's grace period was checked at a controlled app time through its own
+views, because Stripe's test clock does not move the app's clock. Results and limits:
+[ops/stripe_sandbox/README.md](../ops/stripe_sandbox/README.md) and [HANDOFF.md](HANDOFF.md).
 
 The billing webhook tests (`test_billing.py`) replace Stripe's API with an in-memory
 `FakeStripe` that returns the "current" subscription, while the real signature check runs.

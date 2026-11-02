@@ -95,7 +95,7 @@ Rationale as an ADR: docs/adr/0014-single-server-beta-hosting.md (proposed).
 | Backup and restore | daily `pg_dump` (existing), encrypted off-site copies with retention and weekly `restic check`, refusal when the newest dump is older than 26 h, restore drill procedure | loop logic with stubs; real restic not run |
 | Images | Python, PostgreSQL, Caddy and restic pinned by digest | CI builds the web and demo images; the others are not pulled here |
 | Runner distribution | in-app download of a checked wheel with its SHA-256 (`ACCESSGUARD_RUNNER_WHEEL`); PyPI not needed | web tests |
-| Stripe renewals and retries | `sandbox.py clock-*` commands and a run plan with expected results (`ops/stripe_sandbox/README.md`) | `clock-probe` against the current sandbox: refused, as expected for a claimable sandbox |
+| Stripe renewals and retries | `sandbox.py clock-*` commands and a run plan with expected results (`ops/stripe_sandbox/README.md`) | `clock-probe` against the current sandbox: refused, as expected for a claimable sandbox. Run on 2026-11-02 after the claim, with the clocks through the CLI profile: results in the README |
 
 ## 3. Self-serve beta plan (no mandatory sales meetings)
 
@@ -118,8 +118,9 @@ warning not to `pip install accessguard` until then.
    configured" and every organisation has the Free limits (1 project, 10 scans and 60
    checks per scan a month, 1 runner, 2 members). No legal or VAT setup for payments is
    needed yet, but terms, privacy policy and a DPA are (section 4).
-2. **Paid beta.** After company registration, VAT handling, legal texts, the test-clock
-   verification and the owner's explicit approval to switch to live keys.
+2. **Paid beta.** After company registration, VAT handling, legal texts, the decision on
+   invoices left open after the last retry, and the owner's explicit approval to switch to
+   live keys. (The test-clock verification was done on 2026-11-02.)
 
 **Feedback without meetings:** a support e-mail address on the site (to be provided),
 an optional short survey after the first completed scan, and the activation numbers below.
@@ -139,8 +140,8 @@ conversion and churn (replacing the assumptions in docs/business/economics.md).
    with SPF/DKIM/DMARC passing.
 3. Wire the alerts: uptime check on `/readyz`, backup heartbeat, error reporting.
 4. A support contact on the site (the app has none yet; needs the address).
-5. Paid phase only: a public Stripe webhook endpoint and the test-clock run (renewal,
-   failure, retries, final action).
+5. Paid phase only: a public Stripe webhook endpoint (the test-clock run of renewal,
+   failure, retries and final action was done on 2026-11-02).
 
 Known product limits that stay for the beta unless decided otherwise: no e-mail
 verification of new accounts (anyone can sign up with any address; the reset link goes to
@@ -151,8 +152,10 @@ that address), login limits per installation, English UI.
 - Host and region (recommendation: A), domain name, SMTP provider, backup target,
   monitoring services.
 - Free beta first, or paid beta from the start; the Free limits for beta organisations.
-- Stripe: claim the sandbox before **2026-11-06** or create a sandbox in your own account
-  (needed for test clocks); the retry settings and the final action after failed retries.
+- Stripe (sandbox claimed 2026-11-02): confirm the retry settings in the Dashboard (observed:
+  8 retries in 2 weeks, then cancel) and choose what happens to the invoice left open after
+  the last retry (observed: it stays payable for a cancelled subscription); whether the
+  7-day grace period should match Stripe's 14-day retry window.
 - Whether to enable AI assistance on the server (API key in its own workspace with a spend
   limit) and for which plans.
 - Whether and when to publish the runner on PyPI.
@@ -174,7 +177,8 @@ that address), login limits per installation, English UI.
 - Managed PostgreSQL (option B) or a second off-site copy at another provider.
 - E-mail verification at sign-up.
 - Starting the app's grace period from Stripe's time instead of its own clock (only visible
-  with test clocks; identical in production).
+  with test clocks; identical in production). The sandbox drivers' `app-at` covers the
+  difference for tests.
 - SMTP over implicit TLS (465); HSTS preload once the domain is final; automated deploys
   from CI; image vulnerability scanning; a status page.
 
